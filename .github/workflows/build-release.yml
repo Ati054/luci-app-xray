@@ -2,6 +2,8 @@ name: Build and Release
 
 on:
   push:
+    branches:
+      - feat/openwrt-25.12-vless-reverse
     tags:
       - "*"
   workflow_dispatch:
@@ -145,6 +147,22 @@ jobs:
             cp "$f" "${{ github.workspace }}/${base%.*}-${{ matrix.arch }}.${base##*.}"
           done
           find "${{ github.workspace }}" -maxdepth 1 -type f \( -name "*.ipk" -o -name "*.apk" \) -exec ls -lh {} \;
+      - name: Generate Package Evidence Manifest
+        run: |
+          MANIFEST="${{ github.workspace }}/package-manifest-${{ matrix.id }}-${{ matrix.arch }}.txt"
+          echo "=== Package Evidence Manifest (${{ matrix.id }} ${{ matrix.arch }}) ===" > "$MANIFEST"
+          echo "Generated at: $(date -u)" >> "$MANIFEST"
+          echo "" >> "$MANIFEST"
+          find "${{ github.workspace }}" -maxdepth 1 -type f \( -name "*.ipk" -o -name "*.apk" \) | while read -r pkg; do
+            fname="$(basename "$pkg")"
+            fsize="$(wc -c < "$pkg" | tr -d ' ')"
+            fsha="$(sha256sum "$pkg" | cut -d' ' -f1)"
+            echo "FILE: $fname" >> "$MANIFEST"
+            echo "SIZE: $fsize bytes" >> "$MANIFEST"
+            echo "SHA256: $fsha" >> "$MANIFEST"
+            echo "---" >> "$MANIFEST"
+          done
+          cat "$MANIFEST"
       - name: Upload CI Package Artifacts
         uses: actions/upload-artifact@v4
         with:
@@ -152,6 +170,7 @@ jobs:
           path: |
             *.ipk
             *.apk
+            package-manifest-*.txt
           if-no-files-found: error
           retention-days: 14
       - name: Release and Upload Assets
