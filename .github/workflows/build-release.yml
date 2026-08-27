@@ -20,14 +20,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - id: 23.05.5
-            arch: x86_64
-            sdk_url_path: https://downloads.openwrt.org/releases/23.05.5/targets/x86/64
-            sdk_name: -sdk-23.05.5-x86-64_
-          - id: 25.12.5
-            arch: x86_64
-            sdk_url_path: https://downloads.openwrt.org/releases/25.12.5/targets/x86/64
-            sdk_name: -sdk-25.12.5-x86-64_
+          - id: "23.05.5"
+            arch: "x86_64"
+            sdk_url_path: "https://downloads.openwrt.org/releases/23.05.5/targets/x86/64"
+            sdk_name: "-sdk-23.05.5-x86-64_"
+          - id: "25.12.5"
+            arch: "x86_64"
+            sdk_url_path: "https://downloads.openwrt.org/releases/25.12.5/targets/x86/64"
+            sdk_name: "-sdk-25.12.5-x86-64_"
 
     env:
       SDK_URL_PATH: ${{ matrix.sdk_url_path }}
@@ -247,10 +247,10 @@ EOF
         with:
           name: luci-app-xray-vless-reverse-openwrt-${{ matrix.id }}-all-sdk-${{ matrix.arch }}
           path: |
-            ${{ env.CORE_PACKAGE }}
-            ${{ env.STATUS_PACKAGE }}
-            ${{ env.CHECKSUM_FILE }}
-            ${{ env.BUILD_INFO_FILE }}
+            *.ipk
+            *.apk
+            SHA256SUMS-*.txt
+            BUILD-INFO-*.txt
           if-no-files-found: error
           retention-days: 14
       - name: Upload Debug Log on Failure
