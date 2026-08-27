@@ -1,5 +1,5 @@
 name: Build and Release
-
+# Registered in this fork to enable manual workflow dispatch.
 on:
   push:
     tags:
