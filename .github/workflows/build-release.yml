@@ -36,7 +36,7 @@ jobs:
       CONFIG_CCACHE: y
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: Prepare Cache Key
         id: cache_key
@@ -219,23 +219,23 @@ jobs:
           STATUS_SIZE="$(wc -c < "$STATUS_PACKAGE" | tr -d ' ')"
           PKG_FORMAT="$([ "${{ matrix.id }}" = "25.12.5" ] && echo "apk" || echo "ipk")"
 
-          cat << EOF > "$BUILD_INFO_FILE"
-project=luci-app-xray
-variant=modern-vless-reverse
-package_version=3.7.1
-package_release=2
-openwrt_release=${{ matrix.id }}
-package_format=${PKG_FORMAT}
-package_architecture=all
-sdk_architecture=${{ matrix.arch }}
-git_commit=${{ github.sha }}
-workflow_run_id=${{ github.run_id }}
-core_package=${CORE_PACKAGE}
-status_package=${STATUS_PACKAGE}
-core_package_size_bytes=${CORE_SIZE}
-status_package_size_bytes=${STATUS_SIZE}
-generated_at_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-EOF
+          {
+            echo "project=luci-app-xray"
+            echo "variant=modern-vless-reverse"
+            echo "package_version=3.7.1"
+            echo "package_release=2"
+            echo "openwrt_release=${{ matrix.id }}"
+            echo "package_format=${PKG_FORMAT}"
+            echo "package_architecture=all"
+            echo "sdk_architecture=${{ matrix.arch }}"
+            echo "git_commit=${{ github.sha }}"
+            echo "workflow_run_id=${{ github.run_id }}"
+            echo "core_package=${CORE_PACKAGE}"
+            echo "status_package=${STATUS_PACKAGE}"
+            echo "core_package_size_bytes=${CORE_SIZE}"
+            echo "status_package_size_bytes=${STATUS_SIZE}"
+            echo "generated_at_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          } > "$BUILD_INFO_FILE"
 
           echo "=== Generated $BUILD_INFO_FILE ==="
           cat "$BUILD_INFO_FILE"
@@ -247,8 +247,7 @@ EOF
         with:
           name: luci-app-xray-vless-reverse-openwrt-${{ matrix.id }}-all-sdk-${{ matrix.arch }}
           path: |
-            *.ipk
-            *.apk
+            luci-app-xray*
             SHA256SUMS-*.txt
             BUILD-INFO-*.txt
           if-no-files-found: error
@@ -262,7 +261,7 @@ EOF
           if-no-files-found: ignore
       - name: Release and Upload Assets
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             *.ipk
