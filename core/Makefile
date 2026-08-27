@@ -15,7 +15,7 @@ define Package/$(PKG_NAME)
 	SECTION:=Custom
 	CATEGORY:=Extra packages
 	TITLE:=LuCI Support for Xray
-	DEPENDS:=firewall4 +kmod-nft-tproxy +luci-base +xray-core +dnsmasq +ca-bundle
+	DEPENDS:=firewall4 +kmod-nft-tproxy +luci-base +dnsmasq +ca-bundle
 	PKGARCH:=all
 endef
 
@@ -106,7 +106,7 @@ endif
 	$(INSTALL_DATA) ./root/usr/share/rpcd/acl.d/luci-app-xray.json $(1)/usr/share/rpcd/acl.d/luci-app-xray.json
 	$(INSTALL_DIR) $(1)/usr/share/xray
 	$(LN) /var/run/xray.pid $(1)/usr/share/xray/xray.pid
-	$(LN) /usr/bin/xray $(1)/usr/share/xray/xray
+	$(LN) /opt/xray/current/xray $(1)/usr/share/xray/xray
 ifdef CONFIG_PACKAGE_XRAY_IGNORE_TP_SPEC_DEF_GW
 	$(INSTALL_DATA) ./root/usr/share/xray/ignore_tp_spec_def_gw $(1)/usr/share/xray/ignore_tp_spec_def_gw
 endif

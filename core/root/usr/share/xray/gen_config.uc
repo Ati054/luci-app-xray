@@ -261,14 +261,41 @@ export function outbounds_reverse(general, config) {
             protocol: "freedom",
             tag: "reverse-egress",
             settings: {
-                domainStrategy: "UseIP"
+                domainStrategy: "UseIP",
+                finalRules: [
+                    {
+                        action: "allow",
+                        network: "tcp,udp",
+                        ip: [
+                            "!geoip:private"
+                        ]
+                    }
+                ]
             }
         }
     ];
+    let seen_outbound_tags = {};
+    let seen_reverse_tags = {};
+
     for (let server in filter(values(config), v => v[".type"] == "servers")) {
-        const is_reverse = server["reverse"] == "1" || server["vless_reverse"] == "1" || server["reverse_tag"] != null || server["vless_reverse_tag"] != null;
+        const is_reverse = server["vless_reverse"] == "1";
         if (is_reverse) {
+            if (server["protocol"] != "vless") {
+                die("Only VLESS protocol is supported for Reverse outbounds");
+            }
             const tag = server["tag"] || server["alias"] || `reverse_${server[".name"]}`;
+            const reverse_tag = server["vless_reverse_tag"] || `reverse_${tag}`;
+
+            if (seen_outbound_tags[tag]) {
+                die(`Duplicate outbound tag: ${tag}`);
+            }
+            seen_outbound_tags[tag] = true;
+
+            if (seen_reverse_tags[reverse_tag]) {
+                die(`Duplicate local reverse tag: ${reverse_tag}`);
+            }
+            seen_reverse_tags[reverse_tag] = true;
+
             push(result, ...server_outbound(server, tag, config));
         }
     }
@@ -277,10 +304,28 @@ export function outbounds_reverse(general, config) {
 
 export function rules_reverse(general, config) {
     let inbound_tags = [];
+    let seen_outbound_tags = {};
+    let seen_reverse_tags = {};
+
     for (let server in filter(values(config), v => v[".type"] == "servers")) {
-        const is_reverse = server["reverse"] == "1" || server["vless_reverse"] == "1" || server["reverse_tag"] != null || server["vless_reverse_tag"] != null;
+        const is_reverse = server["vless_reverse"] == "1";
         if (is_reverse) {
-            const reverse_tag = server["reverse_tag"] || server["vless_reverse_tag"] || `reverse_${server["tag"] || server["alias"] || server[".name"]}`;
+            if (server["protocol"] != "vless") {
+                die("Only VLESS protocol is supported for Reverse outbounds");
+            }
+            const tag = server["tag"] || server["alias"] || `reverse_${server[".name"]}`;
+            const reverse_tag = server["vless_reverse_tag"] || `reverse_${tag}`;
+
+            if (seen_outbound_tags[tag]) {
+                die(`Duplicate outbound tag: ${tag}`);
+            }
+            seen_outbound_tags[tag] = true;
+
+            if (seen_reverse_tags[reverse_tag]) {
+                die(`Duplicate local reverse tag: ${reverse_tag}`);
+            }
+            seen_reverse_tags[reverse_tag] = true;
+
             push(inbound_tags, reverse_tag);
         }
     }
@@ -288,11 +333,7 @@ export function rules_reverse(general, config) {
         {
             type: "field",
             inboundTag: inbound_tags,
-            outboundTag: "reverse-egress",
-            network: "tcp,udp",
-            ip: [
-                "!geoip:private"
-            ]
+            outboundTag: "reverse-egress"
         }
     ];
 }
@@ -356,6 +397,6 @@ export function gen_config() {
     return gen_config_from_data(config);
 }
 
-if (length(filter(values(load_config()), k => k[".type"] == "general")) > 0) {
+if (source == "entry" || source == "/usr/share/xray/gen_config.uc") {
     printf("%.4J\n", gen_config());
 }

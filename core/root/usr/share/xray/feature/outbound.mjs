@@ -51,8 +51,12 @@ function server_outbound_recursive(t, server, tag, config) {
         }
     }
     outbound["tag"] = tag;
-    const is_reverse = server["reverse"] == "1" || server["vless_reverse"] == "1" || server["reverse_tag"] != null || server["vless_reverse_tag"] != null;
-    if (!is_reverse) {
+    const is_reverse = server["vless_reverse"] == "1";
+    if (is_reverse) {
+        if (type(outbound["streamSettings"]) == "object" && type(outbound["streamSettings"]["sockopt"]) == "object") {
+            delete outbound["streamSettings"]["sockopt"]["mark"];
+        }
+    } else {
         if (type(outbound["streamSettings"]) != "object") {
             outbound["streamSettings"] = {};
         }

@@ -3,11 +3,13 @@
 import { cursor } from "uci";
 
 export function load_config() {
-    try {
-        const uci = cursor();
-        uci.load("xray_core");
-        return uci.get_all("xray_core") || {};
-    } catch (e) {
-        return {};
+    const uci = cursor();
+    if (!uci.load("xray_core")) {
+        die("Failed to load UCI configuration for xray_core");
     }
+    const data = uci.get_all("xray_core");
+    if (!data) {
+        die("Failed to retrieve UCI configuration data for xray_core");
+    }
+    return data;
 };

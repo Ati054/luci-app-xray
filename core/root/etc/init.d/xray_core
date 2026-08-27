@@ -5,6 +5,13 @@ STOP=15
 USE_PROCD=1
 NAME=xray_core
 
+CMD_IP="${CMD_IP:-ip}"
+CMD_UTPL="${CMD_UTPL:-/usr/bin/utpl}"
+CMD_UCODE="${CMD_UCODE:-/usr/bin/ucode}"
+CMD_FIREWALL_RESTART="${CMD_FIREWALL_RESTART:-/etc/init.d/firewall restart}"
+CMD_DNSMASQ_RESTART="${CMD_DNSMASQ_RESTART:-/etc/init.d/dnsmasq restart}"
+TPROXY_MARKER="${TPROXY_MARKER:-/var/run/xray_tproxy.active}"
+
 uci_get_by_type() {
     local ret=$(uci get ${NAME}.@$1[0].$2 2>/dev/null)
     echo ${ret:=$3}
@@ -18,32 +25,47 @@ is_transparent_proxy() {
     ! is_reverse_only && [ "$(uci_get_by_type general transparent_proxy_enable 0)" = "1" ]
 }
 
+has_tproxy_artifacts() {
+    [ -f "${TPROXY_MARKER}" ] && return 0
+    [ -f /var/etc/xray/01_firewall_include.nft ] && return 0
+    [ -f /tmp/dnsmasq.d/xray.conf ] && return 0
+    local f
+    for f in /tmp/dnsmasq.*.d/xray.conf; do
+        [ -f "$f" ] && return 0
+    done
+    if ${CMD_IP} rule show 2>/dev/null | grep -q "lookup 251"; then
+        return 0
+    fi
+    if ${CMD_IP} -6 rule show 2>/dev/null | grep -q "lookup 251"; then
+        return 0
+    fi
+    return 1
+}
+
 setup_firewall() {
-    is_transparent_proxy || return 0
-    ip rule add fwmark 251 lookup 251
-    ip route add local default dev lo table 251
-    ip -6 rule add fwmark 251 lookup 251
-    ip -6 route add local default dev lo table 251
+    ${CMD_IP} rule add fwmark 251 lookup 251 2>/dev/null || true
+    ${CMD_IP} route add local default dev lo table 251 2>/dev/null || true
+    ${CMD_IP} -6 rule add fwmark 251 lookup 251 2>/dev/null || true
+    ${CMD_IP} -6 route add local default dev lo table 251 2>/dev/null || true
 
     logger -st xray[$$] -p4 "Generating firewall4 rules..."
-    /usr/bin/utpl /usr/share/xray/firewall_include.ut > /var/etc/xray/01_firewall_include.nft
+    ${CMD_UTPL} /usr/share/xray/firewall_include.ut > /var/etc/xray/01_firewall_include.nft
 
     logger -st xray[$$] -p4 "Triggering firewall4 restart..."
-    /etc/init.d/firewall restart
+    ${CMD_FIREWALL_RESTART}
 }
 
 flush_firewall() {
-    is_transparent_proxy || return 0
-    ip rule del fwmark 251 lookup 251
-    ip route del local default dev lo table 251
-    ip -6 rule del fwmark 251 lookup 251
-    ip -6 route del local default dev lo table 251
+    ${CMD_IP} rule del fwmark 251 lookup 251 2>/dev/null || true
+    ${CMD_IP} route del local default dev lo table 251 2>/dev/null || true
+    ${CMD_IP} -6 rule del fwmark 251 lookup 251 2>/dev/null || true
+    ${CMD_IP} -6 route del local default dev lo table 251 2>/dev/null || true
 
     logger -st xray[$$] -p4 "Flushing firewall4 rules..."
     rm -f /var/etc/xray/*.nft
 
     logger -st xray[$$] -p4 "Triggering firewall4 restart..."
-    /etc/init.d/firewall restart
+    ${CMD_FIREWALL_RESTART}
 }
 
 log_procd_set_param() {
@@ -100,7 +122,7 @@ gen_config_file() {
     rm -f /etc/nftables.d/99-xray.nft /var/etc/xray/*
     for gen_config_file_attempt in 1 2 3 4 5; do
         logger -st xray[$$] -p4 "Generating Xray configuration files (attempt ${gen_config_file_attempt})..."
-        /usr/bin/ucode /usr/share/xray/gen_config.uc > /var/etc/xray/config.json
+        ${CMD_UCODE} /usr/share/xray/gen_config.uc > /var/etc/xray/config.json
         if [ -s /var/etc/xray/config.json ] ; then
             break
         else
@@ -114,12 +136,11 @@ gen_config_file() {
 setup_dnsmasq_instance() {
     local instance_dir="/tmp/dnsmasq.${1:+"${1}."}d"
     mkdir -p ${instance_dir}
-    utpl /usr/share/xray/dnsmasq_include.ut > ${instance_dir}/xray.conf
-    logger -st xray[$$] -p4 $(cat ${instance_dir}/xray.conf)
+    ${CMD_UTPL} /usr/share/xray/dnsmasq_include.ut > ${instance_dir}/xray.conf
+    logger -st xray[$$] -p4 $(cat ${instance_dir}/xray.conf 2>/dev/null || true)
 }
 
 setup_dnsmasq() {
-    is_transparent_proxy || return 0
     if [ "$(uci_get_by_type general dnsmasq_integration_mode)" == "per_instance" ]; then
         for instance in $(uci_get_by_type general dnsmasq_instances); do
             setup_dnsmasq_instance ${instance}
@@ -129,28 +150,33 @@ setup_dnsmasq() {
         setup_dnsmasq_instance
         config_foreach setup_dnsmasq_instance dnsmasq
     fi
-    /etc/init.d/dnsmasq restart > /dev/null 2>&1
+    ${CMD_DNSMASQ_RESTART} > /dev/null 2>&1
 }
 
 flush_dnsmasq() {
-    is_transparent_proxy || return 0
     rm -f /tmp/dnsmasq.d/xray.conf /tmp/dnsmasq.*.d/xray.conf
-    /etc/init.d/dnsmasq restart > /dev/null 2>&1
+    ${CMD_DNSMASQ_RESTART} > /dev/null 2>&1
 }
 
 create_when_enable() {
-    is_transparent_proxy || return 0
-    logger -st xray[$$] -p4 "Setting dnsmasq and firewall for transparent proxy..."
-    setup_dnsmasq
-    setup_firewall
-    logger -st xray[$$] -p4 $(ucode /usr/share/xray/default_gateway.uc)
+    if is_transparent_proxy; then
+        logger -st xray[$$] -p4 "Setting dnsmasq and firewall for transparent proxy..."
+        setup_dnsmasq
+        setup_firewall
+        logger -st xray[$$] -p4 $(${CMD_UCODE} /usr/share/xray/default_gateway.uc)
+        touch "${TPROXY_MARKER}" 2>/dev/null || true
+    else
+        flush_when_disable
+    fi
 }
 
 flush_when_disable() {
-    is_transparent_proxy || return 0
-    logger -st xray[$$] -p4 "Resetting dnsmasq and firewall configurations..."
-    flush_dnsmasq
-    flush_firewall
+    if has_tproxy_artifacts; then
+        logger -st xray[$$] -p4 "Resetting dnsmasq and firewall configurations..."
+        flush_dnsmasq
+        flush_firewall
+        rm -f "${TPROXY_MARKER}"
+    fi
 }
 
 start_service() {

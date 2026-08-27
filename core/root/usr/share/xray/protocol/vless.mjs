@@ -24,17 +24,27 @@ export function vless_outbound(server, tag) {
     const stream_settings_object = stream_settings(server, "vless", tag);
     const stream_settings_result = stream_settings_object["stream_settings"];
     const dialer_proxy = stream_settings_object["dialer_proxy"];
-    const is_reverse = server["reverse"] == "1" || server["vless_reverse"] == "1" || server["reverse_tag"] != null || server["vless_reverse_tag"] != null;
+    const is_reverse = server["vless_reverse"] == "1";
 
     if (is_reverse) {
-        const ports = port_array(server["server_port"]);
-        if (length(ports) != 1 || !server["server"]) {
-            die("Reverse VLESS outbound requires exactly one server endpoint and port");
+        if (!server["server"] || type(server["server"]) != "string" || length(server["server"]) == 0) {
+            die("Reverse VLESS outbound requires a non-empty server address");
         }
-        const reverse_tag = server["reverse_tag"] || server["vless_reverse_tag"] || `reverse_${tag}`;
+        const ports = port_array(server["server_port"]);
+        if (length(ports) != 1) {
+            die("Reverse VLESS outbound requires exactly one server port");
+        }
+        const p = int(ports[0]);
+        if (p < 1 || p > 65535 || sprintf("%d", p) != sprintf("%s", ports[0])) {
+            die("Reverse VLESS outbound port must be an integer between 1 and 65535");
+        }
+        if (!server["password"] || type(server["password"]) != "string" || length(server["password"]) == 0) {
+            die("Reverse VLESS outbound requires a non-empty user UUID/password");
+        }
+        const reverse_tag = server["vless_reverse_tag"] || `reverse_${tag}`;
         let reverse_settings = {
             address: server["server"],
-            port: ports[0],
+            port: p,
             id: server["password"],
             encryption: server["vless_encryption"] || "none",
             reverse: {
