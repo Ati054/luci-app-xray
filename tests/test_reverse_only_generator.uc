@@ -205,9 +205,16 @@ import { outbounds_reverse, rules_reverse, gen_config_from_data } from "../core/
     assert(res_explicit.routing.rules[0].inboundTag[0] == "reverse_custom-explicit-tag", "routing rule inboundTag must derive from explicit tag");
 }
 
+// Test 25: Reverse section without explicit tags must have identical outbound.settings.reverse.tag and routing.rules.inboundTag
+{
+    print("\nTest 25: Outbound reverse tag equals routing inboundTag when no explicit tags set");
+    const variants = get_alias_variant_configs();
+    const res = gen_config_from_data(variants["cfg_alias1"]);
+    assert(res.outbounds[2].settings.reverse.tag == res.routing.rules[0].inboundTag[0], "outbound.settings.reverse.tag must match routing inboundTag exactly");
+}
+
 printf("\nSummary: %d passed, %d failed\n", passed, failed);
 if (failed > 0) {
     exit(1);
 }
 exit(0);
-

@@ -22,7 +22,6 @@ fi
 echo "\n--- 1. Running local syntax and structure checks ---"
 if command -v node >/dev/null 2>&1; then
     node "${SCRIPT_DIR}/local_check.js"
-    node "${SCRIPT_DIR}/test_checksum_parser.js"
     node "${SCRIPT_DIR}/test_rule_encoding.js"
 else
     if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
@@ -32,7 +31,8 @@ else
     echo "  [SKIP] node runtime not available in current environment."
 fi
 
-echo "\n--- 2. Running package metadata and standalone alignment tests ---"
+echo "\n--- 2. Running shell checksum parser and package metadata tests ---"
+sh "${SCRIPT_DIR}/test_checksum_parser.sh"
 sh "${SCRIPT_DIR}/test_package_metadata.sh"
 
 echo "\n--- 3. Running ucode unit tests and tag invariant contracts ---"

@@ -49,8 +49,6 @@ procd_append_param() { :; }
 procd_add_reload_trigger() { echo "trigger: $*" >> "${LOG_FILE}"; }
 config_load() { :; }
 config_foreach() { :; }
-service_framework_stop() { echo "framework_stop" >> "${LOG_FILE}"; stop_service; }
-service_framework_start() { echo "framework_start" >> "${LOG_FILE}"; start_service; }
 EOF
 
 # Mock firewall and dnsmasq init scripts
@@ -68,11 +66,14 @@ exit 0
 EOF
 chmod +x "${MOCK_DIR}/etc/init.d/dnsmasq"
 
-cat << 'EOF' > "${MOCK_DIR}/bin/ip"
+# Mock IP binary safely referencing MOCK_DIR
+cat << EOF > "${MOCK_DIR}/bin/ip"
 #!/bin/sh
-echo "ip $*" >> "${LOG_FILE}"
-if [ "$1" = "rule" ] && [ "$2" = "show" ]; then
+echo "ip \$*" >> "${MOCK_DIR}/commands.log"
+if [ "\$1" = "rule" ] && [ "\$2" = "show" ]; then
     cat "${MOCK_DIR}/ip_rules.txt" 2>/dev/null || true
+elif [ "\$1" = "-6" ] && [ "\$2" = "rule" ] && [ "\$3" = "show" ]; then
+    cat "${MOCK_DIR}/ip6_rules.txt" 2>/dev/null || true
 fi
 exit 0
 EOF
@@ -110,6 +111,18 @@ export UCODE_BIN="${MOCK_DIR}/bin/ucode"
 export UTPL_BIN="${MOCK_DIR}/bin/utpl"
 export TPROXY_MARKER="${MOCK_DIR}/var/run/xray_tproxy.active"
 
+# Helper to source init script and then override framework wrappers
+run_init_lifecycle() {
+    (
+        . "${MOCK_DIR}/procd_mock.sh"
+        . "${INIT_SCRIPT}"
+        # Override service framework wrappers after sourcing production script
+        service_framework_stop() { echo "framework_stop" >> "${LOG_FILE}"; stop_service; }
+        service_framework_start() { echo "framework_start" >> "${LOG_FILE}"; start_service; }
+        "$@"
+    )
+}
+
 # Test case 1: Fresh Reverse-only mode (start_service, stop_service, reload_service, service_triggers)
 {
     echo "\nTest Case 1: Fresh reverse-only lifecycle execution"
@@ -118,6 +131,7 @@ export TPROXY_MARKER="${MOCK_DIR}/var/run/xray_tproxy.active"
 case "\$*" in
     *"reverse_only"*) echo "1" ;;
     *"transparent_proxy_enable"*) echo "0" ;;
+    *"custom_config"*) echo "" ;;
     *"xray_bin"*) echo "${MOCK_DIR}/opt/xray/current/xray" ;;
     *"xray_location_asset"*) echo "${MOCK_DIR}/opt/xray/current" ;;
     *) echo "" ;;
@@ -126,24 +140,24 @@ exit 0
 EOF
     chmod +x "${MOCK_DIR}/bin/uci"
 
-    rm -f "${LOG_FILE}" "${TPROXY_MARKER}" "${MOCK_DIR}/ip_rules.txt"
-    (
-        . "${MOCK_DIR}/procd_mock.sh"
-        . "${INIT_SCRIPT}"
-        start_service
-        reload_service
-        service_triggers
-        stop_service
-    )
+    rm -f "${LOG_FILE}" "${TPROXY_MARKER}" "${MOCK_DIR}/ip_rules.txt" "${MOCK_DIR}/ip6_rules.txt"
+
+    START_EXIT_CODE=0
+    run_init_lifecycle start_service || START_EXIT_CODE=$?
+    assert_equal "0" "${START_EXIT_CODE}" "start_service with empty custom_config must succeed (exit 0)"
+
+    run_init_lifecycle reload_service
+    run_init_lifecycle service_triggers
+    run_init_lifecycle stop_service
 
     FIREWALL_CALLS=$(grep -c "firewall" "${LOG_FILE}" 2>/dev/null || true)
     DNSMASQ_CALLS=$(grep -c "dnsmasq" "${LOG_FILE}" 2>/dev/null || true)
-    IP_CALLS=$(grep -c "ip " "${LOG_FILE}" 2>/dev/null || true)
+    IP_MUTATIONS=$(grep -E -c "ip (-6 )?(rule|route) (add|del)" "${LOG_FILE}" 2>/dev/null || true)
     DHCP_TRIGGERS=$(grep -c "trigger: xray_core dhcp" "${LOG_FILE}" 2>/dev/null || true)
 
     assert_equal "0" "${FIREWALL_CALLS:-0}" "Fresh reverse-only mode must not call firewall"
     assert_equal "0" "${DNSMASQ_CALLS:-0}" "Fresh reverse-only mode must not call dnsmasq"
-    assert_equal "0" "${IP_CALLS:-0}" "Fresh reverse-only mode must not call ip rule/route"
+    assert_equal "0" "${IP_MUTATIONS:-0}" "Fresh reverse-only mode must not mutate ip rules or routes"
     assert_equal "0" "${DHCP_TRIGGERS:-0}" "Reverse-only mode must not register dhcp reload trigger"
 }
 
@@ -163,12 +177,8 @@ EOF
     chmod +x "${MOCK_DIR}/bin/uci"
 
     rm -f "${LOG_FILE}" "${TPROXY_MARKER}"
-    (
-        . "${MOCK_DIR}/procd_mock.sh"
-        . "${INIT_SCRIPT}"
-        start_service
-        service_triggers
-    )
+    run_init_lifecycle start_service
+    run_init_lifecycle service_triggers
 
     FIREWALL_CALLS=$(grep -c "firewall" "${LOG_FILE}" 2>/dev/null || true)
     DNSMASQ_CALLS=$(grep -c "dnsmasq" "${LOG_FILE}" 2>/dev/null || true)
@@ -202,12 +212,7 @@ EOF
     chmod +x "${MOCK_DIR}/bin/uci"
 
     rm -f "${LOG_FILE}"
-    (
-        . "${MOCK_DIR}/procd_mock.sh"
-        . "${INIT_SCRIPT}"
-        # Start service in reverse-only mode after switch
-        start_service
-    )
+    run_init_lifecycle start_service
 
     # First execution should have cleaned up the legacy artifacts once
     CLEANUP_FIREWALL=$(grep -c "firewall" "${LOG_FILE}" 2>/dev/null || true)
@@ -218,26 +223,22 @@ EOF
 
     # Subsequent stop/reload in reverse-only mode must NOT call firewall or dnsmasq
     rm -f "${LOG_FILE}"
-    (
-        . "${MOCK_DIR}/procd_mock.sh"
-        . "${INIT_SCRIPT}"
-        stop_service
-        reload_service
-    )
+    run_init_lifecycle stop_service
+    run_init_lifecycle reload_service
     LATER_FIREWALL=$(grep -c "firewall" "${LOG_FILE}" 2>/dev/null || true)
     LATER_DNSMASQ=$(grep -c "dnsmasq" "${LOG_FILE}" 2>/dev/null || true)
     assert_equal "0" "${LATER_FIREWALL:-0}" "Subsequent reverse-only stop/reload must not call firewall"
     assert_equal "0" "${LATER_DNSMASQ:-0}" "Subsequent reverse-only stop/reload must not call dnsmasq"
 }
 
-# Test case 4: Migration cleanup of pre-marker legacy artifacts vs unrelated table 251 rules
+# Test case 4A: Unrelated lookup 251 rule does NOT trigger cleanup
 {
-    echo "\nTest Case 4: Migration cleans unmanaged legacy artifacts on reverse-only start"
-    rm -f "${TPROXY_MARKER}"
-    touch "${MOCK_DIR}/tmp/dnsmasq.d/xray.conf"
+    echo "\nTest Case 4A: Unrelated lookup 251 rule does not trigger cleanup"
+    rm -f "${TPROXY_MARKER}" "${LOG_FILE}"
+    rm -f "${MOCK_DIR}/tmp/dnsmasq.d/xray.conf" "${MOCK_DIR}/var/etc/xray/01_firewall_include.nft"
 
-    # Set up unrelated rule in ip_rules.txt that should NOT trigger false cleanup
-    echo "100: from all to 10.0.0.0/8 lookup 2510" > "${MOCK_DIR}/ip_rules.txt"
+    # Set up unrelated rule in ip_rules.txt without Xray fwmark
+    echo "100: from all to 10.0.0.0/8 lookup 251" > "${MOCK_DIR}/ip_rules.txt"
 
     cat << EOF > "${MOCK_DIR}/bin/uci"
 #!/bin/sh
@@ -251,15 +252,39 @@ exit 0
 EOF
     chmod +x "${MOCK_DIR}/bin/uci"
 
-    rm -f "${LOG_FILE}"
-    (
-        . "${MOCK_DIR}/procd_mock.sh"
-        . "${INIT_SCRIPT}"
-        start_service
-    )
+    run_init_lifecycle start_service
+    CLEANUP_FIREWALL=$(grep -c "firewall" "${LOG_FILE}" 2>/dev/null || true)
+    CLEANUP_DNSMASQ=$(grep -c "dnsmasq" "${LOG_FILE}" 2>/dev/null || true)
+    assert_equal "0" "${CLEANUP_FIREWALL:-0}" "Unrelated table 251 rule must not trigger firewall flush"
+    assert_equal "0" "${DNSMASQ_CALLS:-0}" "Unrelated table 251 rule must not trigger dnsmasq flush"
+}
 
-    MIGRATION_CLEANUP=$(grep -c "dnsmasq" "${LOG_FILE}" 2>/dev/null || true)
-    assert_equal "1" "$((MIGRATION_CLEANUP > 0))" "Migration must detect unmanaged dnsmasq artifact and flush"
+# Test case 4B: Exact Xray signature triggers migration cleanup
+{
+    echo "\nTest Case 4B: Exact Xray fwmark signature triggers migration cleanup once"
+    rm -f "${TPROXY_MARKER}" "${LOG_FILE}"
+    rm -f "${MOCK_DIR}/tmp/dnsmasq.d/xray.conf" "${MOCK_DIR}/var/etc/xray/01_firewall_include.nft"
+
+    # Set up exact Xray rule in ip_rules.txt
+    echo "100: from all fwmark 0xfb lookup 251" > "${MOCK_DIR}/ip_rules.txt"
+
+    cat << EOF > "${MOCK_DIR}/bin/uci"
+#!/bin/sh
+case "\$*" in
+    *"reverse_only"*) echo "1" ;;
+    *"transparent_proxy_enable"*) echo "0" ;;
+    *"xray_bin"*) echo "${MOCK_DIR}/opt/xray/current/xray" ;;
+    *) echo "" ;;
+esac
+exit 0
+EOF
+    chmod +x "${MOCK_DIR}/bin/uci"
+
+    run_init_lifecycle start_service
+    CLEANUP_FIREWALL=$(grep -c "firewall" "${LOG_FILE}" 2>/dev/null || true)
+    CLEANUP_DNSMASQ=$(grep -c "dnsmasq" "${LOG_FILE}" 2>/dev/null || true)
+    assert_equal "1" "$((CLEANUP_FIREWALL > 0))" "Exact Xray signature must trigger firewall cleanup"
+    assert_equal "1" "$((CLEANUP_DNSMASQ > 0))" "Exact Xray signature must trigger dnsmasq cleanup"
 }
 
 echo "\nSummary: ${PASSED} passed, ${FAILED} failed"
