@@ -14,17 +14,17 @@ env:
 
 jobs:
   release:
-    name: Build for ${{ matrix.arch }} (${{ matrix.id }})
+    name: OpenWrt ${{ matrix.id }} packages (${{ matrix.arch }} SDK, package architecture all)
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
-          - id: 23.05
+          - id: 23.05.5
             arch: x86_64
             sdk_url_path: https://downloads.openwrt.org/releases/23.05.5/targets/x86/64
             sdk_name: -sdk-23.05.5-x86-64_
-          - id: 25.12
+          - id: 25.12.5
             arch: x86_64
             sdk_url_path: https://downloads.openwrt.org/releases/25.12.5/targets/x86/64
             sdk_name: -sdk-25.12.5-x86-64_
@@ -36,14 +36,14 @@ jobs:
       CONFIG_CCACHE: y
     steps:
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v7
 
       - name: Prepare Cache Key
         id: cache_key
         run: echo "timestamp=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ env.CACHE_DIR }}
@@ -147,69 +147,128 @@ jobs:
           find "$SDK_HOME/bin/" -type f \( -name "*.ipk" -o -name "*.apk" \) -exec ls -lh {} \; | tee -a "$GITHUB_STEP_SUMMARY"
           echo '```' >> "$GITHUB_STEP_SUMMARY"
 
-          if [ "${{ matrix.id }}" = "25.12" ]; then
-            CORE_APK=$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray*.apk" | grep -v "status" | grep -v "geodata" | head -n 1 || true)
-            if [ -z "$CORE_APK" ]; then
-              echo "::error::OpenWrt 25.12 build failed to produce core .apk package"
-              exit 1
-            fi
-            echo "Found core APK package: $CORE_APK"
-          elif [ "${{ matrix.id }}" = "23.05" ]; then
-            CORE_IPK=$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray*.ipk" | grep -v "status" | grep -v "geodata" | head -n 1 || true)
-            if [ -z "$CORE_IPK" ]; then
-              echo "::error::OpenWrt 23.05 build failed to produce core .ipk package"
-              exit 1
-            fi
-            echo "Found core IPK package: $CORE_IPK"
+          if [ "${{ matrix.id }}" = "25.12.5" ]; then
+            CORE_PKGS="$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray-*.apk" | grep -v "status" | grep -v "geodata" || true)"
+            STATUS_PKGS="$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray-status-*.apk" || true)"
+          elif [ "${{ matrix.id }}" = "23.05.5" ]; then
+            CORE_PKGS="$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray_*.ipk" | grep -v "status" | grep -v "geodata" || true)"
+            STATUS_PKGS="$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray-status_*.ipk" || true)"
+          else
+            echo "::error::Unknown OpenWrt release ID: ${{ matrix.id }}"
+            exit 1
           fi
+
+          CORE_COUNT="$(echo "$CORE_PKGS" | grep -c . || true)"
+          STATUS_COUNT="$(echo "$STATUS_PKGS" | grep -c . || true)"
+
+          if [ "$CORE_COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly 1 core package, found $CORE_COUNT: $CORE_PKGS"
+            exit 1
+          fi
+
+          if [ "$STATUS_COUNT" -ne 1 ]; then
+            echo "::error::Expected exactly 1 status package, found $STATUS_COUNT: $STATUS_PKGS"
+            exit 1
+          fi
+
+          echo "CORE_SRC_PKG=$CORE_PKGS" >> $GITHUB_ENV
+          echo "STATUS_SRC_PKG=$STATUS_PKGS" >> $GITHUB_ENV
           cd -
       - name: Copy Bin Files
         run: |
-          find "$SDK_HOME/bin/" -type f \( -name "${PACKAGE_NAME}*.ipk" -o -name "${PACKAGE_NAME}*.apk" \) | while read -r f; do
-            base="$(basename "$f")"
-            cp "$f" "${{ github.workspace }}/${base%.*}-${{ matrix.arch }}.${base##*.}"
-          done
-          find "${{ github.workspace }}" -maxdepth 1 -type f \( -name "*.ipk" -o -name "*.apk" \) -exec ls -lh {} \;
-      - name: Generate Package Evidence Manifest
+          CORE_BASE="$(basename "$CORE_SRC_PKG")"
+          STATUS_BASE="$(basename "$STATUS_SRC_PKG")"
+
+          if [ -e "${{ github.workspace }}/$CORE_BASE" ]; then
+            echo "::error::Collision detected: ${{ github.workspace }}/$CORE_BASE already exists"
+            exit 1
+          fi
+          cp -p "$CORE_SRC_PKG" "${{ github.workspace }}/$CORE_BASE"
+
+          if [ -e "${{ github.workspace }}/$STATUS_BASE" ]; then
+            echo "::error::Collision detected: ${{ github.workspace }}/$STATUS_BASE already exists"
+            exit 1
+          fi
+          cp -p "$STATUS_SRC_PKG" "${{ github.workspace }}/$STATUS_BASE"
+
+          echo "CORE_PACKAGE=$CORE_BASE" >> $GITHUB_ENV
+          echo "STATUS_PACKAGE=$STATUS_BASE" >> $GITHUB_ENV
+
+          echo "Copied canonical packages:"
+          ls -lh "${{ github.workspace }}/$CORE_BASE" "${{ github.workspace }}/$STATUS_BASE"
+      - name: Generate Checksums and Build Info
         run: |
-          MANIFEST="${{ github.workspace }}/package-manifest-${{ matrix.id }}-${{ matrix.arch }}.txt"
-          echo "=== Package Evidence Manifest (${{ matrix.id }} ${{ matrix.arch }}) ===" > "$MANIFEST"
-          echo "Generated at: $(date -u)" >> "$MANIFEST"
-          echo "" >> "$MANIFEST"
-          find "${{ github.workspace }}" -maxdepth 1 -type f \( -name "*.ipk" -o -name "*.apk" \) | while read -r pkg; do
-            fname="$(basename "$pkg")"
-            fsize="$(wc -c < "$pkg" | tr -d ' ')"
-            fsha="$(sha256sum "$pkg" | cut -d' ' -f1)"
-            echo "FILE: $fname" >> "$MANIFEST"
-            echo "SIZE: $fsize bytes" >> "$MANIFEST"
-            echo "SHA256: $fsha" >> "$MANIFEST"
-            echo "---" >> "$MANIFEST"
-          done
-          cat "$MANIFEST"
+          cd "${{ github.workspace }}"
+
+          # 1. Generate SHA256SUMS file
+          CHECKSUM_FILE="SHA256SUMS-openwrt-${{ matrix.id }}-all.txt"
+          (
+            sha256sum "$CORE_PACKAGE"
+            sha256sum "$STATUS_PACKAGE"
+          ) | sort -k2,2 > "$CHECKSUM_FILE"
+
+          echo "=== Generated $CHECKSUM_FILE ==="
+          cat "$CHECKSUM_FILE"
+
+          echo "Verifying checksums with sha256sum -c..."
+          sha256sum -c "$CHECKSUM_FILE"
+
+          # 2. Generate BUILD-INFO file
+          BUILD_INFO_FILE="BUILD-INFO-openwrt-${{ matrix.id }}-all.txt"
+          CORE_SIZE="$(wc -c < "$CORE_PACKAGE" | tr -d ' ')"
+          STATUS_SIZE="$(wc -c < "$STATUS_PACKAGE" | tr -d ' ')"
+          PKG_FORMAT="$([ "${{ matrix.id }}" = "25.12.5" ] && echo "apk" || echo "ipk")"
+
+          cat << EOF > "$BUILD_INFO_FILE"
+project=luci-app-xray
+variant=modern-vless-reverse
+package_version=3.7.1
+package_release=2
+openwrt_release=${{ matrix.id }}
+package_format=${PKG_FORMAT}
+package_architecture=all
+sdk_architecture=${{ matrix.arch }}
+git_commit=${{ github.sha }}
+workflow_run_id=${{ github.run_id }}
+core_package=${CORE_PACKAGE}
+status_package=${STATUS_PACKAGE}
+core_package_size_bytes=${CORE_SIZE}
+status_package_size_bytes=${STATUS_SIZE}
+generated_at_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+EOF
+
+          echo "=== Generated $BUILD_INFO_FILE ==="
+          cat "$BUILD_INFO_FILE"
+
+          echo "CHECKSUM_FILE=$CHECKSUM_FILE" >> $GITHUB_ENV
+          echo "BUILD_INFO_FILE=$BUILD_INFO_FILE" >> $GITHUB_ENV
       - name: Upload CI Package Artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: luci-app-xray-${{ matrix.id }}-${{ matrix.arch }}
+          name: luci-app-xray-vless-reverse-openwrt-${{ matrix.id }}-all-sdk-${{ matrix.arch }}
           path: |
-            *.ipk
-            *.apk
-            package-manifest-*.txt
+            ${{ env.CORE_PACKAGE }}
+            ${{ env.STATUS_PACKAGE }}
+            ${{ env.CHECKSUM_FILE }}
+            ${{ env.BUILD_INFO_FILE }}
           if-no-files-found: error
           retention-days: 14
       - name: Upload Debug Log on Failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: debug-logs-${{ matrix.id }}-${{ matrix.arch }}
           path: /tmp/*.log
           if-no-files-found: ignore
       - name: Release and Upload Assets
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v3
         with:
           files: |
             *.ipk
             *.apk
+            SHA256SUMS-*.txt
+            BUILD-INFO-*.txt
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 

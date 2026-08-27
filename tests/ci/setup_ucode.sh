@@ -29,8 +29,36 @@ export CMAKE_PREFIX_PATH="/usr:/usr/local:${CMAKE_PREFIX_PATH}"
 export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}"
 export LD_LIBRARY_PATH="/usr/lib:/usr/lib64:/usr/local/lib:${LD_LIBRARY_PATH}"
 
+LIBUBOX_REF="e7608b69283d919d031d13cc8e21692503f5dbea"
+UCI_REF="74f6277aabffc943d026f406df57c22595134c42"
+UCODE_REF="fa2c1bc01420f656b1997cad6829b91f81161895"
+
+fetch_pinned_repo() {
+    local name="$1"
+    local repo_url="$2"
+    local commit_ref="$3"
+    local dest_dir="$4"
+
+    echo "Fetching pinned ${name} @ ${commit_ref}..."
+    mkdir -p "${dest_dir}"
+    (
+        cd "${dest_dir}"
+        git init -q
+        git remote add origin "${repo_url}" 2>/dev/null || git remote set-url origin "${repo_url}"
+        git fetch -q --depth=1 origin "${commit_ref}"
+        git checkout -q --detach "${commit_ref}"
+        local actual_head
+        actual_head="$(git rev-parse HEAD)"
+        if [ "${actual_head}" != "${commit_ref}" ]; then
+            echo "::error::Commit verification failed for ${name}: expected ${commit_ref}, got ${actual_head}"
+            exit 1
+        fi
+        echo "  [VERIFIED] ${name}: ${actual_head}"
+    )
+}
+
 echo "=== Building and installing libubox ==="
-git clone --depth=1 https://github.com/openwrt/libubox.git "${TMP_BUILD_DIR}/libubox"
+fetch_pinned_repo "libubox" "https://github.com/openwrt/libubox.git" "${LIBUBOX_REF}" "${TMP_BUILD_DIR}/libubox"
 cmake -S "${TMP_BUILD_DIR}/libubox" -B "${TMP_BUILD_DIR}/libubox/build" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_INSTALL_LIBDIR=lib \
@@ -41,7 +69,7 @@ cmake --build "${TMP_BUILD_DIR}/libubox/build" -j"${NPROC}"
 ${SUDO} cmake --install "${TMP_BUILD_DIR}/libubox/build"
 
 echo "=== Building and installing libuci ==="
-git clone --depth=1 https://github.com/openwrt/uci.git "${TMP_BUILD_DIR}/uci"
+fetch_pinned_repo "uci" "https://github.com/openwrt/uci.git" "${UCI_REF}" "${TMP_BUILD_DIR}/uci"
 cmake -S "${TMP_BUILD_DIR}/uci" -B "${TMP_BUILD_DIR}/uci/build" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_INSTALL_LIBDIR=lib \
@@ -55,7 +83,7 @@ if command -v ldconfig >/dev/null 2>&1; then
 fi
 
 echo "=== Building and installing ucode with UCI support ==="
-git clone --depth=1 https://github.com/jow-/ucode.git "${TMP_BUILD_DIR}/ucode"
+fetch_pinned_repo "ucode" "https://github.com/jow-/ucode.git" "${UCODE_REF}" "${TMP_BUILD_DIR}/ucode"
 cmake -S "${TMP_BUILD_DIR}/ucode" -B "${TMP_BUILD_DIR}/ucode/build" \
     -DCMAKE_INSTALL_PREFIX=/usr \
     -DCMAKE_INSTALL_LIBDIR=lib \

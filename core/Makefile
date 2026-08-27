@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-xray
 PKG_VERSION:=3.7.1
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_LICENSE:=MPLv2
 PKG_LICENSE_FILES:=LICENSE
@@ -14,13 +14,13 @@ include $(INCLUDE_DIR)/package.mk
 define Package/$(PKG_NAME)
 	SECTION:=Custom
 	CATEGORY:=Extra packages
-	TITLE:=LuCI Support for Xray
+	TITLE:=LuCI Xray client with modern VLESS Reverse
 	DEPENDS:=firewall4 +kmod-nft-tproxy +luci-base +dnsmasq +ca-bundle
 	PKGARCH:=all
 endef
 
 define Package/$(PKG_NAME)/description
-	LuCI Support for Xray (Client-side Rendered).
+	LuCI client for Xray with modern VLESS Reverse support and optional transparent proxy features.
 endef
 
 define Package/$(PKG_NAME)/config

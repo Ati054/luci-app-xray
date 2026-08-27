@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-xray-status
 PKG_VERSION:=3.7.1
-PKG_RELEASE:=1
+PKG_RELEASE:=2
 
 PKG_LICENSE:=MPLv2
 PKG_LICENSE_FILES:=LICENSE
@@ -14,7 +14,7 @@ include $(INCLUDE_DIR)/package.mk
 define Package/$(PKG_NAME)
 	SECTION:=Custom
 	CATEGORY:=Extra packages
-	TITLE:=LuCI Support for Xray (status page)
+	TITLE:=LuCI Xray client status page
 	DEPENDS:=luci-app-xray +wget
 	PKGARCH:=all
 endef
