@@ -107,13 +107,23 @@ jobs:
           cd -
       - name: Build and Install Host ucode with UCI
         run: |
-          sh "${{ github.workspace }}/tests/ci/setup_ucode.sh"
+          if ! sh "${{ github.workspace }}/tests/ci/setup_ucode.sh" 2>&1 | tee /tmp/setup_ucode.log; then
+            echo "## setup_ucode.sh Failed" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 200 /tmp/setup_ucode.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "## setup_ucode.sh Succeeded" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -n 30 /tmp/setup_ucode.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Fetch and Verify Official Xray 26.7.28
         run: |
           sh "${{ github.workspace }}/tests/ci/fetch_xray.sh" "v26.7.28" "/tmp/xray-bin"
       - name: Run Test Suite
         run: |
-          export PATH="/usr/local/bin:$SDK_HOME/staging_dir/host/bin:$PATH"
+          export PATH="/usr/bin:/usr/local/bin:$SDK_HOME/staging_dir/host/bin:$PATH"
           CI=true XRAY_BIN="/tmp/xray-bin/xray" sh "${{ github.workspace }}/tests/run_tests.sh"
       - name: Build Packages
         run: |
@@ -173,6 +183,13 @@ jobs:
             package-manifest-*.txt
           if-no-files-found: error
           retention-days: 14
+      - name: Upload Debug Log on Failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-logs-${{ matrix.id }}-${{ matrix.arch }}
+          path: /tmp/*.log
+          if-no-files-found: ignore
       - name: Release and Upload Assets
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v1
