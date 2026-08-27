@@ -25,11 +25,9 @@ trap cleanup EXIT
 
 NPROC=$(nproc 2>/dev/null || echo 2)
 
-export CMAKE_PREFIX_PATH="/usr/local:${CMAKE_PREFIX_PATH}"
-export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig:${PKG_CONFIG_PATH}"
+export CMAKE_PREFIX_PATH="/usr/local:/usr:${CMAKE_PREFIX_PATH}"
+export PKG_CONFIG_PATH="/usr/local/lib/pkgconfig:/usr/local/lib64/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/lib/pkgconfig:/usr/share/pkgconfig:${PKG_CONFIG_PATH}"
 export LD_LIBRARY_PATH="/usr/local/lib:/usr/local/lib64:${LD_LIBRARY_PATH}"
-export C_INCLUDE_PATH="/usr/local/include:${C_INCLUDE_PATH}"
-export LIBRARY_PATH="/usr/local/lib:${LIBRARY_PATH}"
 
 echo "=== Building and installing libubox ==="
 git clone --depth=1 https://github.com/openwrt/libubox.git "${TMP_BUILD_DIR}/libubox"
