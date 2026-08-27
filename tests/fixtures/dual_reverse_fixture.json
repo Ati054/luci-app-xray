@@ -13,7 +13,16 @@
       "protocol": "freedom",
       "tag": "reverse-egress",
       "settings": {
-        "domainStrategy": "UseIP"
+        "domainStrategy": "UseIP",
+        "finalRules": [
+          {
+            "action": "allow",
+            "network": "tcp,udp",
+            "ip": [
+              "!geoip:private"
+            ]
+          }
+        ]
       }
     },
     {
@@ -36,7 +45,7 @@
           "show": false,
           "fingerprint": "chrome",
           "serverName": "example.com",
-          "publicKey": "dummy_public_key_for_testing",
+          "publicKey": "k0A4GZ2z5c4q8w3v_6r5t7y8u9i0o1p2a3s4d5f6g7h",
           "shortId": "0123456789abcdef",
           "spiderX": ""
         },
@@ -79,11 +88,7 @@
           "reverse-raw-in",
           "reverse-xhttp-in"
         ],
-        "outboundTag": "reverse-egress",
-        "network": "tcp,udp",
-        "ip": [
-          "!geoip:private"
-        ]
+        "outboundTag": "reverse-egress"
       }
     ]
   }

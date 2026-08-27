@@ -2,7 +2,19 @@
 "use strict";
 
 import { vless_outbound } from "../core/root/usr/share/xray/protocol/vless.mjs";
-import { get_dual_reverse_config, get_normal_vless_config, get_invalid_multi_port_reverse_config } from "./fixtures/sample_configs.uc";
+import { server_outbound } from "../core/root/usr/share/xray/feature/outbound.mjs";
+import {
+    get_dual_reverse_config,
+    get_normal_vless_config,
+    get_invalid_multi_port_reverse_config,
+    get_missing_port_reverse_config,
+    get_port_zero_reverse_config,
+    get_port_overflow_reverse_config,
+    get_nonnumeric_port_reverse_config,
+    get_empty_uuid_reverse_config,
+    get_normal_server_blank_reverse_tag_config,
+    get_reverse_with_custom_mark_config
+} from "./fixtures/sample_configs.uc";
 
 let passed = 0;
 let failed = 0;
@@ -17,7 +29,7 @@ function assert(cond, msg) {
     }
 }
 
-print("=== Test Suite: VLESS Protocol Module ===\n");
+print("=== Test Suite: VLESS Protocol Module & Reverse Validation ===\n");
 
 // Test 1: Reverse VLESS uses simplified settings and contains no vnext
 {
@@ -53,9 +65,9 @@ print("=== Test Suite: VLESS Protocol Module ===\n");
     assert(outbound.settings.reverse == null, "settings.reverse must not exist in normal VLESS");
 }
 
-// Test 3: Reverse VLESS rejects zero or multiple endpoint ports
+// Test 3: Reverse VLESS rejects multiple endpoint ports
 {
-    print("\nTest 3: Reverse VLESS rejects zero or multiple endpoint ports");
+    print("\nTest 3: Reverse VLESS rejects multiple endpoint ports");
     const config = get_invalid_multi_port_reverse_config();
     const invalid_server = config["invalid_reverse"];
     let caught = false;
@@ -79,6 +91,90 @@ print("=== Test Suite: VLESS Protocol Module ===\n");
     assert(res_raw.outbound.settings.id != res_xhttp.outbound.settings.id, "UUIDs must be distinct");
     assert(res_raw.outbound.streamSettings.network == "tcp", "raw link network must be tcp");
     assert(res_xhttp.outbound.streamSettings.network == "splithttp", "xhttp link network must be splithttp");
+}
+
+// Test 11: Missing port rejection
+{
+    print("\nTest 11: Missing port rejection on reverse VLESS");
+    const config = get_missing_port_reverse_config();
+    let caught = false;
+    try {
+        vless_outbound(config["s1"], "s1");
+    } catch (e) {
+        caught = true;
+    }
+    assert(caught, "reverse VLESS without port must throw an error");
+}
+
+// Test 12: Port 0 rejection
+{
+    print("\nTest 12: Port 0 rejection on reverse VLESS");
+    const config = get_port_zero_reverse_config();
+    let caught = false;
+    try {
+        vless_outbound(config["s1"], "s1");
+    } catch (e) {
+        caught = true;
+    }
+    assert(caught, "reverse VLESS with port 0 must throw an error");
+}
+
+// Test 13: Port 65536 overflow rejection
+{
+    print("\nTest 13: Port 65536 overflow rejection on reverse VLESS");
+    const config = get_port_overflow_reverse_config();
+    let caught = false;
+    try {
+        vless_outbound(config["s1"], "s1");
+    } catch (e) {
+        caught = true;
+    }
+    assert(caught, "reverse VLESS with port 65536 must throw an error");
+}
+
+// Test 14: Nonnumeric port rejection
+{
+    print("\nTest 14: Nonnumeric port rejection on reverse VLESS");
+    const config = get_nonnumeric_port_reverse_config();
+    let caught = false;
+    try {
+        vless_outbound(config["s1"], "s1");
+    } catch (e) {
+        caught = true;
+    }
+    assert(caught, "reverse VLESS with nonnumeric port must throw an error");
+}
+
+// Test 15: Empty UUID rejection
+{
+    print("\nTest 15: Empty UUID rejection on reverse VLESS");
+    const config = get_empty_uuid_reverse_config();
+    let caught = false;
+    try {
+        vless_outbound(config["s1"], "s1");
+    } catch (e) {
+        caught = true;
+    }
+    assert(caught, "reverse VLESS with empty UUID must throw an error");
+}
+
+// Test 16: Blank optional reverse_tag on normal server does not activate reverse
+{
+    print("\nTest 16: Blank optional reverse_tag on normal server does not activate reverse");
+    const config = get_normal_server_blank_reverse_tag_config();
+    const res = vless_outbound(config["s1"], "s1");
+    assert(res.outbound.settings.vnext != null, "normal server with blank reverse_tag must remain normal vnext");
+    assert(res.outbound.settings.reverse == null, "normal server must not have settings.reverse");
+}
+
+// Test 17: Reverse custom_config cannot restore sockopt.mark
+{
+    print("\nTest 17: Reverse custom_config cannot restore sockopt.mark");
+    const config = get_reverse_with_custom_mark_config();
+    const outbounds = server_outbound(config["s1"], "rev-custom", config);
+    assert(length(outbounds) == 1, "must produce one outbound");
+    const ob = outbounds[0];
+    assert(ob.streamSettings == null || ob.streamSettings.sockopt == null || ob.streamSettings.sockopt.mark == null, "reverse outbound must not contain sockopt.mark even if injected via custom_config");
 }
 
 printf("\nSummary: %d passed, %d failed\n", passed, failed);

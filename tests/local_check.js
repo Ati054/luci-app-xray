@@ -30,9 +30,15 @@ try {
     assert(parsed.outbounds.length === 4, 'Fixture has 4 outbounds');
     assert(parsed.outbounds[0].protocol === 'freedom', 'Outbound 0 is default freedom');
     assert(parsed.outbounds[1].tag === 'reverse-egress', 'Outbound 1 is reverse-egress');
+    assert(Array.isArray(parsed.outbounds[1].settings.finalRules), 'Outbound 1 has settings.finalRules array');
+    assert(parsed.outbounds[1].settings.finalRules[0].action === 'allow', 'finalRules[0].action is allow');
+    assert(parsed.outbounds[1].settings.finalRules[0].network === 'tcp,udp', 'finalRules[0].network is tcp,udp');
+    assert(parsed.outbounds[1].settings.finalRules[0].ip.includes('!geoip:private'), 'finalRules[0].ip includes !geoip:private');
     assert(parsed.outbounds[2].settings.reverse.tag === 'reverse-raw-in', 'Outbound 2 has reverse-raw-in');
     assert(parsed.outbounds[3].settings.reverse.tag === 'reverse-xhttp-in', 'Outbound 3 has reverse-xhttp-in');
-    assert(parsed.routing.rules[0].ip.includes('!geoip:private'), 'Routing rule has !geoip:private');
+    assert(parsed.routing.rules[0].outboundTag === 'reverse-egress', 'Routing rule 0 targets reverse-egress');
+    assert(!parsed.routing.rules[0].ip, 'Routing rule 0 does not define ip matcher (belongs in finalRules)');
+    assert(!parsed.routing.rules[0].network, 'Routing rule 0 does not define network matcher (belongs in finalRules)');
 } catch (e) {
     assert(false, `Fixture JSON parsing failed: ${e.message}`);
 }
