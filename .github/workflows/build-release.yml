@@ -36,14 +36,14 @@ jobs:
       CONFIG_CCACHE: y
     steps:
       - name: Checkout
-        uses: actions/checkout@v7
+        uses: actions/checkout@v4
 
       - name: Prepare Cache Key
         id: cache_key
         run: echo "timestamp=$(date +%s)" >> "$GITHUB_OUTPUT"
 
       - name: Setup Cache
-        uses: actions/cache@v6
+        uses: actions/cache@v4
         with:
           path: |
             ${{ env.CACHE_DIR }}
@@ -243,7 +243,7 @@ EOF
           echo "CHECKSUM_FILE=$CHECKSUM_FILE" >> $GITHUB_ENV
           echo "BUILD_INFO_FILE=$BUILD_INFO_FILE" >> $GITHUB_ENV
       - name: Upload CI Package Artifacts
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: luci-app-xray-vless-reverse-openwrt-${{ matrix.id }}-all-sdk-${{ matrix.arch }}
           path: |
@@ -255,14 +255,14 @@ EOF
           retention-days: 14
       - name: Upload Debug Log on Failure
         if: failure()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: debug-logs-${{ matrix.id }}-${{ matrix.arch }}
           path: /tmp/*.log
           if-no-files-found: ignore
       - name: Release and Upload Assets
         if: startsWith(github.ref, 'refs/tags/')
-        uses: softprops/action-gh-release@v3
+        uses: softprops/action-gh-release@v2
         with:
           files: |
             *.ipk
