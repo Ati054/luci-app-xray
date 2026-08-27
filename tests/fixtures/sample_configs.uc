@@ -279,3 +279,82 @@ export function get_reverse_with_custom_mark_config() {
         }
     };
 }
+
+export function get_reserved_tag_reverse_config() {
+    return {
+        "general": { ".type": "general", ".name": "general", "reverse_only": "1" },
+        "s1": {
+            ".type": "servers",
+            ".name": "s1",
+            "tag": "reverse-egress",
+            "vless_reverse": "1",
+            "server": "198.51.100.1",
+            "server_port": "443",
+            "password": "00000000-0000-0000-0000-000000000001",
+            "protocol": "vless"
+        }
+    };
+}
+
+export function get_reserved_reverse_tag_config() {
+    return {
+        "general": { ".type": "general", ".name": "general", "reverse_only": "1" },
+        "s1": {
+            ".type": "servers",
+            ".name": "s1",
+            "tag": "rev-link-1",
+            "vless_reverse": "1",
+            "vless_reverse_tag": "reverse-egress",
+            "server": "198.51.100.1",
+            "server_port": "443",
+            "password": "00000000-0000-0000-0000-000000000001",
+            "protocol": "vless"
+        }
+    };
+}
+
+export function get_alias_variant_configs() {
+    return {
+        "cfg_alias1": {
+            "general": { ".type": "general", ".name": "general", "reverse_only": "1" },
+            "srv_section_1": {
+                ".type": "servers",
+                ".name": "srv_section_1",
+                "alias": "Human Readable Name 1",
+                "vless_reverse": "1",
+                "server": "198.51.100.1",
+                "server_port": "443",
+                "password": "00000000-0000-0000-0000-000000000001",
+                "protocol": "vless"
+            }
+        },
+        "cfg_alias2": {
+            "general": { ".type": "general", ".name": "general", "reverse_only": "1" },
+            "srv_section_1": {
+                ".type": "servers",
+                ".name": "srv_section_1",
+                "alias": "Different Name 2",
+                "vless_reverse": "1",
+                "server": "198.51.100.1",
+                "server_port": "443",
+                "password": "00000000-0000-0000-0000-000000000001",
+                "protocol": "vless"
+            }
+        },
+        "cfg_explicit_tag": {
+            "general": { ".type": "general", ".name": "general", "reverse_only": "1" },
+            "srv_section_1": {
+                ".type": "servers",
+                ".name": "srv_section_1",
+                "tag": "custom-explicit-tag",
+                "alias": "Different Name 2",
+                "vless_reverse": "1",
+                "server": "198.51.100.1",
+                "server_port": "443",
+                "password": "00000000-0000-0000-0000-000000000001",
+                "protocol": "vless"
+            }
+        }
+    };
+}
+

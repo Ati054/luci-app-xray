@@ -1,5 +1,5 @@
 #!/bin/sh
-# Test suite for xray_core init.d lifecycle isolation and state transitions
+# Test suite for xray_core init.d lifecycle isolation, state transitions, and migration
 
 set -e
 
@@ -31,7 +31,7 @@ cleanup() {
 trap cleanup EXIT
 
 # Setup mock environment directories
-mkdir -p "${MOCK_DIR}/bin" "${MOCK_DIR}/etc/init.d" "${MOCK_DIR}/var/run" "${MOCK_DIR}/var/etc/xray" "${MOCK_DIR}/tmp/dnsmasq.d" "${MOCK_DIR}/opt/xray/current"
+mkdir -p "${MOCK_DIR}/bin" "${MOCK_DIR}/etc/init.d" "${MOCK_DIR}/etc/nftables.d" "${MOCK_DIR}/var/run" "${MOCK_DIR}/var/etc/xray" "${MOCK_DIR}/tmp/dnsmasq.d" "${MOCK_DIR}/opt/xray/current"
 
 # Mock logger
 cat << 'EOF' > "${MOCK_DIR}/bin/logger"
@@ -49,6 +49,8 @@ procd_append_param() { :; }
 procd_add_reload_trigger() { echo "trigger: $*" >> "${LOG_FILE}"; }
 config_load() { :; }
 config_foreach() { :; }
+service_framework_stop() { echo "framework_stop" >> "${LOG_FILE}"; stop_service; }
+service_framework_start() { echo "framework_start" >> "${LOG_FILE}"; start_service; }
 EOF
 
 # Mock firewall and dnsmasq init scripts
@@ -69,6 +71,9 @@ chmod +x "${MOCK_DIR}/etc/init.d/dnsmasq"
 cat << 'EOF' > "${MOCK_DIR}/bin/ip"
 #!/bin/sh
 echo "ip $*" >> "${LOG_FILE}"
+if [ "$1" = "rule" ] && [ "$2" = "show" ]; then
+    cat "${MOCK_DIR}/ip_rules.txt" 2>/dev/null || true
+fi
 exit 0
 EOF
 chmod +x "${MOCK_DIR}/bin/ip"
@@ -94,30 +99,34 @@ chmod +x "${MOCK_DIR}/opt/xray/current/xray"
 
 export PATH="${MOCK_DIR}/bin:${MOCK_DIR}/etc/init.d:${PATH}"
 export LOG_FILE="${MOCK_DIR}/commands.log"
-export CMD_FIREWALL_RESTART="${MOCK_DIR}/etc/init.d/firewall restart"
-export CMD_DNSMASQ_RESTART="${MOCK_DIR}/etc/init.d/dnsmasq restart"
-export CMD_IP="${MOCK_DIR}/bin/ip"
-export CMD_UTPL="${MOCK_DIR}/bin/utpl"
-export CMD_UCODE="${MOCK_DIR}/bin/ucode"
+export XRAY_RUNTIME_DIR="${MOCK_DIR}/var/etc/xray"
+export XRAY_RUN_DIR="${MOCK_DIR}/var/run"
+export XRAY_NFTABLES_DIR="${MOCK_DIR}/etc/nftables.d"
+export DNSMASQ_RUNTIME_ROOT="${MOCK_DIR}/tmp"
+export FIREWALL_INIT="${MOCK_DIR}/etc/init.d/firewall"
+export DNSMASQ_INIT="${MOCK_DIR}/etc/init.d/dnsmasq"
+export IP_BIN="${MOCK_DIR}/bin/ip"
+export UCODE_BIN="${MOCK_DIR}/bin/ucode"
+export UTPL_BIN="${MOCK_DIR}/bin/utpl"
 export TPROXY_MARKER="${MOCK_DIR}/var/run/xray_tproxy.active"
 
 # Test case 1: Fresh Reverse-only mode (start_service, stop_service, reload_service, service_triggers)
 {
     echo "\nTest Case 1: Fresh reverse-only lifecycle execution"
-    cat << 'EOF' > "${MOCK_DIR}/bin/uci"
+    cat << EOF > "${MOCK_DIR}/bin/uci"
 #!/bin/sh
-case "$*" in
+case "\$*" in
     *"reverse_only"*) echo "1" ;;
     *"transparent_proxy_enable"*) echo "0" ;;
-    *"xray_bin"*) echo "/opt/xray/current/xray" ;;
-    *"xray_location_asset"*) echo "/opt/xray/current" ;;
+    *"xray_bin"*) echo "${MOCK_DIR}/opt/xray/current/xray" ;;
+    *"xray_location_asset"*) echo "${MOCK_DIR}/opt/xray/current" ;;
     *) echo "" ;;
 esac
 exit 0
 EOF
     chmod +x "${MOCK_DIR}/bin/uci"
 
-    rm -f "${LOG_FILE}" "${TPROXY_MARKER}"
+    rm -f "${LOG_FILE}" "${TPROXY_MARKER}" "${MOCK_DIR}/ip_rules.txt"
     (
         . "${MOCK_DIR}/procd_mock.sh"
         . "${INIT_SCRIPT}"
@@ -141,12 +150,12 @@ EOF
 # Test case 2: Legacy transparent proxy mode lifecycle
 {
     echo "\nTest Case 2: Legacy transparent proxy mode creates marker and calls setup"
-    cat << 'EOF' > "${MOCK_DIR}/bin/uci"
+    cat << EOF > "${MOCK_DIR}/bin/uci"
 #!/bin/sh
-case "$*" in
+case "\$*" in
     *"reverse_only"*) echo "0" ;;
     *"transparent_proxy_enable"*) echo "1" ;;
-    *"xray_bin"*) echo "/opt/xray/current/xray" ;;
+    *"xray_bin"*) echo "${MOCK_DIR}/opt/xray/current/xray" ;;
     *) echo "" ;;
 esac
 exit 0
@@ -174,18 +183,18 @@ EOF
 # Test case 3: State transition from Active Legacy to Reverse-only
 {
     echo "\nTest Case 3: Transition from active transparent proxy to reverse-only cleans artifacts once"
-    # Create active marker and dummy artifacts
+    # Create active marker and dummy artifacts under mock root
     touch "${TPROXY_MARKER}"
     touch "${MOCK_DIR}/tmp/dnsmasq.d/xray.conf"
     touch "${MOCK_DIR}/var/etc/xray/01_firewall_include.nft"
 
     # Switch UCI to reverse_only=1
-    cat << 'EOF' > "${MOCK_DIR}/bin/uci"
+    cat << EOF > "${MOCK_DIR}/bin/uci"
 #!/bin/sh
-case "$*" in
+case "\$*" in
     *"reverse_only"*) echo "1" ;;
     *"transparent_proxy_enable"*) echo "0" ;;
-    *"xray_bin"*) echo "/opt/xray/current/xray" ;;
+    *"xray_bin"*) echo "${MOCK_DIR}/opt/xray/current/xray" ;;
     *) echo "" ;;
 esac
 exit 0
@@ -221,18 +230,21 @@ EOF
     assert_equal "0" "${LATER_DNSMASQ:-0}" "Subsequent reverse-only stop/reload must not call dnsmasq"
 }
 
-# Test case 4: Migration cleanup of pre-marker legacy artifacts
+# Test case 4: Migration cleanup of pre-marker legacy artifacts vs unrelated table 251 rules
 {
     echo "\nTest Case 4: Migration cleans unmanaged legacy artifacts on reverse-only start"
     rm -f "${TPROXY_MARKER}"
     touch "${MOCK_DIR}/tmp/dnsmasq.d/xray.conf"
 
-    cat << 'EOF' > "${MOCK_DIR}/bin/uci"
+    # Set up unrelated rule in ip_rules.txt that should NOT trigger false cleanup
+    echo "100: from all to 10.0.0.0/8 lookup 2510" > "${MOCK_DIR}/ip_rules.txt"
+
+    cat << EOF > "${MOCK_DIR}/bin/uci"
 #!/bin/sh
-case "$*" in
+case "\$*" in
     *"reverse_only"*) echo "1" ;;
     *"transparent_proxy_enable"*) echo "0" ;;
-    *"xray_bin"*) echo "/opt/xray/current/xray" ;;
+    *"xray_bin"*) echo "${MOCK_DIR}/opt/xray/current/xray" ;;
     *) echo "" ;;
 esac
 exit 0

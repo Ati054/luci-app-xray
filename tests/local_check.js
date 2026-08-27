@@ -80,5 +80,18 @@ for (const relPath of jsonFiles) {
     }
 }
 
+// Check Rule Encoding (.agents/rules/strict-developer.md)
+const rulePath = path.join(rootDir, '.agents', 'rules', 'strict-developer.md');
+if (fs.existsSync(rulePath)) {
+    const buffer = fs.readFileSync(rulePath);
+    const hasBOM = buffer.length >= 3 && buffer[0] === 0xEF && buffer[1] === 0xBB && buffer[2] === 0xBF;
+    assert(!hasBOM, '.agents/rules/strict-developer.md has no UTF-8 BOM');
+    const hasCRLF = buffer.includes(0x0D);
+    assert(!hasCRLF, '.agents/rules/strict-developer.md is LF-only');
+    const startsWithFrontmatter = buffer.length >= 4 &&
+        buffer[0] === 0x2D && buffer[1] === 0x2D && buffer[2] === 0x2D && buffer[3] === 0x0A;
+    assert(startsWithFrontmatter, '.agents/rules/strict-developer.md starts with "---\\n"');
+}
+
 console.log(`\nLocal checks: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

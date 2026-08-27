@@ -5,18 +5,41 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-echo "Running local syntax and structure checks..."
-if command -v node >/dev/null 2>&1; then
-    node "${SCRIPT_DIR}/local_check.js"
+echo "=== luci-app-xray Master Test Runner ==="
+
+# Check mandatory tools in CI mode
+if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
+    echo "Verifying mandatory CI tools..."
+    for tool in node ucode "${XRAY_BIN:-xray}" sha256sum unzip; do
+        if ! command -v "${tool}" >/dev/null 2>&1; then
+            echo "::error::Mandatory CI tool '${tool}' is missing."
+            exit 1
+        fi
+    done
+    echo "  [PASS] All mandatory CI tools are present."
 fi
 
-echo "\nRunning package metadata and standalone alignment tests..."
+echo "\n--- 1. Running local syntax and structure checks ---"
+if command -v node >/dev/null 2>&1; then
+    node "${SCRIPT_DIR}/local_check.js"
+    node "${SCRIPT_DIR}/test_checksum_parser.js"
+    node "${SCRIPT_DIR}/test_rule_encoding.js"
+else
+    if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
+        echo "::error::node runtime is required in CI mode."
+        exit 1
+    fi
+    echo "  [SKIP] node runtime not available in current environment."
+fi
+
+echo "\n--- 2. Running package metadata and standalone alignment tests ---"
 sh "${SCRIPT_DIR}/test_package_metadata.sh"
 
-echo "\nRunning ucode unit tests..."
+echo "\n--- 3. Running ucode unit tests and tag invariant contracts ---"
 if command -v ucode >/dev/null 2>&1; then
     ucode "${SCRIPT_DIR}/test_vless_reverse.uc"
     ucode "${SCRIPT_DIR}/test_reverse_only_generator.uc"
+    sh "${SCRIPT_DIR}/test_ucode_entrypoint.sh"
 else
     if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
         echo "::error::ucode CLI is required in CI mode."
@@ -25,11 +48,11 @@ else
     echo "  [SKIP] ucode CLI not available in current environment."
 fi
 
-echo "\nRunning init lifecycle and state transition tests..."
+echo "\n--- 4. Running init lifecycle and state transition tests ---"
 sh "${SCRIPT_DIR}/test_init_lifecycle.sh"
 
-echo "\nRunning Xray semantic validation..."
+echo "\n--- 5. Running Xray semantic validation ---"
 sh "${SCRIPT_DIR}/test_xray_validation.sh" "${XRAY_BIN:-xray}"
 
-echo "\nAll executable tests completed successfully."
+echo "\nAll test suites completed successfully."
 exit 0

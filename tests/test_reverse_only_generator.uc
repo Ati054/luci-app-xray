@@ -6,7 +6,10 @@ import {
     get_normal_vless_config,
     get_non_vless_reverse_config,
     get_duplicate_outbound_tags_config,
-    get_duplicate_reverse_tags_config
+    get_duplicate_reverse_tags_config,
+    get_reserved_tag_reverse_config,
+    get_reserved_reverse_tag_config,
+    get_alias_variant_configs
 } from "./fixtures/sample_configs.uc";
 
 let passed = 0;
@@ -157,8 +160,54 @@ import { outbounds_reverse, rules_reverse, gen_config_from_data } from "../core/
     assert(caught, "duplicate local reverse tags in reverse configuration must throw an error");
 }
 
+// Test 21: Reserved internal tag "reverse-egress" outbound rejection
+{
+    print("\nTest 21: Reserved internal tag 'reverse-egress' outbound rejection");
+    const config = get_reserved_tag_reverse_config();
+    let caught = false;
+    try {
+        outbounds_reverse(config["general"], config);
+    } catch (e) {
+        caught = true;
+    }
+    assert(caught, "server tag equal to reserved tag 'reverse-egress' must throw an error");
+}
+
+// Test 22: Reserved internal tag "reverse-egress" reverse tag rejection
+{
+    print("\nTest 22: Reserved internal tag 'reverse-egress' reverse tag rejection");
+    const config = get_reserved_reverse_tag_config();
+    let caught = false;
+    try {
+        outbounds_reverse(config["general"], config);
+    } catch (e) {
+        caught = true;
+    }
+    assert(caught, "vless_reverse_tag equal to reserved tag 'reverse-egress' must throw an error");
+}
+
+// Test 23 & 24: Stable fallback tag derivation (alias change invariant, explicit tag variation)
+{
+    print("\nTest 23 & 24: Stable fallback tag derivation");
+    const variants = get_alias_variant_configs();
+    const res_alias1 = gen_config_from_data(variants["cfg_alias1"]);
+    const res_alias2 = gen_config_from_data(variants["cfg_alias2"]);
+    const res_explicit = gen_config_from_data(variants["cfg_explicit_tag"]);
+
+    // Changing alias must NOT change generated internal fallback tags
+    assert(res_alias1.outbounds[2].tag == res_alias2.outbounds[2].tag, "outbound tags must be identical across alias changes");
+    assert(res_alias1.outbounds[2].settings.reverse.tag == res_alias2.outbounds[2].settings.reverse.tag, "reverse tags must be identical across alias changes");
+    assert(res_alias1.routing.rules[0].inboundTag[0] == res_alias2.routing.rules[0].inboundTag[0], "routing rule inboundTag must be identical across alias changes");
+
+    // Changing explicit technical tag DOES change generated tags
+    assert(res_explicit.outbounds[2].tag == "custom-explicit-tag", "explicit tag must be used when provided");
+    assert(res_explicit.outbounds[2].settings.reverse.tag == "reverse_custom-explicit-tag", "reverse tag must derive from explicit tag");
+    assert(res_explicit.routing.rules[0].inboundTag[0] == "reverse_custom-explicit-tag", "routing rule inboundTag must derive from explicit tag");
+}
+
 printf("\nSummary: %d passed, %d failed\n", passed, failed);
 if (failed > 0) {
     exit(1);
 }
 exit(0);
+
