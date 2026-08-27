@@ -254,7 +254,7 @@ function observatory(proxy, manual_tproxy) {
 
 export function server_tags(server) {
     const outbound_tag = server["tag"] || `server_${server[".name"]}`;
-    const reverse_tag = server["vless_reverse_tag"] || `reverse_${server["tag"] || server[".name"]}`;
+    const reverse_tag = server["vless_reverse_tag"] || `reverse_${outbound_tag}`;
     return {
         outbound_tag: outbound_tag,
         reverse_tag: reverse_tag
@@ -313,7 +313,8 @@ export function outbounds_reverse(general, config) {
             }
             seen_reverse_tags[reverse_tag] = true;
 
-            push(result, ...server_outbound(server, tag, config));
+            let server_clone = { ...server, vless_reverse_tag: reverse_tag };
+            push(result, ...server_outbound(server_clone, tag, config));
         }
     }
     return result;

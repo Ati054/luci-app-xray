@@ -137,7 +137,10 @@ gen_config_file() {
     done
     local custom_config
     custom_config="$(uci_get_by_type general custom_config)"
-    [ -n "${custom_config}" ] && echo "${custom_config}" > "${XRAY_RUNTIME_DIR}/config_custom.json"
+    if [ -n "${custom_config}" ]; then
+        echo "${custom_config}" > "${XRAY_RUNTIME_DIR}/config_custom.json"
+    fi
+    return 0
 }
 
 setup_dnsmasq_instance() {
