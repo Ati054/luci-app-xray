@@ -103,37 +103,13 @@ jobs:
           ln -s "${{ github.workspace }}" "package/$PACKAGE_NAME"
           ./scripts/feeds install -a
           cd -
+      - name: Fetch and Verify Official Xray 26.7.28
+        run: |
+          sh "${{ github.workspace }}/tests/ci/fetch_xray.sh" "v26.7.28" "/tmp/xray-bin"
       - name: Run Test Suite
         run: |
           export PATH="$SDK_HOME/staging_dir/host/bin:$PATH"
-          sh "${{ github.workspace }}/tests/run_tests.sh"
-      - name: Validate with Official Xray 26.7.28
-        run: |
-          XRAY_VERSION="v26.7.28"
-          XRAY_ZIP="Xray-linux-64.zip"
-          XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${XRAY_ZIP}"
-          XRAY_DGST_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${XRAY_ZIP}.dgst"
-
-          mkdir -p /tmp/xray-bin
-          cd /tmp/xray-bin
-          wget -q "${XRAY_URL}"
-          wget -q "${XRAY_DGST_URL}"
-
-          EXPECTED_SHA=$(grep -i "SHA256" "${XRAY_ZIP}.dgst" | awk '{print $NF}')
-          if [ -z "${EXPECTED_SHA}" ]; then
-            EXPECTED_SHA=$(grep -i "SHA256" "${XRAY_ZIP}.dgst" | cut -d'=' -f2 | tr -d ' ')
-          fi
-          if [ -z "${EXPECTED_SHA}" ]; then
-            echo "::error::Could not extract SHA256 checksum from ${XRAY_ZIP}.dgst"
-            exit 1
-          fi
-          echo "${EXPECTED_SHA}  ${XRAY_ZIP}" | sha256sum -c -
-
-          unzip -q -o "${XRAY_ZIP}"
-          chmod +x xray
-          ./xray version
-          sh "${{ github.workspace }}/tests/test_xray_validation.sh" /tmp/xray-bin/xray
-          cd -
+          CI=true XRAY_BIN="/tmp/xray-bin/xray" sh "${{ github.workspace }}/tests/run_tests.sh"
       - name: Build Packages
         run: |
           cd "$SDK_HOME"

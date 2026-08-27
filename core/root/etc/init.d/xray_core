@@ -5,16 +5,21 @@ STOP=15
 USE_PROCD=1
 NAME=xray_core
 
-CMD_IP="${CMD_IP:-ip}"
-CMD_UTPL="${CMD_UTPL:-/usr/bin/utpl}"
-CMD_UCODE="${CMD_UCODE:-/usr/bin/ucode}"
-CMD_FIREWALL_RESTART="${CMD_FIREWALL_RESTART:-/etc/init.d/firewall restart}"
-CMD_DNSMASQ_RESTART="${CMD_DNSMASQ_RESTART:-/etc/init.d/dnsmasq restart}"
-TPROXY_MARKER="${TPROXY_MARKER:-/var/run/xray_tproxy.active}"
+XRAY_RUNTIME_DIR="${XRAY_RUNTIME_DIR:-/var/etc/xray}"
+XRAY_RUN_DIR="${XRAY_RUN_DIR:-/var/run}"
+XRAY_NFTABLES_DIR="${XRAY_NFTABLES_DIR:-/etc/nftables.d}"
+DNSMASQ_RUNTIME_ROOT="${DNSMASQ_RUNTIME_ROOT:-/tmp}"
+FIREWALL_INIT="${FIREWALL_INIT:-/etc/init.d/firewall}"
+DNSMASQ_INIT="${DNSMASQ_INIT:-/etc/init.d/dnsmasq}"
+IP_BIN="${IP_BIN:-ip}"
+UCODE_BIN="${UCODE_BIN:-/usr/bin/ucode}"
+UTPL_BIN="${UTPL_BIN:-/usr/bin/utpl}"
+TPROXY_MARKER="${TPROXY_MARKER:-${XRAY_RUN_DIR}/xray_tproxy.active}"
 
 uci_get_by_type() {
-    local ret=$(uci get ${NAME}.@$1[0].$2 2>/dev/null)
-    echo ${ret:=$3}
+    local ret
+    ret="$(uci get "${NAME}.@${1}[0].${2}" 2>/dev/null)" || true
+    echo "${ret:-$3}"
 }
 
 is_reverse_only() {
@@ -27,75 +32,74 @@ is_transparent_proxy() {
 
 has_tproxy_artifacts() {
     [ -f "${TPROXY_MARKER}" ] && return 0
-    [ -f /var/etc/xray/01_firewall_include.nft ] && return 0
-    [ -f /tmp/dnsmasq.d/xray.conf ] && return 0
+    [ -f "${XRAY_RUNTIME_DIR}/01_firewall_include.nft" ] && return 0
+    [ -f "${DNSMASQ_RUNTIME_ROOT}/dnsmasq.d/xray.conf" ] && return 0
     local f
-    for f in /tmp/dnsmasq.*.d/xray.conf; do
-        [ -f "$f" ] && return 0
+    for f in "${DNSMASQ_RUNTIME_ROOT}"/dnsmasq.*.d/xray.conf; do
+        [ -f "${f}" ] && return 0
     done
-    if ${CMD_IP} rule show 2>/dev/null | grep -q "lookup 251"; then
+    if "${IP_BIN}" rule show 2>/dev/null | grep -E -q "fwmark (0xfb|251) lookup 251(\b|$)"; then
         return 0
     fi
-    if ${CMD_IP} -6 rule show 2>/dev/null | grep -q "lookup 251"; then
+    if "${IP_BIN}" -6 rule show 2>/dev/null | grep -E -q "fwmark (0xfb|251) lookup 251(\b|$)"; then
         return 0
     fi
     return 1
 }
 
 setup_firewall() {
-    ${CMD_IP} rule add fwmark 251 lookup 251 2>/dev/null || true
-    ${CMD_IP} route add local default dev lo table 251 2>/dev/null || true
-    ${CMD_IP} -6 rule add fwmark 251 lookup 251 2>/dev/null || true
-    ${CMD_IP} -6 route add local default dev lo table 251 2>/dev/null || true
+    "${IP_BIN}" rule add fwmark 251 lookup 251 2>/dev/null || true
+    "${IP_BIN}" route add local default dev lo table 251 2>/dev/null || true
+    "${IP_BIN}" -6 rule add fwmark 251 lookup 251 2>/dev/null || true
+    "${IP_BIN}" -6 route add local default dev lo table 251 2>/dev/null || true
 
-    logger -st xray[$$] -p4 "Generating firewall4 rules..."
-    ${CMD_UTPL} /usr/share/xray/firewall_include.ut > /var/etc/xray/01_firewall_include.nft
+    logger -st "xray[$$]" -p4 "Generating firewall4 rules..."
+    "${UTPL_BIN}" /usr/share/xray/firewall_include.ut > "${XRAY_RUNTIME_DIR}/01_firewall_include.nft"
 
-    logger -st xray[$$] -p4 "Triggering firewall4 restart..."
-    ${CMD_FIREWALL_RESTART}
+    logger -st "xray[$$]" -p4 "Triggering firewall4 restart..."
+    "${FIREWALL_INIT}" restart
 }
 
 flush_firewall() {
-    ${CMD_IP} rule del fwmark 251 lookup 251 2>/dev/null || true
-    ${CMD_IP} route del local default dev lo table 251 2>/dev/null || true
-    ${CMD_IP} -6 rule del fwmark 251 lookup 251 2>/dev/null || true
-    ${CMD_IP} -6 route del local default dev lo table 251 2>/dev/null || true
+    "${IP_BIN}" rule del fwmark 251 lookup 251 2>/dev/null || true
+    "${IP_BIN}" route del local default dev lo table 251 2>/dev/null || true
+    "${IP_BIN}" -6 rule del fwmark 251 lookup 251 2>/dev/null || true
+    "${IP_BIN}" -6 route del local default dev lo table 251 2>/dev/null || true
 
-    logger -st xray[$$] -p4 "Flushing firewall4 rules..."
-    rm -f /var/etc/xray/*.nft
+    logger -st "xray[$$]" -p4 "Flushing firewall4 rules..."
+    rm -f "${XRAY_RUNTIME_DIR}"/*.nft
 
-    logger -st xray[$$] -p4 "Triggering firewall4 restart..."
-    ${CMD_FIREWALL_RESTART}
+    logger -st "xray[$$]" -p4 "Triggering firewall4 restart..."
+    "${FIREWALL_INIT}" restart
 }
 
 log_procd_set_param() {
     local type="$1"
     shift
-    logger -st xray[$$] -p4 "Using procd_set_param $type" "$@"
+    logger -st "xray[$$]" -p4 "Using procd_set_param ${type}" "$@"
 }
 
 start_xray() {
-    logger -st xray[$$] -p4 "Starting Xray from $1"
+    logger -st "xray[$$]" -p4 "Starting Xray from $1"
     procd_open_instance
     procd_set_param respawn 1 1 0
-    procd_set_param command $1
+    procd_set_param command "$1"
     procd_append_param command run
     procd_append_param command -confdir
-    procd_append_param command /var/etc/xray
+    procd_append_param command "${XRAY_RUNTIME_DIR}"
 
-    local rlimit_nofile
-    if [ -s /usr/share/xray/rlimit_nofile ] ; then
-        rlimit_nofile="nofile=""$(cat /usr/share/xray/rlimit_nofile)"
+    local rlimit_nofile=""
+    if [ -s /usr/share/xray/rlimit_nofile ]; then
+        rlimit_nofile="nofile=$(cat /usr/share/xray/rlimit_nofile)"
     fi
 
-    local rlimit_data
-    if [ -s /usr/share/xray/rlimit_data ] ; then
-        rlimit_data="data=""$(cat /usr/share/xray/rlimit_data)"
+    local rlimit_data=""
+    if [ -s /usr/share/xray/rlimit_data ]; then
+        rlimit_data="data=$(cat /usr/share/xray/rlimit_data)"
     fi
 
-    # this param passing method is just so fucking weird
-    if [ -z "${rlimit_nofile}" ] ; then
-        if [ ! -z "${rlimit_data}" ]; then
+    if [ -z "${rlimit_nofile}" ]; then
+        if [ -n "${rlimit_data}" ]; then
             log_procd_set_param limits "${rlimit_data}"
             procd_set_param limits "${rlimit_data}"
         fi
@@ -109,61 +113,65 @@ start_xray() {
         fi
     fi
 
-    local asset_location=$(uci_get_by_type general xray_location_asset /opt/xray/current)
+    local asset_location
+    asset_location="$(uci_get_by_type general xray_location_asset /opt/xray/current)"
     procd_set_param env XRAY_LOCATION_ASSET="${asset_location}"
     procd_set_param stdout 1
     procd_set_param stderr 1
     procd_set_param file /etc/config/xray_core
-    procd_set_param pidfile /var/run/xray.pid
+    procd_set_param pidfile "${XRAY_RUN_DIR}/xray.pid"
     procd_close_instance
 }
 
 gen_config_file() {
-    rm -f /etc/nftables.d/99-xray.nft /var/etc/xray/*
+    rm -f "${XRAY_NFTABLES_DIR}/99-xray.nft" "${XRAY_RUNTIME_DIR}"/*
+    local gen_config_file_attempt
     for gen_config_file_attempt in 1 2 3 4 5; do
-        logger -st xray[$$] -p4 "Generating Xray configuration files (attempt ${gen_config_file_attempt})..."
-        ${CMD_UCODE} /usr/share/xray/gen_config.uc > /var/etc/xray/config.json
-        if [ -s /var/etc/xray/config.json ] ; then
+        logger -st "xray[$$]" -p4 "Generating Xray configuration files (attempt ${gen_config_file_attempt})..."
+        "${UCODE_BIN}" /usr/share/xray/gen_config.uc > "${XRAY_RUNTIME_DIR}/config.json"
+        if [ -s "${XRAY_RUNTIME_DIR}/config.json" ]; then
             break
         else
             sleep 1
         fi
     done
-    local custom_config=$(uci_get_by_type general custom_config)
-    [ ! "${#custom_config}" == "0" ] && echo ${custom_config} > /var/etc/xray/config_custom.json
+    local custom_config
+    custom_config="$(uci_get_by_type general custom_config)"
+    [ -n "${custom_config}" ] && echo "${custom_config}" > "${XRAY_RUNTIME_DIR}/config_custom.json"
 }
 
 setup_dnsmasq_instance() {
-    local instance_dir="/tmp/dnsmasq.${1:+"${1}."}d"
-    mkdir -p ${instance_dir}
-    ${CMD_UTPL} /usr/share/xray/dnsmasq_include.ut > ${instance_dir}/xray.conf
-    logger -st xray[$$] -p4 $(cat ${instance_dir}/xray.conf 2>/dev/null || true)
+    local instance_dir="${DNSMASQ_RUNTIME_ROOT}/dnsmasq.${1:+"${1}."}d"
+    mkdir -p "${instance_dir}"
+    "${UTPL_BIN}" /usr/share/xray/dnsmasq_include.ut > "${instance_dir}/xray.conf"
+    logger -st "xray[$$]" -p4 "$(cat "${instance_dir}/xray.conf" 2>/dev/null || true)"
 }
 
 setup_dnsmasq() {
-    if [ "$(uci_get_by_type general dnsmasq_integration_mode)" == "per_instance" ]; then
+    if [ "$(uci_get_by_type general dnsmasq_integration_mode)" = "per_instance" ]; then
+        local instance
         for instance in $(uci_get_by_type general dnsmasq_instances); do
-            setup_dnsmasq_instance ${instance}
+            setup_dnsmasq_instance "${instance}"
         done
     else
         config_load dhcp
         setup_dnsmasq_instance
         config_foreach setup_dnsmasq_instance dnsmasq
     fi
-    ${CMD_DNSMASQ_RESTART} > /dev/null 2>&1
+    "${DNSMASQ_INIT}" restart >/dev/null 2>&1
 }
 
 flush_dnsmasq() {
-    rm -f /tmp/dnsmasq.d/xray.conf /tmp/dnsmasq.*.d/xray.conf
-    ${CMD_DNSMASQ_RESTART} > /dev/null 2>&1
+    rm -f "${DNSMASQ_RUNTIME_ROOT}/dnsmasq.d/xray.conf" "${DNSMASQ_RUNTIME_ROOT}"/dnsmasq.*.d/xray.conf
+    "${DNSMASQ_INIT}" restart >/dev/null 2>&1
 }
 
 create_when_enable() {
     if is_transparent_proxy; then
-        logger -st xray[$$] -p4 "Setting dnsmasq and firewall for transparent proxy..."
+        logger -st "xray[$$]" -p4 "Setting dnsmasq and firewall for transparent proxy..."
         setup_dnsmasq
         setup_firewall
-        logger -st xray[$$] -p4 $(${CMD_UCODE} /usr/share/xray/default_gateway.uc)
+        logger -st "xray[$$]" -p4 "$("${UCODE_BIN}" /usr/share/xray/default_gateway.uc)"
         touch "${TPROXY_MARKER}" 2>/dev/null || true
     else
         flush_when_disable
@@ -172,7 +180,7 @@ create_when_enable() {
 
 flush_when_disable() {
     if has_tproxy_artifacts; then
-        logger -st xray[$$] -p4 "Resetting dnsmasq and firewall configurations..."
+        logger -st "xray[$$]" -p4 "Resetting dnsmasq and firewall configurations..."
         flush_dnsmasq
         flush_firewall
         rm -f "${TPROXY_MARKER}"
@@ -180,12 +188,13 @@ flush_when_disable() {
 }
 
 start_service() {
-    config_load $NAME
-    mkdir -p /var/run /var/etc/xray
-    local xray_bin=$(uci_get_by_type general xray_bin /opt/xray/current/xray)
-    command -v ${xray_bin} > /dev/null 2>&1 || return 1
+    config_load "${NAME}"
+    mkdir -p "${XRAY_RUN_DIR}" "${XRAY_RUNTIME_DIR}"
+    local xray_bin
+    xray_bin="$(uci_get_by_type general xray_bin /opt/xray/current/xray)"
+    command -v "${xray_bin}" >/dev/null 2>&1 || return 1
     gen_config_file
-    start_xray ${xray_bin}
+    start_xray "${xray_bin}"
     create_when_enable || flush_when_disable
 }
 
@@ -193,9 +202,17 @@ stop_service() {
     flush_when_disable
 }
 
-reload_service() {
+service_framework_stop() {
     stop
+}
+
+service_framework_start() {
     start
+}
+
+reload_service() {
+    service_framework_stop
+    service_framework_start
 }
 
 service_triggers() {

@@ -252,6 +252,15 @@ function observatory(proxy, manual_tproxy) {
     return null;
 }
 
+export function server_tags(server) {
+    const outbound_tag = server["tag"] || `server_${server[".name"]}`;
+    const reverse_tag = server["vless_reverse_tag"] || `reverse_${server["tag"] || server[".name"]}`;
+    return {
+        outbound_tag: outbound_tag,
+        reverse_tag: reverse_tag
+    };
+}
+
 export function outbounds_reverse(general, config) {
     let result = [
         {
@@ -283,8 +292,16 @@ export function outbounds_reverse(general, config) {
             if (server["protocol"] != "vless") {
                 die("Only VLESS protocol is supported for Reverse outbounds");
             }
-            const tag = server["tag"] || server["alias"] || `reverse_${server[".name"]}`;
-            const reverse_tag = server["vless_reverse_tag"] || `reverse_${tag}`;
+            const tags = server_tags(server);
+            const tag = tags.outbound_tag;
+            const reverse_tag = tags.reverse_tag;
+
+            if (tag == "reverse-egress") {
+                die("Outbound tag 'reverse-egress' is reserved for internal egress routing");
+            }
+            if (reverse_tag == "reverse-egress") {
+                die("Reverse tag 'reverse-egress' is reserved for internal egress routing");
+            }
 
             if (seen_outbound_tags[tag]) {
                 die(`Duplicate outbound tag: ${tag}`);
@@ -313,8 +330,16 @@ export function rules_reverse(general, config) {
             if (server["protocol"] != "vless") {
                 die("Only VLESS protocol is supported for Reverse outbounds");
             }
-            const tag = server["tag"] || server["alias"] || `reverse_${server[".name"]}`;
-            const reverse_tag = server["vless_reverse_tag"] || `reverse_${tag}`;
+            const tags = server_tags(server);
+            const tag = tags.outbound_tag;
+            const reverse_tag = tags.reverse_tag;
+
+            if (tag == "reverse-egress") {
+                die("Outbound tag 'reverse-egress' is reserved for internal egress routing");
+            }
+            if (reverse_tag == "reverse-egress") {
+                die("Reverse tag 'reverse-egress' is reserved for internal egress routing");
+            }
 
             if (seen_outbound_tags[tag]) {
                 die(`Duplicate outbound tag: ${tag}`);
