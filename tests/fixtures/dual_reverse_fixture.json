@@ -1,0 +1,90 @@
+{
+  "log": {
+    "access": "none",
+    "loglevel": "warning",
+    "dnsLog": false
+  },
+  "inbounds": [],
+  "outbounds": [
+    {
+      "protocol": "freedom"
+    },
+    {
+      "protocol": "freedom",
+      "tag": "reverse-egress",
+      "settings": {
+        "domainStrategy": "UseIP"
+      }
+    },
+    {
+      "protocol": "vless",
+      "tag": "reverse-raw",
+      "settings": {
+        "address": "198.51.100.1",
+        "port": 443,
+        "id": "00000000-0000-0000-0000-000000000001",
+        "flow": "xtls-rprx-vision",
+        "encryption": "none",
+        "reverse": {
+          "tag": "reverse-raw-in"
+        }
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "fingerprint": "chrome",
+          "serverName": "example.com",
+          "publicKey": "dummy_public_key_for_testing",
+          "shortId": "0123456789abcdef",
+          "spiderX": ""
+        },
+        "sockopt": {
+          "domainStrategy": "UseIP"
+        }
+      }
+    },
+    {
+      "protocol": "vless",
+      "tag": "reverse-xhttp",
+      "settings": {
+        "address": "198.51.100.2",
+        "port": 8443,
+        "id": "00000000-0000-0000-0000-000000000002",
+        "encryption": "none",
+        "reverse": {
+          "tag": "reverse-xhttp-in"
+        }
+      },
+      "streamSettings": {
+        "network": "splithttp",
+        "security": "none",
+        "splithttpSettings": {
+          "host": "xhttp.example.com",
+          "path": "/xhttp-path"
+        },
+        "sockopt": {
+          "domainStrategy": "UseIP"
+        }
+      }
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "reverse-raw-in",
+          "reverse-xhttp-in"
+        ],
+        "outboundTag": "reverse-egress",
+        "network": "tcp,udp",
+        "ip": [
+          "!geoip:private"
+        ]
+      }
+    ]
+  }
+}
