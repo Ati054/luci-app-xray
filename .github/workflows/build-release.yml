@@ -51,7 +51,7 @@ jobs:
             openwrt-${{ matrix.arch }}-${{ matrix.id }}-${{ env.PACKAGE_NAME }}-
       - name: Install Dependencies
         run: |
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y ccache gettext libncurses5-dev xsltproc zstd unzip
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y ccache gettext libncurses5-dev xsltproc zstd unzip libjson-c-dev cmake pkg-config
       - name: Create Directories
         run: |
           CACHE_DIR_SDK="$(eval echo "$CACHE_DIR/sdk")"
@@ -103,12 +103,15 @@ jobs:
           ln -s "${{ github.workspace }}" "package/$PACKAGE_NAME"
           ./scripts/feeds install -a
           cd -
+      - name: Build and Install Host ucode with UCI
+        run: |
+          sh "${{ github.workspace }}/tests/ci/setup_ucode.sh"
       - name: Fetch and Verify Official Xray 26.7.28
         run: |
           sh "${{ github.workspace }}/tests/ci/fetch_xray.sh" "v26.7.28" "/tmp/xray-bin"
       - name: Run Test Suite
         run: |
-          export PATH="$SDK_HOME/staging_dir/host/bin:$PATH"
+          export PATH="/usr/local/bin:$SDK_HOME/staging_dir/host/bin:$PATH"
           CI=true XRAY_BIN="/tmp/xray-bin/xray" sh "${{ github.workspace }}/tests/run_tests.sh"
       - name: Build Packages
         run: |
