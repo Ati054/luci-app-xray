@@ -142,23 +142,26 @@ jobs:
           make package/${PACKAGE_NAME}/core/{clean,compile} V=s
           make package/${PACKAGE_NAME}/status/{clean,compile} V=s
 
+          echo "## Package Build Output" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          find "$SDK_HOME/bin/" -type f \( -name "*.ipk" -o -name "*.apk" \) -exec ls -lh {} \; | tee -a "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+
           if [ "${{ matrix.id }}" = "25.12" ]; then
-            CORE_APK=$(find "$SDK_HOME/bin/" -type f \( -name "luci-app-xray_*.apk" -o -name "luci-app-xray-core*.apk" \) | grep -v "status" | grep -v "geodata" | head -n 1 || true)
+            CORE_APK=$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray*.apk" | grep -v "status" | grep -v "geodata" | head -n 1 || true)
             if [ -z "$CORE_APK" ]; then
               echo "::error::OpenWrt 25.12 build failed to produce core .apk package"
               exit 1
             fi
             echo "Found core APK package: $CORE_APK"
           elif [ "${{ matrix.id }}" = "23.05" ]; then
-            CORE_IPK=$(find "$SDK_HOME/bin/" -type f \( -name "luci-app-xray_*.ipk" -o -name "luci-app-xray-core*.ipk" \) | grep -v "status" | grep -v "geodata" | head -n 1 || true)
+            CORE_IPK=$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray*.ipk" | grep -v "status" | grep -v "geodata" | head -n 1 || true)
             if [ -z "$CORE_IPK" ]; then
               echo "::error::OpenWrt 23.05 build failed to produce core .ipk package"
               exit 1
             fi
             echo "Found core IPK package: $CORE_IPK"
           fi
-
-          find "$SDK_HOME/bin/" -type f \( -name "*.ipk" -o -name "*.apk" \) -exec ls -lh {} \;
           cd -
       - name: Copy Bin Files
         run: |
