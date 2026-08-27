@@ -37,5 +37,42 @@ try {
     assert(false, `Fixture JSON parsing failed: ${e.message}`);
 }
 
+// Check LuCI JS files syntax
+const jsFiles = [
+    'core/root/www/luci-static/resources/view/xray/core.js',
+    'core/root/www/luci-static/resources/view/xray/preview.js',
+    'core/root/www/luci-static/resources/view/xray/protocol.js',
+    'core/root/www/luci-static/resources/view/xray/shared.js',
+    'core/root/www/luci-static/resources/view/xray/transport.js'
+];
+
+for (const relPath of jsFiles) {
+    try {
+        const fullPath = path.join(rootDir, relPath);
+        const code = fs.readFileSync(fullPath, 'utf8');
+        new Function(code);
+        assert(true, `Syntax check passed for ${relPath}`);
+    } catch (e) {
+        assert(false, `Syntax error in ${relPath}: ${e.message}`);
+    }
+}
+
+// Check JSON files validity
+const jsonFiles = [
+    'core/root/usr/share/luci/menu.d/luci-app-xray.json',
+    'core/root/usr/share/rpcd/acl.d/luci-app-xray.json'
+];
+
+for (const relPath of jsonFiles) {
+    try {
+        const fullPath = path.join(rootDir, relPath);
+        const content = fs.readFileSync(fullPath, 'utf8');
+        JSON.parse(content);
+        assert(true, `JSON valid for ${relPath}`);
+    } catch (e) {
+        assert(false, `JSON error in ${relPath}: ${e.message}`);
+    }
+}
+
 console.log(`\nLocal checks: ${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

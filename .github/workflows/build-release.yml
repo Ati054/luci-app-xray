@@ -24,8 +24,8 @@ jobs:
             sdk_name: -sdk-23.05.5-x86-64_
           - id: 25.12
             arch: x86_64
-            sdk_url_path: https://downloads.openwrt.org/releases/25.12.2/targets/x86/64
-            sdk_name: -sdk-25.12.2-x86-64_
+            sdk_url_path: https://downloads.openwrt.org/releases/25.12.5/targets/x86/64
+            sdk_name: -sdk-25.12.5-x86-64_
 
     env:
       SDK_URL_PATH: ${{ matrix.sdk_url_path }}
@@ -51,7 +51,7 @@ jobs:
             openwrt-${{ matrix.arch }}-${{ matrix.id }}-${{ env.PACKAGE_NAME }}-
       - name: Install Dependencies
         run: |
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y ccache gettext libncurses5-dev xsltproc zstd
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y ccache gettext libncurses5-dev xsltproc zstd unzip
       - name: Create Directories
         run: |
           CACHE_DIR_SDK="$(eval echo "$CACHE_DIR/sdk")"
@@ -103,11 +103,44 @@ jobs:
           ln -s "${{ github.workspace }}" "package/$PACKAGE_NAME"
           ./scripts/feeds install -a
           cd -
+      - name: Run Test Suite
+        run: |
+          export PATH="$SDK_HOME/staging_dir/host/bin:$PATH"
+          sh "${{ github.workspace }}/tests/run_tests.sh"
+      - name: Validate with Official Xray 26.7.28
+        run: |
+          XRAY_VERSION="v26.7.28"
+          XRAY_ZIP="Xray-linux-64.zip"
+          XRAY_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${XRAY_ZIP}"
+          XRAY_DGST_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}/${XRAY_ZIP}.dgst"
+
+          mkdir -p /tmp/xray-bin
+          cd /tmp/xray-bin
+          wget -q "${XRAY_URL}"
+          wget -q "${XRAY_DGST_URL}"
+
+          EXPECTED_SHA=$(grep -i "SHA256" "${XRAY_ZIP}.dgst" | awk '{print $NF}')
+          if [ -z "${EXPECTED_SHA}" ]; then
+            EXPECTED_SHA=$(grep -i "SHA256" "${XRAY_ZIP}.dgst" | cut -d'=' -f2 | tr -d ' ')
+          fi
+          if [ -z "${EXPECTED_SHA}" ]; then
+            echo "::error::Could not extract SHA256 checksum from ${XRAY_ZIP}.dgst"
+            exit 1
+          fi
+          echo "${EXPECTED_SHA}  ${XRAY_ZIP}" | sha256sum -c -
+
+          unzip -q -o "${XRAY_ZIP}"
+          chmod +x xray
+          ./xray version
+          sh "${{ github.workspace }}/tests/test_xray_validation.sh" /tmp/xray-bin/xray
+          cd -
       - name: Build Packages
         run: |
           cd "$SDK_HOME"
           make defconfig
+          make package/${PACKAGE_NAME}/core/{clean,compile} V=s
           make package/${PACKAGE_NAME}/status/{clean,compile} V=s
+          make package/${PACKAGE_NAME}/geodata/{clean,compile} V=s
           find "$SDK_HOME/bin/" -type f \( -name "*.ipk" -o -name "*.apk" \) -exec ls -lh {} \;
           cd -
       - name: Copy Bin Files

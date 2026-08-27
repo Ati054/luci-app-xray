@@ -24,6 +24,37 @@ export function vless_outbound(server, tag) {
     const stream_settings_object = stream_settings(server, "vless", tag);
     const stream_settings_result = stream_settings_object["stream_settings"];
     const dialer_proxy = stream_settings_object["dialer_proxy"];
+    const is_reverse = server["reverse"] == "1" || server["vless_reverse"] == "1" || server["reverse_tag"] != null || server["vless_reverse_tag"] != null;
+
+    if (is_reverse) {
+        const ports = port_array(server["server_port"]);
+        if (length(ports) != 1 || !server["server"]) {
+            die("Reverse VLESS outbound requires exactly one server endpoint and port");
+        }
+        const reverse_tag = server["reverse_tag"] || server["vless_reverse_tag"] || `reverse_${tag}`;
+        let reverse_settings = {
+            address: server["server"],
+            port: ports[0],
+            id: server["password"],
+            encryption: server["vless_encryption"] || "none",
+            reverse: {
+                tag: reverse_tag
+            }
+        };
+        if (flow != null && flow != "none" && flow != "") {
+            reverse_settings["flow"] = flow;
+        }
+        return {
+            outbound: {
+                protocol: "vless",
+                tag: tag,
+                settings: reverse_settings,
+                streamSettings: stream_settings_result
+            },
+            dialer_proxy: dialer_proxy
+        };
+    }
+
     return {
         outbound: {
             protocol: "vless",

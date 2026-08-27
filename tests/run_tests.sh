@@ -5,7 +5,12 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-echo "Running ucode unit tests..."
+echo "Running local syntax and structure checks..."
+if command -v node >/dev/null 2>&1; then
+    node "${SCRIPT_DIR}/local_check.js"
+fi
+
+echo "\nRunning ucode unit tests..."
 if command -v ucode >/dev/null 2>&1; then
     ucode "${SCRIPT_DIR}/test_vless_reverse.uc"
     ucode "${SCRIPT_DIR}/test_reverse_only_generator.uc"

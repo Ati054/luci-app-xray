@@ -252,15 +252,77 @@ function observatory(proxy, manual_tproxy) {
     return null;
 }
 
-function gen_config() {
-    const config = load_config();
+export function outbounds_reverse(general, config) {
+    let result = [
+        {
+            protocol: "freedom"
+        },
+        {
+            protocol: "freedom",
+            tag: "reverse-egress",
+            settings: {
+                domainStrategy: "UseIP"
+            }
+        }
+    ];
+    for (let server in filter(values(config), v => v[".type"] == "servers")) {
+        const is_reverse = server["reverse"] == "1" || server["vless_reverse"] == "1" || server["reverse_tag"] != null || server["vless_reverse_tag"] != null;
+        if (is_reverse) {
+            const tag = server["tag"] || server["alias"] || `reverse_${server[".name"]}`;
+            push(result, ...server_outbound(server, tag, config));
+        }
+    }
+    return result;
+}
+
+export function rules_reverse(general, config) {
+    let inbound_tags = [];
+    for (let server in filter(values(config), v => v[".type"] == "servers")) {
+        const is_reverse = server["reverse"] == "1" || server["vless_reverse"] == "1" || server["reverse_tag"] != null || server["vless_reverse_tag"] != null;
+        if (is_reverse) {
+            const reverse_tag = server["reverse_tag"] || server["vless_reverse_tag"] || `reverse_${server["tag"] || server["alias"] || server[".name"]}`;
+            push(inbound_tags, reverse_tag);
+        }
+    }
+    return [
+        {
+            type: "field",
+            inboundTag: inbound_tags,
+            outboundTag: "reverse-egress",
+            network: "tcp,udp",
+            ip: [
+                "!geoip:private"
+            ]
+        }
+    ];
+}
+
+export function gen_config_from_data(config) {
+    const general = filter(values(config), k => k[".type"] == "general")[0] || {};
+    const custom_configuration_hook = loadstring(general["custom_configuration_hook"] || "return i => i;")();
+
+    if (general["reverse_only"] == "1") {
+        let result = {
+            log: {
+                access: "none",
+                loglevel: general["loglevel"] || "warning",
+                dnsLog: false
+            },
+            inbounds: [],
+            outbounds: outbounds_reverse(general, config),
+            routing: {
+                domainStrategy: general["routing_domain_strategy"] || "AsIs",
+                rules: rules_reverse(general, config)
+            }
+        };
+        return custom_configuration_hook(result);
+    }
+
     const bridge = filter(values(config), v => v[".type"] == "bridge") || [];
     const fakedns = filter(values(config), v => v[".type"] == "fakedns") || [];
     const extra_inbound = filter(values(config), v => v[".type"] == "extra_inbound") || [];
     const manual_tproxy = filter(values(config), v => v[".type"] == "manual_tproxy") || [];
 
-    const general = filter(values(config), k => k[".type"] == "general")[0] || {};
-    const custom_configuration_hook = loadstring(general["custom_configuration_hook"] || "return i => i;")();
     let result = {
         inbounds: inbounds(general, config, extra_inbound),
         outbounds: outbounds(general, config, manual_tproxy, bridge, extra_inbound, fakedns),
@@ -289,4 +351,11 @@ function gen_config() {
     return custom_configuration_hook(result);
 }
 
-printf("%.4J", gen_config());
+export function gen_config() {
+    const config = load_config();
+    return gen_config_from_data(config);
+}
+
+if (length(filter(values(load_config()), k => k[".type"] == "general")) > 0) {
+    printf("%.4J\n", gen_config());
+}

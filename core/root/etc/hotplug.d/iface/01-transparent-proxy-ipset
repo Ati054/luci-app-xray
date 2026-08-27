@@ -1,2 +1,4 @@
 #!/bin/sh
-logger -st transparent-proxy-ipset[$$] -p6 "$(ucode /usr/share/xray/default_gateway.uc)"
+if [ "$(uci get xray_core.@general[0].reverse_only 2>/dev/null)" != "1" ] && [ "$(uci get xray_core.@general[0].transparent_proxy_enable 2>/dev/null)" = "1" ]; then
+    logger -st transparent-proxy-ipset[$$] -p6 "$(ucode /usr/share/xray/default_gateway.uc)"
+fi

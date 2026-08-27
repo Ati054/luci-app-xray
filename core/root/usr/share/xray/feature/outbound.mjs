@@ -51,13 +51,16 @@ function server_outbound_recursive(t, server, tag, config) {
         }
     }
     outbound["tag"] = tag;
-    if (type(outbound["streamSettings"]) != "object") {
-        outbound["streamSettings"] = {};
+    const is_reverse = server["reverse"] == "1" || server["vless_reverse"] == "1" || server["reverse_tag"] != null || server["vless_reverse_tag"] != null;
+    if (!is_reverse) {
+        if (type(outbound["streamSettings"]) != "object") {
+            outbound["streamSettings"] = {};
+        }
+        if (type(outbound["streamSettings"]["sockopt"]) != "object") {
+            outbound["streamSettings"]["sockopt"] = {};
+        }
+        outbound["streamSettings"]["sockopt"]["mark"] = outbound_mark;
     }
-    if (type(outbound["streamSettings"]["sockopt"]) != "object") {
-        outbound["streamSettings"]["sockopt"] = {};
-    }
-    outbound["streamSettings"]["sockopt"]["mark"] = outbound_mark;
 
     const dialer_proxy = outbound_result["dialer_proxy"];
     const result = [...t, outbound];

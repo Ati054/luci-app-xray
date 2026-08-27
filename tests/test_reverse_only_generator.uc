@@ -84,6 +84,17 @@ import { outbounds_reverse, rules_reverse, gen_config_from_data } from "../core/
     assert(result.routing.balancers != null && length(result.routing.balancers) > 0, "balancers must be populated in legacy mode");
 }
 
+// Test 10: Verify outbounds are generated when custom_config is unset/null
+{
+    print("\nTest 10: Verify outbounds are correctly generated when custom_config is unset");
+    const config = get_dual_reverse_config();
+    assert(config["server_raw"]["custom_config"] == null, "sample server_raw has no custom_config");
+    const outbounds = outbounds_reverse(config["general"], config);
+    assert(length(outbounds) == 4, "outbounds_reverse must return exactly 4 outbounds");
+    assert(outbounds[2].tag == "reverse-raw", "reverse-raw outbound must be properly formed without custom_config");
+}
+
+
 printf("\nSummary: %d passed, %d failed\n", passed, failed);
 if (failed > 0) {
     exit(1);
