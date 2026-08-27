@@ -7,9 +7,19 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 FIXTURE_FILE="${SCRIPT_DIR}/fixtures/dual_reverse_fixture.json"
 XRAY_BIN="${1:-xray}"
 
-echo "=== Test Suite: Xray-core 26.7.28 Semantic Validation ==="
+check_tool() {
+    local t="$1"
+    case "$t" in
+        */*)
+            [ -x "$t" ]
+            ;;
+        *)
+            command -v "$t" >/dev/null 2>&1
+            ;;
+    esac
+}
 
-if ! command -v "${XRAY_BIN}" >/dev/null 2>&1; then
+if ! check_tool "${XRAY_BIN}"; then
     if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
         echo "::error::Xray binary '${XRAY_BIN}' required in CI mode."
         exit 1

@@ -7,11 +7,23 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 echo "=== luci-app-xray Master Test Runner ==="
 
+check_tool() {
+    local t="$1"
+    case "$t" in
+        */*)
+            [ -x "$t" ]
+            ;;
+        *)
+            command -v "$t" >/dev/null 2>&1
+            ;;
+    esac
+}
+
 # Check mandatory tools in CI mode
 if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
     echo "Verifying mandatory CI tools..."
     for tool in node ucode "${XRAY_BIN:-xray}" sha256sum unzip; do
-        if ! command -v "${tool}" >/dev/null 2>&1; then
+        if ! check_tool "${tool}"; then
             echo "::error::Mandatory CI tool '${tool}' is missing."
             exit 1
         fi

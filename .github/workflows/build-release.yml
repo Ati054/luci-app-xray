@@ -123,8 +123,18 @@ jobs:
           sh "${{ github.workspace }}/tests/ci/fetch_xray.sh" "v26.7.28" "/tmp/xray-bin"
       - name: Run Test Suite
         run: |
-          export PATH="/usr/bin:/usr/local/bin:$SDK_HOME/staging_dir/host/bin:$PATH"
-          CI=true XRAY_BIN="/tmp/xray-bin/xray" sh "${{ github.workspace }}/tests/run_tests.sh"
+          export PATH="/tmp/xray-bin:/usr/bin:/usr/local/bin:$SDK_HOME/staging_dir/host/bin:$PATH"
+          if ! CI=true XRAY_BIN="/tmp/xray-bin/xray" sh "${{ github.workspace }}/tests/run_tests.sh" 2>&1 | tee /tmp/run_tests.log; then
+            echo "## Test Suite Failed" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            tail -n 200 /tmp/run_tests.log >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+          echo "## Test Suite Succeeded" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          tail -n 40 /tmp/run_tests.log >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
       - name: Build Packages
         run: |
           cd "$SDK_HOME"
