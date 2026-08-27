@@ -1,7 +1,7 @@
 #!/bin/sh
 # Builds and installs real OpenWrt ucode with UCI support for CI runners
 
-set -e
+set -ex
 
 echo "=== Checking host ucode availability ==="
 if command -v ucode >/dev/null 2>&1; then
@@ -35,6 +35,7 @@ echo "=== Building and installing libubox ==="
 git clone --depth=1 https://github.com/openwrt/libubox.git "${TMP_BUILD_DIR}/libubox"
 cmake -S "${TMP_BUILD_DIR}/libubox" -B "${TMP_BUILD_DIR}/libubox/build" \
     -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DCMAKE_INSTALL_LIBDIR=lib \
     -DCMAKE_PREFIX_PATH=/usr/local \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_LUA=OFF \
@@ -46,6 +47,7 @@ echo "=== Building and installing libuci ==="
 git clone --depth=1 https://github.com/openwrt/uci.git "${TMP_BUILD_DIR}/uci"
 cmake -S "${TMP_BUILD_DIR}/uci" -B "${TMP_BUILD_DIR}/uci/build" \
     -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DCMAKE_INSTALL_LIBDIR=lib \
     -DCMAKE_PREFIX_PATH=/usr/local \
     -DCMAKE_BUILD_TYPE=Release \
     -DBUILD_LUA=OFF
@@ -61,6 +63,7 @@ echo "=== Building and installing ucode with UCI support ==="
 git clone --depth=1 https://github.com/jow-/ucode.git "${TMP_BUILD_DIR}/ucode"
 cmake -S "${TMP_BUILD_DIR}/ucode" -B "${TMP_BUILD_DIR}/ucode/build" \
     -DCMAKE_INSTALL_PREFIX=/usr/local \
+    -DCMAKE_INSTALL_LIBDIR=lib \
     -DCMAKE_PREFIX_PATH=/usr/local \
     -DCMAKE_BUILD_TYPE=Release \
     -DUCI_SUPPORT=ON \
