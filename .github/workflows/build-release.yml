@@ -291,7 +291,14 @@ jobs:
               for chunk in chunks:
                   try:
                       with tarfile.open(fileobj=io.BytesIO(chunk), mode='r:*') as t:
-                          t.extractall(sys.argv[2])
+                          for m in t.getmembers():
+                              try:
+                                  if hasattr(tarfile, 'fully_trusted_filter'):
+                                      t.extract(m, sys.argv[2], filter='fully_trusted')
+                                  else:
+                                      t.extract(m, sys.argv[2])
+                              except Exception:
+                                  pass
                   except Exception:
                       pass
             '''))" "$CORE_PACKAGE" "$TMP_PKG"
