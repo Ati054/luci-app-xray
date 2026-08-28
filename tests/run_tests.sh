@@ -43,10 +43,15 @@ else
     echo "  [SKIP] node runtime not available in current environment."
 fi
 
-echo "\n--- 2. Running shell checksum parser, package metadata, and import graph tests ---"
+echo "\n--- 2. Running shell checksum parser, package metadata, import graph, and APK extractor tests ---"
 sh "${SCRIPT_DIR}/test_checksum_parser.sh"
 sh "${SCRIPT_DIR}/test_package_metadata.sh"
 sh "${SCRIPT_DIR}/test_package_imports.sh"
+if python3 -c "import sys" >/dev/null 2>&1; then
+    python3 "${SCRIPT_DIR}/test_extract_openwrt_apk.py"
+elif python -c "import sys" >/dev/null 2>&1; then
+    python "${SCRIPT_DIR}/test_extract_openwrt_apk.py"
+fi
 
 echo "\n--- 3. Running ucode unit tests and tag invariant contracts ---"
 if command -v ucode >/dev/null 2>&1; then

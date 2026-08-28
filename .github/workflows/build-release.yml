@@ -277,47 +277,7 @@ jobs:
 
           TMP_PKG="$(mktemp -d)"
           if [ "${{ matrix.id }}" = "25.12.5" ]; then
-            python3 -c "import textwrap, zlib, io, tarfile, os, sys; exec(textwrap.dedent('''
-              dest = sys.argv[2]
-              with open(sys.argv[1], 'rb') as f:
-                  raw = f.read()
-              chunks, cur = [], raw
-              while cur:
-                  idx = cur.find(b'\x1f\x8b')
-                  if idx == -1:
-                      break
-                  cur = cur[idx:]
-                  d = zlib.decompressobj(16 + zlib.MAX_WBITS)
-                  try:
-                      chunks.append(d.decompress(cur))
-                      cur = d.unused_data
-                  except Exception:
-                      cur = cur[2:]
-              for chunk in chunks:
-                  try:
-                      with tarfile.open(fileobj=io.BytesIO(chunk), mode='r:*') as t:
-                          for m in t.getmembers():
-                              clean_name = m.name.lstrip('/')
-                              target_path = os.path.join(dest, clean_name)
-                              if m.isdir():
-                                  os.makedirs(target_path, exist_ok=True)
-                              elif m.isreg():
-                                  os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                                  with open(target_path, 'wb') as out_f:
-                                      f = t.extractfile(m)
-                                      if f:
-                                          out_f.write(f.read())
-                              elif m.issym():
-                                  os.makedirs(os.path.dirname(target_path), exist_ok=True)
-                                  try:
-                                      if os.path.islink(target_path) or os.path.exists(target_path):
-                                          os.unlink(target_path)
-                                      os.symlink(m.linkname, target_path)
-                                  except Exception:
-                                      pass
-                  except Exception:
-                      pass
-            '''))" "$CORE_PACKAGE" "$TMP_PKG"
+            python3 tests/ci/extract_openwrt_apk.py "$CORE_PACKAGE" "$TMP_PKG"
           else
             if ar -t "$CORE_PACKAGE" >/dev/null 2>&1; then
               ar -p "$CORE_PACKAGE" data.tar.gz | tar -C "$TMP_PKG" -zxf -
