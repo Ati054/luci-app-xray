@@ -248,6 +248,8 @@ jobs:
 
           echo "CHECKSUM_FILE=$CHECKSUM_FILE" >> $GITHUB_ENV
           echo "BUILD_INFO_FILE=$BUILD_INFO_FILE" >> $GITHUB_ENV
+          echo "CORE_PACKAGE=$CORE_PACKAGE" >> $GITHUB_ENV
+          echo "STATUS_PACKAGE=$STATUS_PACKAGE" >> $GITHUB_ENV
       - name: Verify Package Contents & Smoke Bundle Preflight
         run: |
           cd "${{ github.workspace }}"
@@ -265,7 +267,14 @@ jobs:
           rm -rf "$TMP_BUNDLE"
 
           # 3. Verify core package payload manifest
-          # 3. Verify core package payload manifest
+          if [ -z "$CORE_PACKAGE" ] || [ ! -f "$CORE_PACKAGE" ]; then
+            if [ "${{ matrix.id }}" = "25.12.5" ]; then
+              CORE_PACKAGE="$(ls -1 luci-app-xray*.apk 2>/dev/null | grep -v status | grep -v geodata | head -n 1 || true)"
+            else
+              CORE_PACKAGE="$(ls -1 luci-app-xray*.ipk 2>/dev/null | grep -v status | grep -v geodata | head -n 1 || true)"
+            fi
+          fi
+
           TMP_PKG="$(mktemp -d)"
           if [ "${{ matrix.id }}" = "25.12.5" ]; then
             # APK files contain concatenated gzip streams (.PKGINFO stream + data stream)
