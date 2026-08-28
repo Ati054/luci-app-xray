@@ -277,26 +277,24 @@ jobs:
 
           TMP_PKG="$(mktemp -d)"
           if [ "${{ matrix.id }}" = "25.12.5" ]; then
-            python3 -c "
-import zlib, io, tarfile, sys, os
-with open(sys.argv[1], 'rb') as f:
-    raw = f.read()
-chunks, cur = [], raw
-while cur:
-    d = zlib.decompressobj(16 + zlib.MAX_WBITS)
-    try:
-        data = d.decompress(cur)
-        chunks.append(data)
-        cur = d.unused_data
-    except Exception:
-        break
-for chunk in chunks:
-    try:
-        with tarfile.open(fileobj=io.BytesIO(chunk), mode='r:*') as t:
-            t.extractall(sys.argv[2])
-    except Exception:
-        pass
-" "$CORE_PACKAGE" "$TMP_PKG"
+            python3 -c "import textwrap, zlib, io, tarfile, sys; exec(textwrap.dedent('''
+              with open(sys.argv[1], 'rb') as f:
+                  raw = f.read()
+              chunks, cur = [], raw
+              while cur:
+                  d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+                  try:
+                      chunks.append(d.decompress(cur))
+                      cur = d.unused_data
+                  except Exception:
+                      break
+              for chunk in chunks:
+                  try:
+                      with tarfile.open(fileobj=io.BytesIO(chunk), mode='r:*') as t:
+                          t.extractall(sys.argv[2])
+                  except Exception:
+                      pass
+            '''))" "$CORE_PACKAGE" "$TMP_PKG"
           else
             if ar -t "$CORE_PACKAGE" >/dev/null 2>&1; then
               ar -p "$CORE_PACKAGE" data.tar.gz | tar -C "$TMP_PKG" -zxf -
