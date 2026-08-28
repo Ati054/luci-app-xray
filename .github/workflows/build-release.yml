@@ -277,7 +277,8 @@ jobs:
 
           TMP_PKG="$(mktemp -d)"
           if [ "${{ matrix.id }}" = "25.12.5" ]; then
-            python3 -c "import textwrap, zlib, io, tarfile, sys; exec(textwrap.dedent('''
+            python3 -c "import textwrap, zlib, io, tarfile, os, sys; exec(textwrap.dedent('''
+              dest = sys.argv[2]
               with open(sys.argv[1], 'rb') as f:
                   raw = f.read()
               chunks, cur = [], raw
@@ -296,13 +297,24 @@ jobs:
                   try:
                       with tarfile.open(fileobj=io.BytesIO(chunk), mode='r:*') as t:
                           for m in t.getmembers():
-                              try:
-                                  if hasattr(tarfile, 'fully_trusted_filter'):
-                                      t.extract(m, sys.argv[2], filter='fully_trusted')
-                                  else:
-                                      t.extract(m, sys.argv[2])
-                              except Exception:
-                                  pass
+                              clean_name = m.name.lstrip('/')
+                              target_path = os.path.join(dest, clean_name)
+                              if m.isdir():
+                                  os.makedirs(target_path, exist_ok=True)
+                              elif m.isreg():
+                                  os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                                  with open(target_path, 'wb') as out_f:
+                                      f = t.extractfile(m)
+                                      if f:
+                                          out_f.write(f.read())
+                              elif m.issym():
+                                  os.makedirs(os.path.dirname(target_path), exist_ok=True)
+                                  try:
+                                      if os.path.islink(target_path) or os.path.exists(target_path):
+                                          os.unlink(target_path)
+                                      os.symlink(m.linkname, target_path)
+                                  except Exception:
+                                      pass
                   except Exception:
                       pass
             '''))" "$CORE_PACKAGE" "$TMP_PKG"
