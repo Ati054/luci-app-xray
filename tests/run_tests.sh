@@ -43,9 +43,10 @@ else
     echo "  [SKIP] node runtime not available in current environment."
 fi
 
-echo "\n--- 2. Running shell checksum parser and package metadata tests ---"
+echo "\n--- 2. Running shell checksum parser, package metadata, and import graph tests ---"
 sh "${SCRIPT_DIR}/test_checksum_parser.sh"
 sh "${SCRIPT_DIR}/test_package_metadata.sh"
+sh "${SCRIPT_DIR}/test_package_imports.sh"
 
 echo "\n--- 3. Running ucode unit tests and tag invariant contracts ---"
 if command -v ucode >/dev/null 2>&1; then

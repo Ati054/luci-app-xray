@@ -4,7 +4,6 @@
 'require poll';
 'require rpc';
 'require ui';
-'require fs';
 
 var callProfilesList = rpc.declare({
     object: 'xray_profiles',
@@ -61,6 +60,20 @@ var callProfilesSetAutostart = rpc.declare({
     expect: { '': {} }
 });
 
+var callProfilesRename = rpc.declare({
+    object: 'xray_profiles',
+    method: 'rename',
+    params: ['id', 'name'],
+    expect: { '': {} }
+});
+
+var callProfilesReorder = rpc.declare({
+    object: 'xray_profiles',
+    method: 'reorder',
+    params: ['id', 'direction'],
+    expect: { '': {} }
+});
+
 var callProfilesDelete = rpc.declare({
     object: 'xray_profiles',
     method: 'delete',
@@ -68,11 +81,22 @@ var callProfilesDelete = rpc.declare({
     expect: { '': {} }
 });
 
-var callServiceAction = rpc.declare({
-    object: 'luci',
-    method: 'setInitStatus',
-    params: ['name', 'action'],
-    expect: { result: false }
+var callProfilesEnableService = rpc.declare({
+    object: 'xray_profiles',
+    method: 'enable_service',
+    expect: { '': {} }
+});
+
+var callProfilesDisableService = rpc.declare({
+    object: 'xray_profiles',
+    method: 'disable_service',
+    expect: { '': {} }
+});
+
+var callProfilesDisableLegacy = rpc.declare({
+    object: 'xray_profiles',
+    method: 'disable_legacy',
+    expect: { '': {} }
 });
 
 return view.extend({
@@ -91,22 +115,26 @@ return view.extend({
             _('Автономный запуск независимых JSON-профилей VLESS Reverse с полной изоляцией процессов.')
         ));
 
-        // Dynamic State Container
+        // Dynamic State Containers
         var statusContainer = E('div', { 'id': 'xray-status-container' });
         var tableContainer = E('div', { 'id': 'xray-profiles-table' });
         viewContainer.appendChild(statusContainer);
 
         // Top Action Bar
-        var actionBar = E('div', { 'class': 'cbi-page-actions', 'style': 'margin-bottom: 1em;' }, [
+        var self = this;
+        var actionBar = E('div', { 'class': 'cbi-page-actions', 'style': 'margin-bottom: 1em; display: flex; gap: 8px; flex-wrap: wrap;' }, [
             E('button', {
                 'class': 'btn cbi-button cbi-button-action',
                 'click': ui.createHandlerFn(this, 'handleImportModal')
-            }, _('Импортировать JSON-профиль'))
+            }, _('Импортировать JSON-профиль')),
+            E('button', {
+                'class': 'btn cbi-button',
+                'click': ui.createHandlerFn(this, 'handleStandaloneValidateModal')
+            }, _('Проверить JSON-файл'))
         ]);
         viewContainer.appendChild(actionBar);
         viewContainer.appendChild(tableContainer);
 
-        var self = this;
         this.updateView(data, statusContainer, tableContainer);
 
         // Poll actual process state every 5 seconds (non-overlapping)
@@ -129,30 +157,17 @@ return view.extend({
         if (summary.legacy_running) {
             statusContainer.appendChild(E('div', { 'class': 'alert-message warning' }, [
                 E('h4', {}, _('Внимание: запущен устаревший сервис xray_core')),
-                E('p', {}, _('Для стабильной работы режима Reverse-профилей рекомендуется отключить устаревший сервис xray_core.')),
+                E('p', {}, _('Для стабильной работы режима Reverse-профилей рекомендуется остановить и отключить сервис xray_core.')),
                 E('button', {
-                    'class': 'btn cbi-button cbi-button-reset',
+                    'class': 'btn cbi-button cbi-button-negative',
                     'click': function() {
-                        ui.showModal(_('Отключение xray_core'), [
-                            E('p', {}, _('Остановить и отключить сервис xray_core?')),
-                            E('div', { 'class': 'right' }, [
-                                E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Отмена')),
-                                ' ',
-                                E('button', {
-                                    'class': 'btn cbi-button-negative',
-                                    'click': function() {
-                                        fs.exec('/etc/init.d/xray_core', ['disable']).then(function() {
-                                            return fs.exec('/etc/init.d/xray_core', ['stop']);
-                                        }).then(function() {
-                                            ui.hideModal();
-                                            ui.addNotification(null, E('p', {}, _('Сервис xray_core остановлен и отключен.')), 'info');
-                                        });
-                                    }
-                                }, _('Остановить и отключить'))
-                            ])
-                        ]);
+                        callProfilesDisableLegacy().then(function() {
+                            ui.addNotification(null, E('p', {}, _('Сервис xray_core остановлен и отключен.')), 'info');
+                        }).catch(function(e) {
+                            ui.addNotification(null, E('p', {}, _('Ошибка отключения: %s').format(e.message || e)), 'error');
+                        });
                     }
-                }, _('Остановить xray_core'))
+                }, _('Остановить и отключить xray_core'))
             ]));
         }
 
@@ -164,6 +179,30 @@ return view.extend({
             E('span', { 'class': 'label success' }, _('Найдены')) :
             E('span', { 'class': 'label warning' }, _('Отсутствуют'));
 
+        var serviceStatusBadge = summary.service_enabled ?
+            E('span', { 'class': 'label success' }, _('Включен в автозагрузку')) :
+            E('span', { 'class': 'label' }, _('Отключен'));
+
+        var serviceToggleBtn = summary.service_enabled ?
+            E('button', {
+                'class': 'btn cbi-button cbi-button-reset',
+                'style': 'padding: 2px 8px; font-size: 85%; margin-left: 8px;',
+                'click': function() {
+                    callProfilesDisableService().then(function() {
+                        ui.addNotification(null, E('p', {}, _('Автозагрузка сервиса отключена.')), 'info');
+                    });
+                }
+            }, _('Отключить')) :
+            E('button', {
+                'class': 'btn cbi-button cbi-button-action',
+                'style': 'padding: 2px 8px; font-size: 85%; margin-left: 8px;',
+                'click': function() {
+                    callProfilesEnableService().then(function() {
+                        ui.addNotification(null, E('p', {}, _('Автозагрузка сервиса включена.')), 'info');
+                    });
+                }
+            }, _('Включить'));
+
         var cards = E('div', { 'class': 'cbi-section', 'style': 'display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 1.5em;' }, [
             E('div', { 'class': 'cbi-value', 'style': 'flex: 1 1 200px; padding: 10px; border: 1px solid #e0e0e0; border-radius: 4px;' }, [
                 E('strong', {}, _('Исполняемый файл Xray: ')), binStatusBadge
@@ -172,10 +211,11 @@ return view.extend({
                 E('strong', {}, _('Геобазы GeoIP/GeoSite: ')), assetStatusBadge
             ]),
             E('div', { 'class': 'cbi-value', 'style': 'flex: 1 1 200px; padding: 10px; border: 1px solid #e0e0e0; border-radius: 4px;' }, [
-                E('strong', {}, _('Сохраненных профилей: ')), E('span', { 'class': 'badge' }, summary.stored_count || 0)
+                E('strong', {}, _('Сервис xray_profiles: ')), serviceStatusBadge, serviceToggleBtn
             ]),
             E('div', { 'class': 'cbi-value', 'style': 'flex: 1 1 200px; padding: 10px; border: 1px solid #e0e0e0; border-radius: 4px;' }, [
-                E('strong', {}, _('Активных процессов: ')), E('span', { 'class': 'badge success' }, summary.running_count || 0)
+                E('strong', {}, _('Сохраненных: ')), E('span', { 'class': 'badge' }, summary.stored_count || 0),
+                ' | ', E('strong', {}, _('Активных: ')), E('span', { 'class': 'badge success' }, summary.running_count || 0)
             ])
         ]);
         statusContainer.appendChild(cards);
@@ -201,6 +241,10 @@ return view.extend({
                 )
             ]));
         } else {
+            // Sort profiles by display order
+            profiles.sort(function(a, b) {
+                return (a.order || 0) - (b.order || 0);
+            });
             for (var i = 0; i < profiles.length; i++) {
                 table.appendChild(this.renderProfileRow(profiles[i]));
             }
@@ -240,8 +284,12 @@ return view.extend({
                     'class': 'btn cbi-button cbi-button-action',
                     'style': 'margin-right: 4px;',
                     'click': function() {
-                        callProfilesStart(p.id).then(function() {
-                            ui.addNotification(null, E('p', {}, _('Профиль «%s» запущен.').format(p.name)), 'info');
+                        callProfilesStart(p.id).then(function(res) {
+                            if (res && res.ok) {
+                                ui.addNotification(null, E('p', {}, _('Профиль «%s» запущен.').format(p.name)), 'info');
+                            } else {
+                                ui.addNotification(null, E('p', {}, _('Ошибка запуска: %s').format(res.error || 'не удалось запустить процесс')), 'error');
+                            }
                         });
                     }
                 }, _('Запустить')),
@@ -250,11 +298,42 @@ return view.extend({
                 'class': 'btn cbi-button',
                 'style': 'margin-right: 4px;',
                 'click': function() {
-                    callProfilesRestart(p.id).then(function() {
-                        ui.addNotification(null, E('p', {}, _('Профиль «%s» перезапущен.').format(p.name)), 'info');
+                    callProfilesRestart(p.id).then(function(res) {
+                        if (res && res.ok) {
+                            ui.addNotification(null, E('p', {}, _('Профиль «%s» перезапущен.').format(p.name)), 'info');
+                        } else {
+                            ui.addNotification(null, E('p', {}, _('Ошибка перезапуска: %s').format(res.error || 'не удалось перезапустить')), 'error');
+                        }
                     });
                 }
             }, _('Перезапуск')),
+
+            E('button', {
+                'class': 'btn cbi-button',
+                'style': 'margin-right: 4px;',
+                'title': _('Переименовать профиль'),
+                'click': function() {
+                    self.handleRenameModal(p);
+                }
+            }, _('Имя')),
+
+            E('button', {
+                'class': 'btn cbi-button',
+                'style': 'margin-right: 4px;',
+                'title': _('Переместить вверх'),
+                'click': function() {
+                    callProfilesReorder(p.id, 'up');
+                }
+            }, '▲'),
+
+            E('button', {
+                'class': 'btn cbi-button',
+                'style': 'margin-right: 4px;',
+                'title': _('Переместить вниз'),
+                'click': function() {
+                    callProfilesReorder(p.id, 'down');
+                }
+            }, '▼'),
 
             E('button', {
                 'class': 'btn cbi-button',
@@ -296,6 +375,74 @@ return view.extend({
             E('td', { 'class': 'td' }, statusBadge),
             E('td', { 'class': 'td' }, autostartBtn),
             E('td', { 'class': 'td right' }, actions)
+        ]);
+    },
+
+    handleRenameModal: function(p) {
+        var nameInput = E('input', { 'type': 'text', 'class': 'cbi-input-text', 'value': p.name });
+
+        ui.showModal(_('Переименование профиля'), [
+            E('div', { 'class': 'cbi-value' }, [
+                E('label', { 'class': 'cbi-value-title' }, _('Новое название')),
+                E('div', { 'class': 'cbi-value-field' }, nameInput)
+            ]),
+            E('div', { 'class': 'right' }, [
+                E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Отмена')),
+                ' ',
+                E('button', {
+                    'class': 'btn cbi-button-action',
+                    'click': function() {
+                        var newName = nameInput.value ? nameInput.value.trim() : '';
+                        if (!newName) return;
+                        callProfilesRename(p.id, newName).then(function() {
+                            ui.hideModal();
+                            ui.addNotification(null, E('p', {}, _('Название профиля обновлено.')), 'info');
+                        });
+                    }
+                }, _('Сохранить'))
+            ])
+        ]);
+    },
+
+    handleStandaloneValidateModal: function() {
+        var fileInput = E('input', { 'type': 'file', 'accept': '.json', 'class': 'cbi-input-file' });
+
+        ui.showModal(_('Проверка JSON-файла Reverse-профиля'), [
+            E('p', { 'class': 'cbi-map-descr' },
+                _('Выберите JSON-файл для проверки корректности синтаксиса, совместимости с Xray и политики безопасности.')
+            ),
+            E('div', { 'class': 'cbi-value' }, [
+                E('label', { 'class': 'cbi-value-title' }, _('Файл конфигурации (.json)')),
+                E('div', { 'class': 'cbi-value-field' }, fileInput)
+            ]),
+            E('div', { 'class': 'right' }, [
+                E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Закрыть')),
+                ' ',
+                E('button', {
+                    'class': 'btn cbi-button-action',
+                    'click': function() {
+                        var file = fileInput.files[0];
+                        if (!file) {
+                            ui.addNotification(null, E('p', {}, _('Пожалуйста, выберите файл .json.')), 'error');
+                            return;
+                        }
+                        var reader = new FileReader();
+                        reader.onload = function(e) {
+                            var content = e.target.result;
+                            callProfilesValidate(content).then(function(res) {
+                                if (res && res.ok) {
+                                    ui.addNotification(null, E('p', {}, _('Конфигурация успешно прошла проверку Xray и политику безопасности.')), 'info');
+                                } else {
+                                    ui.addNotification(null, E('p', {}, _('Ошибка проверки: %s').format(res.error || 'неизвестная ошибка')), 'error');
+                                }
+                            }).catch(function(err) {
+                                ui.addNotification(null, E('p', {}, _('Ошибка RPC: %s').format(err.message || err)), 'error');
+                            });
+                        };
+                        reader.readAsText(file);
+                    }
+                }, _('Проверить'))
+            ])
         ]);
     },
 

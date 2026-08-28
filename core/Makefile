@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-xray
 PKG_VERSION:=3.7.1
-PKG_RELEASE:=3
+PKG_RELEASE:=4
 
 PKG_LICENSE:=MPL-2.0
 PKG_MAINTAINER:=yichya <mail@yichya.dev>
@@ -17,7 +17,7 @@ PKG_CONFIG_DEPENDS:= \
 
 LUCI_TITLE:=LuCI Xray client with modern VLESS Reverse
 LUCI_DESCRIPTION:=LuCI client for Xray with modern VLESS Reverse support and optional transparent proxy features.
-LUCI_DEPENDS:=+ucode +ucode-mod-uci +ucode-mod-fs +coreutils-base64 +ca-bundle +ip-full +kmod-nft-tproxy +rpcd-mod-ucode
+LUCI_DEPENDS:=+ucode +ucode-mod-uci +ucode-mod-fs +coreutils-base64 +ca-bundle +ip-full +kmod-nft-tproxy
 LUCI_PKGARCH:=all
 
 include $(TOPDIR)/feeds/luci/luci.mk
@@ -150,10 +150,13 @@ endif
 	$(INSTALL_DATA) ./root/usr/share/xray/feature/outbound.mjs $(1)/usr/share/xray/feature/outbound.mjs
 	$(INSTALL_DATA) ./root/usr/share/xray/feature/system.mjs $(1)/usr/share/xray/feature/system.mjs
 	$(INSTALL_DIR) $(1)/usr/share/xray/protocol
-	$(INSTALL_DATA) ./root/usr/share/xray/protocol/shadowsocks.mjs $(1)/usr/share/xray/protocol/shadowsocks.mjs
+	$(INSTALL_DATA) ./root/usr/share/xray/protocol/http.mjs $(1)/usr/share/xray/protocol/http.mjs
 	$(INSTALL_DATA) ./root/usr/share/xray/protocol/hysteria.mjs $(1)/usr/share/xray/protocol/hysteria.mjs
+	$(INSTALL_DATA) ./root/usr/share/xray/protocol/shadowsocks.mjs $(1)/usr/share/xray/protocol/shadowsocks.mjs
+	$(INSTALL_DATA) ./root/usr/share/xray/protocol/socks.mjs $(1)/usr/share/xray/protocol/socks.mjs
 	$(INSTALL_DATA) ./root/usr/share/xray/protocol/trojan.mjs $(1)/usr/share/xray/protocol/trojan.mjs
 	$(INSTALL_DATA) ./root/usr/share/xray/protocol/vless.mjs $(1)/usr/share/xray/protocol/vless.mjs
+	$(INSTALL_DATA) ./root/usr/share/xray/protocol/vmess.mjs $(1)/usr/share/xray/protocol/vmess.mjs
 endef
 
 # call BuildPackage - OpenWrt buildroot signature

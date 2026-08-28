@@ -29,11 +29,14 @@ start_profile_instance() {
     fi
 
     # Pre-start validation with real Xray binary
-    if [ -x "$XRAY_BIN" ]; then
-        if ! XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET}" "$XRAY_BIN" run -test -config "$profile_file" >/dev/null 2>&1; then
-            logger -st "xray_profiles[$$]" -p3 "Validation failed for profile: $name ($filename)"
-            return 1
-        fi
+    if [ ! -x "$XRAY_BIN" ]; then
+        logger -st "xray_profiles[$$]" -p3 "Xray binary missing or not executable: $XRAY_BIN"
+        return 1
+    fi
+
+    if ! XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET}" "$XRAY_BIN" run -test -config "$profile_file" >/dev/null 2>&1; then
+        logger -st "xray_profiles[$$]" -p3 "Validation failed for profile: $name ($filename)"
+        return 1
     fi
 
     logger -st "xray_profiles[$$]" -p4 "Starting Xray profile instance: $name ($cfg)"

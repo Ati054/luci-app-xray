@@ -229,7 +229,7 @@ jobs:
             echo "project=luci-app-xray"
             echo "variant=modern-vless-reverse"
             echo "package_version=3.7.1"
-            echo "package_release=3"
+            echo "package_release=4"
             echo "openwrt_release=${{ matrix.id }}"
             echo "package_format=${PKG_FORMAT}"
             echo "package_architecture=all"
