@@ -283,27 +283,7 @@ jobs:
             tar -i -C "$TMP_PKG" -zxf "$CORE_PACKAGE" 2>/dev/null || true
 
             if [ ! -f "$TMP_PKG/etc/init.d/xray_core" ]; then
-              python3 -c "
-import gzip, io, tarfile, sys, os
-with open(sys.argv[1], 'rb') as f:
-    raw = f.read()
-decomp = gzip.decompress(raw)
-bio = io.BytesIO(decomp)
-dest = sys.argv[2]
-while bio.tell() < len(decomp):
-    try:
-        tar = tarfile.TarFile(fileobj=bio)
-        for member in tar.getmembers():
-            tar.extract(member, path=dest)
-    except Exception:
-        pass
-    pos = bio.tell()
-    while pos < len(decomp) and decomp[pos] == 0:
-        pos += 1
-    if pos >= len(decomp) or pos == bio.tell():
-        break
-    bio.seek(pos)
-" "$CORE_PACKAGE" "$TMP_PKG" 2>/dev/null || true
+              python3 -c "import gzip, io, tarfile, sys; d = gzip.decompress(open(sys.argv[1], 'rb').read()); b = io.BytesIO(d); dest = sys.argv[2]; [tarfile.TarFile(fileobj=b).extractall(dest) for _ in range(5) if b.tell() < len(d)]" "$CORE_PACKAGE" "$TMP_PKG" 2>/dev/null || true
             fi
           else
             if ar -t "$CORE_PACKAGE" >/dev/null 2>&1; then
