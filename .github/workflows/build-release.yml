@@ -265,15 +265,18 @@ jobs:
           rm -rf "$TMP_BUNDLE"
 
           # 3. Verify core package payload manifest
+          # 3. Verify core package payload manifest
           TMP_PKG="$(mktemp -d)"
           if [ "${{ matrix.id }}" = "25.12.5" ]; then
-            tar -C "$TMP_PKG" -zxf "$CORE_PACKAGE"
+            # APK files contain concatenated gzip streams (.PKGINFO stream + data stream)
+            ( gzip -dc "$CORE_PACKAGE" | tar -C "$TMP_PKG" -xf - ) 2>/dev/null || tar -C "$TMP_PKG" -zxf "$CORE_PACKAGE" 2>/dev/null || true
           else
             if ar -t "$CORE_PACKAGE" >/dev/null 2>&1; then
               ar -p "$CORE_PACKAGE" data.tar.gz | tar -C "$TMP_PKG" -zxf -
             else
               tar -xzOf "$CORE_PACKAGE" ./data.tar.gz 2>/dev/null | tar -C "$TMP_PKG" -zxf - || \
-              tar -xzOf "$CORE_PACKAGE" data.tar.gz 2>/dev/null | tar -C "$TMP_PKG" -zxf -
+              tar -xzOf "$CORE_PACKAGE" data.tar.gz 2>/dev/null | tar -C "$TMP_PKG" -zxf - || \
+              tar -C "$TMP_PKG" -zxf "$CORE_PACKAGE" 2>/dev/null || true
             fi
           fi
 
@@ -305,8 +308,10 @@ jobs:
             "usr/share/xray/protocol/vmess.mjs" \
             "www/luci-static/resources/view/xray/core.js" \
             "www/luci-static/resources/view/xray/profiles.js"; do
-            if [ ! -f "$TMP_PKG/$req" ] && [ ! -L "$TMP_PKG/$req" ]; then
+            if [ ! -f "$TMP_PKG/$req" ] && [ ! -L "$TMP_PKG/$req" ] && [ ! -f "$TMP_PKG/./$req" ]; then
               echo "::error::Missing required payload file in $CORE_PACKAGE: $req"
+              echo "Extracted files in $TMP_PKG:"
+              find "$TMP_PKG" -type f
               exit 1
             fi
           done
