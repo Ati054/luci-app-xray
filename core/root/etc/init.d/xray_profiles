@@ -12,6 +12,22 @@ XRAY_BIN="${XRAY_BIN:-/opt/xray/current/xray}"
 XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET:-/opt/xray/current}"
 XRAY_RUN_DIR="${XRAY_RUN_DIR:-/var/run}"
 
+is_instance_running() {
+    local inst_name="$1"
+    local ubus_data
+    ubus_data="$(ubus call service list "{\"name\": \"${NAME}\"}" 2>/dev/null)"
+    [ -z "${ubus_data}" ] && return 1
+
+    if command -v jsonfilter >/dev/null 2>&1; then
+        local is_run
+        is_run="$(echo "${ubus_data}" | jsonfilter -e "@.${NAME}.instances.${inst_name}.running" 2>/dev/null)"
+        [ "${is_run}" = "true" ] && return 0
+    else
+        echo "${ubus_data}" | grep -q "\"${inst_name}\"[[:space:]]*:[[:space:]]*{[^}]*\"running\"[[:space:]]*:[[:space:]]*true" && return 0
+    fi
+    return 1
+}
+
 start_profile_instance() {
     local cfg="$1"
     local enabled name filename order autostart
@@ -20,26 +36,27 @@ start_profile_instance() {
     config_get filename "$cfg" filename ""
     config_get autostart "$cfg" autostart "0"
 
+    [ "$enabled" = "0" ] && return 0
     [ -z "$filename" ] && return 0
 
     local profile_file="${PROFILES_DIR}/${filename}"
     if [ ! -f "$profile_file" ]; then
-        logger -st "xray_profiles[$$]" -p3 "Profile file missing: $profile_file"
+        logger -st "${NAME}[$$]" -p3 "Profile file missing: $profile_file (cfg: $cfg)"
         return 1
     fi
 
     # Pre-start validation with real Xray binary
     if [ ! -x "$XRAY_BIN" ]; then
-        logger -st "xray_profiles[$$]" -p3 "Xray binary missing or not executable: $XRAY_BIN"
+        logger -st "${NAME}[$$]" -p3 "Xray binary missing or not executable: $XRAY_BIN"
         return 1
     fi
 
     if ! XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET}" "$XRAY_BIN" run -test -config "$profile_file" >/dev/null 2>&1; then
-        logger -st "xray_profiles[$$]" -p3 "Validation failed for profile: $name ($filename)"
+        logger -st "${NAME}[$$]" -p3 "Validation failed for profile: $name ($filename) - skipping"
         return 1
     fi
 
-    logger -st "xray_profiles[$$]" -p4 "Starting Xray profile instance: $name ($cfg)"
+    logger -st "${NAME}[$$]" -p4 "Starting Xray profile instance: $name (profile_${cfg})"
     procd_open_instance "profile_${cfg}"
     # Respawn parameters: threshold=3600s, timeout=5s, retry=5 times (prevents respawn storm)
     procd_set_param respawn 3600 5 5
@@ -70,6 +87,7 @@ start_profile_instance() {
     procd_set_param stdout 1
     procd_set_param stderr 1
     procd_close_instance
+    return 0
 }
 
 start_service() {
@@ -80,7 +98,17 @@ start_service() {
     config_load "${UCI_PACKAGE}"
 
     if [ -n "$target_id" ]; then
-        start_profile_instance "$target_id"
+        # When starting a specific profile instance, re-declare all other running instances
+        # so procd diffing does not kill existing active profiles
+        build_single_target_set() {
+            local cfg="$1"
+            if [ "$cfg" = "$target_id" ]; then
+                start_profile_instance "$cfg" || true
+            elif is_instance_running "profile_${cfg}"; then
+                start_profile_instance "$cfg" || true
+            fi
+        }
+        config_foreach build_single_target_set profile
     else
         # Autostart mode: start all profiles marked autostart=1
         start_autostart_profile() {
@@ -88,7 +116,7 @@ start_service() {
             local autostart
             config_get autostart "$cfg" autostart "0"
             if [ "$autostart" = "1" ]; then
-                start_profile_instance "$cfg"
+                start_profile_instance "$cfg" || true
             fi
         }
         config_foreach start_autostart_profile profile
@@ -98,10 +126,32 @@ start_service() {
 stop_service() {
     local target_id="$1"
     if [ -n "$target_id" ]; then
-        # Stop specific procd instance
+        # Stop specific procd instance via targeted delete
         ubus call service delete "{\"name\": \"${NAME}\", \"instance\": \"profile_${target_id}\"}" >/dev/null 2>&1 || true
     fi
     # If no target_id, procd automatically stops all instances of xray_profiles
+}
+
+reload_service() {
+    mkdir -p "${PROFILES_DIR}"
+    chmod 0700 "${PROFILES_DIR}" 2>/dev/null || true
+
+    config_load "${UCI_PACKAGE}"
+
+    # Declare all autostart profiles PLUS currently running profiles (to prevent diff engine from killing them)
+    build_reload_instance_set() {
+        local cfg="$1"
+        local enabled autostart
+        config_get enabled "$cfg" enabled "1"
+        config_get autostart "$cfg" autostart "0"
+
+        [ "$enabled" = "0" ] && return 0
+
+        if [ "$autostart" = "1" ] || is_instance_running "profile_${cfg}"; then
+            start_profile_instance "$cfg" || true
+        fi
+    }
+    config_foreach build_reload_instance_set profile
 }
 
 restart_service() {

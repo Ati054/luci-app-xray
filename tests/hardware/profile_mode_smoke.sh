@@ -6,6 +6,42 @@ set -e
 
 echo "=== OpenWrt 25.12.5 Raspberry Pi 3 Profile Mode Hardware Smoke Test ==="
 
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+
+# Robust multi-path fixture resolution
+resolve_fixture() {
+    local fname="$1"
+    if [ -f "${SCRIPT_DIR}/${fname}" ]; then
+        echo "${SCRIPT_DIR}/${fname}"
+    elif [ -f "${SCRIPT_DIR}/fixtures/${fname}" ]; then
+        echo "${SCRIPT_DIR}/fixtures/${fname}"
+    elif [ -f "${SCRIPT_DIR}/../fixtures/${fname}" ]; then
+        echo "${SCRIPT_DIR}/../fixtures/${fname}"
+    elif [ -f "${SCRIPT_DIR}/tests/fixtures/${fname}" ]; then
+        echo "${SCRIPT_DIR}/tests/fixtures/${fname}"
+    else
+        echo ""
+    fi
+}
+
+FIXTURE_A="$(resolve_fixture "profile-smoke-a.json")"
+FIXTURE_B="$(resolve_fixture "profile-smoke-b.json")"
+FIXTURE_INV="$(resolve_fixture "profile-invalid.json")"
+
+if [ -z "${FIXTURE_A}" ] || [ -z "${FIXTURE_B}" ] || [ -z "${FIXTURE_INV}" ]; then
+    echo "::error::Required smoke fixtures not found in ${SCRIPT_DIR}, ${SCRIPT_DIR}/fixtures, or ${SCRIPT_DIR}/../fixtures"
+    exit 1
+fi
+
+# Preflight mode for CI or artifact validation
+if [ "$1" = "--preflight" ] || [ "$1" = "--check-fixtures" ]; then
+    echo "  [PASS] Fixture A resolved: ${FIXTURE_A}"
+    echo "  [PASS] Fixture B resolved: ${FIXTURE_B}"
+    echo "  [PASS] Fixture Invalid resolved: ${FIXTURE_INV}"
+    echo "SMOKE_BUNDLE_PREFLIGHT_OK"
+    exit 0
+fi
+
 # 1. Verify platform and architecture
 ARCH="$(uname -m 2>/dev/null || true)"
 if [ "$1" != "--force" ]; then
@@ -29,16 +65,6 @@ if [ ! -x "${RPCD_BACKEND}" ]; then
     exit 1
 fi
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-FIXTURE_A="${SCRIPT_DIR}/../fixtures/profile-smoke-a.json"
-FIXTURE_B="${SCRIPT_DIR}/../fixtures/profile-smoke-b.json"
-FIXTURE_INV="${SCRIPT_DIR}/../fixtures/profile-invalid.json"
-
-if [ ! -f "${FIXTURE_A}" ] || [ ! -f "${FIXTURE_B}" ] || [ ! -f "${FIXTURE_INV}" ]; then
-    echo "::error::Required smoke fixtures not found"
-    exit 1
-fi
-
 # 3. Capture baseline environment state
 TMP_DIR="$(mktemp -d)"
 cleanup() {
@@ -56,6 +82,8 @@ trap cleanup EXIT
 
 uci export xray_core > "${TMP_DIR}/uci_backup.export" 2>/dev/null || true
 ip rule show > "${TMP_DIR}/ip_rules_before.txt" 2>/dev/null || true
+ip -6 rule show > "${TMP_DIR}/ip6_rules_before.txt" 2>/dev/null || true
+nft list ruleset > "${TMP_DIR}/nftables_before.txt" 2>/dev/null || true
 
 # 4. Import Smoke Profiles
 echo "--- Importing Smoke Profiles via RPCD Backend ---"
@@ -81,11 +109,9 @@ echo "${RES_INV}" | grep -q '"ok":false' || { echo "::error::Invalid profile was
 echo "--- Starting Profile A and Profile B ---"
 START_A="$("${RPCD_BACKEND}" call start '{"id": "smoke_a"}')"
 echo "Start A: ${START_A}"
-sleep 1
 
 START_B="$("${RPCD_BACKEND}" call start '{"id": "smoke_b"}')"
 echo "Start B: ${START_B}"
-sleep 1
 
 # 7. Check List & Record PIDs
 LIST_RES="$("${RPCD_BACKEND}" call list '{}')"
@@ -109,7 +135,6 @@ echo "  [PASS] Profile B running (PID: ${PID_B})"
 # 8. Stop Profile A and prove Profile B PID is unchanged
 echo "--- Stopping Profile A ---"
 "${RPCD_BACKEND}" call stop '{"id": "smoke_a"}' >/dev/null 2>&1
-sleep 1
 
 LIST_AFTER_STOP_A="$("${RPCD_BACKEND}" call list '{}')"
 PID_B_AFTER="$(echo "${LIST_AFTER_STOP_A}" | grep -o '"id":"smoke_b"[^}]*' | grep -o '"pid":[0-9]*' | cut -d: -f2 || true)"
@@ -123,7 +148,6 @@ echo "  [PASS] Profile B PID strictly preserved (${PID_B} == ${PID_B_AFTER})"
 # 9. Restart Profile B and prove only B changes PID
 echo "--- Restarting Profile B ---"
 "${RPCD_BACKEND}" call restart '{"id": "smoke_b"}' >/dev/null 2>&1
-sleep 1
 
 LIST_AFTER_RESTART_B="$("${RPCD_BACKEND}" call list '{}')"
 PID_B_NEW="$(echo "${LIST_AFTER_RESTART_B}" | grep -o '"id":"smoke_b"[^}]*' | grep -o '"pid":[0-9]*' | cut -d: -f2 || true)"
@@ -146,8 +170,14 @@ if grep -E -q "fwmark (0xfb|251) lookup 251(\b|$)" "${TMP_DIR}/ip_rules_after.tx
     exit 1
 fi
 
-if [ -f /tmp/dnsmasq.d/xray.conf ]; then
-    echo "::error::Unexpected /tmp/dnsmasq.d/xray.conf artifact created"
+ip -6 rule show > "${TMP_DIR}/ip6_rules_after.txt" 2>/dev/null || true
+if grep -E -q "fwmark (0xfb|251) lookup 251(\b|$)" "${TMP_DIR}/ip6_rules_after.txt"; then
+    echo "::error::Unexpected IPv6 fwmark table 251 found in ip6 rules"
+    exit 1
+fi
+
+if [ -f /tmp/dnsmasq.d/xray.conf ] || [ -f /etc/dnsmasq.d/xray.conf ]; then
+    echo "::error::Unexpected dnsmasq xray.conf artifact created"
     exit 1
 fi
 

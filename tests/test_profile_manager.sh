@@ -145,23 +145,28 @@ unset MOCK_XRAY_MODE
 # -------------------------------------------------------------------
 echo "\n--- Test Group: Security Whitelisting & Injection Defense ---"
 
-# 5. Invalid JSON import is rejected
+# 5. Invalid JSON import is rejected with exact syntax error
 RES_BAD_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import '{"name":"Bad","filename":"bad.json","content":"{ invalid json syntax ]"}' 2>&1 || true)"
-assert_match '"ok":false' "${RES_BAD_JSON}" "Test 5: Invalid JSON import is rejected"
+assert_match '"ok":false' "${RES_BAD_JSON}" "Test 5a: Invalid JSON import is rejected"
+assert_match 'Invalid JSON syntax' "${RES_BAD_JSON}" "Test 5b: Rejection error message explicitly identifies invalid JSON syntax"
 
-# 6. Path traversal filename is rejected
-RES_TRAVERSAL="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import '{"name":"Trav","filename":"../../etc/passwd","content":"{}"}' 2>&1 || true)"
-assert_match '"ok":false' "${RES_TRAVERSAL}" "Test 6: Path traversal filename is rejected"
+# 6. Path traversal filename is rejected using 100% valid JSON payload
+RES_TRAVERSAL="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import "{\"name\":\"Trav\",\"filename\":\"../../etc/passwd\",\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
+assert_match '"ok":false' "${RES_TRAVERSAL}" "Test 6a: Path traversal filename is rejected using 100% valid JSON"
+assert_match 'Invalid canonical filename' "${RES_TRAVERSAL}" "Test 6b: Rejection error message explicitly identifies canonical filename rule"
 
-# 7. Oversized content is rejected (> 512 KiB)
-OVERSIZED_CONTENT="$(head -c 550000 /dev/zero | tr '\0' 'a')"
+# 7. Oversized content is rejected (> 512 KiB) using 100% valid JSON structure
+PADDING_STR="$(head -c 550000 /dev/zero | tr '\0' 'x')"
+OVERSIZED_CONTENT="{\"outbounds\":[{\"protocol\":\"vless\",\"settings\":{\"reverse\":{\"tag\":\"rev-in\"}},\"tag\":\"${PADDING_STR}\"}]}"
 RES_OVERSIZED="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import "{\"name\":\"Big\",\"filename\":\"big.json\",\"content\":\"${OVERSIZED_CONTENT}\"}" 2>&1 || true)"
-assert_match '"ok":false' "${RES_OVERSIZED}" "Test 7: Oversized content (> 512 KiB) is rejected"
+assert_match '"ok":false' "${RES_OVERSIZED}" "Test 7a: Oversized content (> 512 KiB) is rejected using valid JSON structure"
+assert_match 'size exceeds 512 KiB limit' "${RES_OVERSIZED}" "Test 7b: Rejection error message explicitly identifies size limit violation"
 
-# 8. Command injection IDs are rejected across all methods
+# 8. Command injection IDs are rejected across methods with exact error message
 for bad_id in 'profile;rm -rf /' 'profile$(id)' 'profile`id`' 'profile\ninjection' 'profile with space' 'profile"injection' 'profile/test' 'profile\test' '..'; do
     RES_CMD_INJ="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call start "{\"id\":\"${bad_id}\"}" 2>&1 || true)"
-    assert_match '"ok":false' "${RES_CMD_INJ}" "Test 8: Command injection ID '${bad_id}' rejected by start"
+    assert_match '"ok":false' "${RES_CMD_INJ}" "Test 8a: Command injection ID '${bad_id}' rejected by start"
+    assert_match 'Invalid profile ID' "${RES_CMD_INJ}" "Test 8b: Error message explicitly rejects invalid ID '${bad_id}' before UCI lookup"
 done
 
 # -------------------------------------------------------------------
@@ -170,21 +175,32 @@ done
 echo "\n--- Test Group: Reverse-Profile Safety Policy ---"
 CONTENT_INV="$(cat "${FIXTURE_INV}")"
 RES_POLICY_INBOUND="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "{\"content\":\"$(echo "${CONTENT_A}" | sed 's/"settings":/"inbounds":[{"port":1080,"protocol":"socks"}],"settings":/' | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
-assert_match '"ok":false' "${RES_POLICY_INBOUND}" "Test 9: Profile with listening inbound is rejected by policy"
+assert_match '"ok":false' "${RES_POLICY_INBOUND}" "Test 9a: Profile with listening inbound is rejected by policy"
+assert_match 'listening inbounds are prohibited' "${RES_POLICY_INBOUND}" "Test 9b: Error message explicitly identifies forbidden listening inbounds"
 
 NO_REVERSE_JSON='{"log":{"loglevel":"warning"},"inbounds":[],"outbounds":[{"protocol":"freedom","tag":"direct"}]}'
 RES_NO_REVERSE="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "{\"content\":\"$(echo "${NO_REVERSE_JSON}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
-assert_match '"ok":false' "${RES_NO_REVERSE}" "Test 10: Profile without modern settings.reverse.tag is rejected"
+assert_match '"ok":false' "${RES_NO_REVERSE}" "Test 10a: Profile without modern settings.reverse.tag is rejected"
+assert_match 'at least one VLESS outbound must contain settings.reverse.tag' "${RES_NO_REVERSE}" "Test 10b: Error message explicitly identifies missing reverse tag"
 
 # -------------------------------------------------------------------
 # Test Group 4: Permissions, Symlinks & Orphan File Protection
 # -------------------------------------------------------------------
 echo "\n--- Test Group: Permissions, Symlinks & Atomic Operations ---"
 
-# 11. Symlink destination replacement is rejected
-ln -s /etc/passwd "${PROFILES_DIR}/symlink.json" 2>/dev/null || true
-RES_SYMLINK="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import '{"name":"Sym","filename":"symlink.json","content":"{}"}' 2>&1 || true)"
-assert_match '"ok":false' "${RES_SYMLINK}" "Test 11: Symlink destination replacement is rejected"
+# 11. Symlink destination replacement is rejected using 100% valid JSON
+TARGET_SECRET_FILE="${MOCK_ROOT}/secret_target.txt"
+echo "SECRET_ORIGINAL_TARGET_BYTES_UNCHANGED" > "${TARGET_SECRET_FILE}"
+ln -s "${TARGET_SECRET_FILE}" "${PROFILES_DIR}/symlink.json" 2>/dev/null || true
+
+RES_SYMLINK="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import "{\"name\":\"Sym\",\"filename\":\"symlink.json\",\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
+assert_match '"ok":false' "${RES_SYMLINK}" "Test 11: Symlink destination rejection using 100% valid Reverse JSON (lstat check)"
+assert_match 'symbolic link' "${RES_SYMLINK}" "Test 11b: Rejection error message explicitly identifies symbolic link"
+
+# 11c. Assert symlink target contents are strictly unchanged
+TARGET_AFTER="$(cat "${TARGET_SECRET_FILE}")"
+assert_equal "SECRET_ORIGINAL_TARGET_BYTES_UNCHANGED" "${TARGET_AFTER}" "Test 11c: Symlink target contents strictly unchanged"
+rm -f "${PROFILES_DIR}/symlink.json" "${TARGET_SECRET_FILE}"
 
 # 12. Unmanaged orphan regular file rejection
 echo "orphan content" > "${PROFILES_DIR}/orphan.json"
@@ -220,20 +236,40 @@ assert_match '"ok":true' "${RES_RENAME}" "Test 16a: Rename profile succeeds"
 RES_REORDER="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call reorder "{\"id\":\"${PROFILE_A_ID}\",\"direction\":\"down\"}" 2>&1 || true)"
 assert_match '"ok":true' "${RES_REORDER}" "Test 16b: Reorder profile succeeds"
 
-# 17. Secret Sanitization
+# -------------------------------------------------------------------
+# Test Group 5: Locking, Concurrency & Stale Lock Recovery
+# -------------------------------------------------------------------
+echo "\n--- Test Group: Locking, Concurrency & Stale Lock Recovery ---"
+
+# 17. Stale lock recovery
+LOCK_DIR="${PROFILES_DIR}/.lock.d"
+mkdir -p "${LOCK_DIR}"
+echo '{"pid": 999999, "ts": 1000000000}' > "${LOCK_DIR}/meta.json"
+RES_STALE_REC="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call rename "{\"id\":\"${PROFILE_A_ID}\",\"name\":\"Stale Recovered A\"}" 2>&1 || true)"
+assert_match '"ok":true' "${RES_STALE_REC}" "Test 17: Stale lock belonging to dead PID / old timestamp is transparently recovered"
+
+# 18. Secret Sanitization
 echo "\n--- Test Group: Secret Sanitization & Trash Archiving ---"
 LIST_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
 HAS_LEAKED_UUID=$(echo "${LIST_JSON}" | grep -c "11111111-1111-1111-1111-111111111111" || true)
 HAS_LEAKED_ADDR=$(echo "${LIST_JSON}" | grep -c "192.0.2.10" || true)
-assert_equal "0" "${HAS_LEAKED_UUID}" "Test 17a: RPC list response does not leak profile UUIDs"
-assert_equal "0" "${HAS_LEAKED_ADDR}" "Test 17b: RPC list response does not leak profile addresses"
+assert_equal "0" "${HAS_LEAKED_UUID}" "Test 18a: RPC list response does not leak profile UUIDs"
+assert_equal "0" "${HAS_LEAKED_ADDR}" "Test 18b: RPC list response does not leak profile addresses"
 
-# 18. Safe Deletion into .trash/
+# 19. Missing profile start/stop returns ok:false
+RES_START_NONEXIST="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call start '{"id":"nonexistent_profile"}' 2>&1 || true)"
+assert_match '"ok":false' "${RES_START_NONEXIST}" "Test 19a: Start on nonexistent profile returns ok:false"
+
+RES_STOP_NONEXIST="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call stop '{"id":"nonexistent_profile"}' 2>&1 || true)"
+# Stop on missing init returns ok:false if init missing or handles safely
+assert_match '"ok":' "${RES_STOP_NONEXIST}" "Test 19b: Stop handler returns valid JSON result"
+
+# 20. Safe Deletion into .trash/
 RES_DEL_A="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call delete "{\"id\":\"${PROFILE_A_ID}\"}" 2>&1 || true)"
-assert_match '"ok":true' "${RES_DEL_A}" "Test 18a: Delete returns ok:true"
-assert_equal "0" "$([ -f "${PROFILES_DIR}/profile-a.json" ] && echo 1 || echo 0)" "Test 18b: Deleted profile removed from active profiles directory"
+assert_match '"ok":true' "${RES_DEL_A}" "Test 20a: Delete returns ok:true"
+assert_equal "0" "$([ -f "${PROFILES_DIR}/profile-a.json" ] && echo 1 || echo 0)" "Test 20b: Deleted profile removed from active profiles directory"
 TRASH_COUNT="$(find "${PROFILES_DIR}/.trash" -name "*profile-a.json" 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-assert_equal "1" "${TRASH_COUNT}" "Test 18c: Deleted profile archived safely in .trash/"
+assert_equal "1" "${TRASH_COUNT}" "Test 20c: Deleted profile archived safely in .trash/"
 
 echo "\nSummary: ${PASSED} passed, ${FAILED} failed"
 if [ "${FAILED}" -gt 0 ]; then

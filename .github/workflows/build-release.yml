@@ -229,7 +229,7 @@ jobs:
             echo "project=luci-app-xray"
             echo "variant=modern-vless-reverse"
             echo "package_version=3.7.1"
-            echo "package_release=4"
+            echo "package_release=5"
             echo "openwrt_release=${{ matrix.id }}"
             echo "package_format=${PKG_FORMAT}"
             echo "package_architecture=all"
@@ -248,6 +248,70 @@ jobs:
 
           echo "CHECKSUM_FILE=$CHECKSUM_FILE" >> $GITHUB_ENV
           echo "BUILD_INFO_FILE=$BUILD_INFO_FILE" >> $GITHUB_ENV
+      - name: Verify Package Contents & Smoke Bundle Preflight
+        run: |
+          cd "${{ github.workspace }}"
+
+          # 1. Smoke bundle preflight test
+          sh ./profile_mode_smoke.sh --preflight
+
+          # 2. Verify extracted bundle in an isolated temp directory
+          TMP_BUNDLE="$(mktemp -d)"
+          cp ./profile_mode_smoke.sh ./profile-smoke-a.json ./profile-smoke-b.json ./profile-invalid.json "$TMP_BUNDLE/"
+          (
+            cd "$TMP_BUNDLE"
+            sh ./profile_mode_smoke.sh --preflight
+          )
+          rm -rf "$TMP_BUNDLE"
+
+          # 3. Verify core package payload manifest
+          TMP_PKG="$(mktemp -d)"
+          if [ "${{ matrix.id }}" = "25.12.5" ]; then
+            tar -C "$TMP_PKG" -zxf "$CORE_PACKAGE"
+          else
+            if ar -t "$CORE_PACKAGE" >/dev/null 2>&1; then
+              ar -p "$CORE_PACKAGE" data.tar.gz | tar -C "$TMP_PKG" -zxf -
+            else
+              tar -xzOf "$CORE_PACKAGE" ./data.tar.gz 2>/dev/null | tar -C "$TMP_PKG" -zxf - || \
+              tar -xzOf "$CORE_PACKAGE" data.tar.gz 2>/dev/null | tar -C "$TMP_PKG" -zxf -
+            fi
+          fi
+
+          for req in \
+            "etc/init.d/xray_core" \
+            "etc/init.d/xray_profiles" \
+            "usr/libexec/rpcd/xray" \
+            "usr/libexec/rpcd/xray_profiles" \
+            "usr/share/luci/menu.d/luci-app-xray.json" \
+            "usr/share/rpcd/acl.d/luci-app-xray.json" \
+            "usr/share/xray/gen_config.uc" \
+            "usr/share/xray/gen_config.mjs" \
+            "usr/share/xray/common/config.mjs" \
+            "usr/share/xray/common/stream.mjs" \
+            "usr/share/xray/common/tls.mjs" \
+            "usr/share/xray/feature/bridge.mjs" \
+            "usr/share/xray/feature/dns.mjs" \
+            "usr/share/xray/feature/fake_dns.mjs" \
+            "usr/share/xray/feature/inbound.mjs" \
+            "usr/share/xray/feature/manual_tproxy.mjs" \
+            "usr/share/xray/feature/outbound.mjs" \
+            "usr/share/xray/feature/system.mjs" \
+            "usr/share/xray/protocol/http.mjs" \
+            "usr/share/xray/protocol/hysteria.mjs" \
+            "usr/share/xray/protocol/shadowsocks.mjs" \
+            "usr/share/xray/protocol/socks.mjs" \
+            "usr/share/xray/protocol/trojan.mjs" \
+            "usr/share/xray/protocol/vless.mjs" \
+            "usr/share/xray/protocol/vmess.mjs" \
+            "www/luci-static/resources/view/xray/core.js" \
+            "www/luci-static/resources/view/xray/profiles.js"; do
+            if [ ! -f "$TMP_PKG/$req" ] && [ ! -L "$TMP_PKG/$req" ]; then
+              echo "::error::Missing required payload file in $CORE_PACKAGE: $req"
+              exit 1
+            fi
+          done
+          echo "  [PASS] Verified all required runtime modules in $CORE_PACKAGE"
+          rm -rf "$TMP_PKG"
       - name: Upload CI Package Artifacts
         uses: actions/upload-artifact@v4
         with:

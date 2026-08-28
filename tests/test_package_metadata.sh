@@ -27,7 +27,7 @@ STATUS_MAKEFILE="${SCRIPT_DIR}/../status/Makefile"
 GEODATA_MAKEFILE="${SCRIPT_DIR}/../geodata/Makefile"
 
 # Test 1: core/Makefile must not have +xray-core in DEPENDS
-DEPENDS_LINE=$(grep "^[[:space:]]*DEPENDS:=" "${CORE_MAKEFILE}")
+DEPENDS_LINE=$(grep "DEPENDS:=" "${CORE_MAKEFILE}" || true)
 HAS_XRAY_CORE_DEP=$(echo "${DEPENDS_LINE}" | grep -c "+xray-core" || true)
 assert_equal "0" "${HAS_XRAY_CORE_DEP}" "core/Makefile must not depend on +xray-core"
 
@@ -35,14 +35,21 @@ assert_equal "0" "${HAS_XRAY_CORE_DEP}" "core/Makefile must not depend on +xray-
 HAS_OPT_SYMLINK=$(grep -c "LN.*opt/xray/current/xray" "${CORE_MAKEFILE}" || true)
 assert_equal "1" "$((HAS_OPT_SYMLINK > 0))" "core/Makefile must install symlink pointing to /opt/xray/current/xray"
 
-# Test 3: PKG_RELEASE must be 4 across core, status, and geodata Makefiles
-CORE_REL=$(grep "^PKG_RELEASE:=" "${CORE_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n')
-STATUS_REL=$(grep "^PKG_RELEASE:=" "${STATUS_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n')
-GEODATA_REL=$(grep "^PKG_RELEASE:=" "${GEODATA_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n')
+# Test 3: PKG_RELEASE must be 5 across core, status, and geodata Makefiles
+CORE_REL=$(grep "^PKG_RELEASE:=" "${CORE_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
+STATUS_REL=$(grep "^PKG_RELEASE:=" "${STATUS_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
+GEODATA_REL=$(grep "^PKG_RELEASE:=" "${GEODATA_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 
-assert_equal "4" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=4"
-assert_equal "4" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=4"
-assert_equal "4" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=4"
+assert_equal "5" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=5"
+assert_equal "5" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=5"
+assert_equal "5" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=5"
+
+# Test 3b: core/Makefile must contain +firewall4 and +dnsmasq in LUCI_DEPENDS
+LUCI_DEP_LINE=$(grep "^[[:space:]]*LUCI_DEPENDS:=" "${CORE_MAKEFILE}" || true)
+HAS_FW4=$(echo "${LUCI_DEP_LINE}" | grep -c "+firewall4" || true)
+HAS_DNSMASQ=$(echo "${LUCI_DEP_LINE}" | grep -c "+dnsmasq" || true)
+assert_equal "1" "$((HAS_FW4 > 0))" "core/Makefile contains +firewall4 in LUCI_DEPENDS"
+assert_equal "1" "$((HAS_DNSMASQ > 0))" "core/Makefile contains +dnsmasq in LUCI_DEPENDS"
 
 # Test 4: core/Makefile installs xray_profiles init script and rpcd backend
 HAS_PROFILES_INIT=$(grep -c "init.d/xray_profiles" "${CORE_MAKEFILE}" || true)

@@ -1,7 +1,7 @@
 #!/usr/bin/ucode
 "use strict";
 
-import { readfile, writefile, stat, access, rename, unlink, mkdir, rmdir, glob, popen } from "fs";
+import { readfile, writefile, open, stat, lstat, access, rename, unlink, chmod, mkdir, rmdir, glob, popen } from "fs";
 import { cursor } from "uci";
 
 // Parse CLI flags and arguments
@@ -43,6 +43,8 @@ try {
 const BASE_PROFILES_DIR = mock_dir ? `${mock_dir}/opt/xray/profiles` : (getenv("PROFILES_DIR") || "/opt/xray/profiles");
 const TRASH_DIR = `${BASE_PROFILES_DIR}/.trash`;
 const LOCK_DIR = `${BASE_PROFILES_DIR}/.lock.d`;
+const LOCK_META = `${LOCK_DIR}/meta.json`;
+const LOCK_TIMEOUT_SECS = 15;
 const XRAY_BIN = mock_dir ? (getenv("XRAY_BIN") || `${mock_dir}/xray`) : (getenv("XRAY_BIN") || "/opt/xray/current/xray");
 const ASSET_DIR = mock_dir ? `${mock_dir}/opt/xray/current` : (getenv("XRAY_LOCATION_ASSET") || "/opt/xray/current");
 const INIT_SCRIPT = mock_dir ? `${mock_dir}/etc/init.d/xray_profiles` : "/etc/init.d/xray_profiles";
@@ -52,7 +54,9 @@ const UCI_DIR = mock_dir ? `${mock_dir}/etc/config` : null;
 // Helpers
 function ensure_dirs() {
     mkdir(BASE_PROFILES_DIR, 0700);
+    chmod(BASE_PROFILES_DIR, 0700);
     mkdir(TRASH_DIR, 0700);
+    chmod(TRASH_DIR, 0700);
 }
 
 // Process runner capturing exact exit code, stdout and stderr
@@ -99,13 +103,52 @@ function run_cmd(command) {
     return res.stdout;
 }
 
-// Mutex Locking for Atomic Operations
+// Process PID checker
+function is_pid_alive(pid) {
+    if (!pid || pid <= 0) return false;
+    let st = stat(`/proc/${pid}`);
+    return st && st.type == "directory";
+}
+
+// Mutex Locking with Stale-Lock Detection and Recovery
 function acquire_lock() {
     ensure_dirs();
     for (let attempt = 0; attempt < 30; attempt++) {
         if (mkdir(LOCK_DIR, 0700)) {
+            let meta = { pid: 0, ts: time() };
+            let fh = open(LOCK_META, "w", 0600);
+            if (fh) {
+                fh.write(sprintf("%.0J", meta));
+                fh.close();
+            }
             return true;
         }
+
+        // Stale-lock inspection
+        let st = stat(LOCK_DIR);
+        if (st) {
+            let is_stale = false;
+            let meta_content = readfile(LOCK_META);
+            let meta = null;
+            try {
+                if (meta_content) meta = json(meta_content);
+            } catch (e) {}
+
+            if (meta && meta.ts && (time() - meta.ts > LOCK_TIMEOUT_SECS)) {
+                if (!meta.pid || !is_pid_alive(meta.pid)) {
+                    is_stale = true;
+                }
+            } else if (time() - st.mtime > LOCK_TIMEOUT_SECS) {
+                is_stale = true;
+            }
+
+            if (is_stale) {
+                unlink(LOCK_META);
+                rmdir(LOCK_DIR);
+                continue;
+            }
+        }
+
         let p = popen("sleep 0.1 2>/dev/null || sleep 1", "r");
         if (p) p.close();
     }
@@ -113,6 +156,7 @@ function acquire_lock() {
 }
 
 function release_lock() {
+    unlink(LOCK_META);
     rmdir(LOCK_DIR);
 }
 
@@ -131,6 +175,14 @@ function get_uci() {
 function get_procd_instances() {
     let instances = {};
     if (mock_dir) {
+        let mock_file = `${mock_dir}/instances.json`;
+        if (access(mock_file)) {
+            try {
+                let data = json(readfile(mock_file) || "{}");
+                if (data && data.instances) return data.instances;
+                if (data && data.xray_profiles && data.xray_profiles.instances) return data.xray_profiles.instances;
+            } catch (e) {}
+        }
         return instances;
     }
     let ubus_out = run_cmd("ubus call service list '{\"name\": \"xray_profiles\"}' 2>/dev/null");
@@ -141,6 +193,41 @@ function get_procd_instances() {
         }
     } catch (e) {}
     return instances;
+}
+
+// Bounded polling state machine for process lifecycle
+function poll_instance_state(id, expected_running, max_wait_ms) {
+    let max_ms = max_wait_ms || 3000;
+    let step = 100;
+    let attempts = int(max_ms / step);
+    if (attempts < 1) attempts = 1;
+
+    for (let i = 0; i < attempts; i++) {
+        let inst = get_procd_instances();
+        let target = inst[`profile_${id}`];
+        let is_running = (target && target.running && target.pid > 0);
+        if (expected_running) {
+            if (is_running) {
+                return { ok: true, running: true, pid: target.pid, respawn_count: target.respawn_count || 0 };
+            }
+        } else {
+            if (!target || !target.running) {
+                return { ok: true, running: false, pid: null };
+            }
+        }
+        let p = popen("sleep 0.1 2>/dev/null || sleep 1", "r");
+        if (p) p.close();
+    }
+
+    let final_inst = get_procd_instances();
+    let final_target = final_inst[`profile_${id}`];
+    let final_running = (final_target && final_target.running && final_target.pid > 0);
+    return {
+        ok: expected_running ? (final_running ? true : false) : (!final_running ? true : false),
+        running: final_running ? true : false,
+        pid: final_target ? final_target.pid : null,
+        respawn_count: final_target ? (final_target.respawn_count || 0) : 0
+    };
 }
 
 // Validation Helpers & Strict Whitelist
@@ -233,10 +320,15 @@ function validate_content_full(content_str) {
         return { ok: false, error: "Xray runtime binary missing or not executable" };
     }
 
-    // Write to temporary file with 0600 mode for testing
+    // Write to temporary file with mode 0600 created before writing
     ensure_dirs();
     let tmp_path = `${BASE_PROFILES_DIR}/.tmp_test_${time()}_${int(rand() * 100000)}.json`;
-    writefile(tmp_path, content_str);
+    let fh = open(tmp_path, "w", 0600);
+    if (!fh) {
+        return { ok: false, error: "Failed to open temporary file with mode 0600 for validation" };
+    }
+    fh.write(content_str);
+    fh.close();
     chmod(tmp_path, 0600);
 
     let test_cmd = `XRAY_LOCATION_ASSET="${ASSET_DIR}" "${XRAY_BIN}" run -test -config "${tmp_path}"`;
@@ -273,8 +365,8 @@ function rpc_list() {
 
         let instance_key = `profile_${id}`;
         let inst = instances[instance_key] || {};
-        let is_running = inst.running ? true : false;
-        let pid = inst.pid || null;
+        let is_running = (inst.running && inst.pid > 0) ? true : false;
+        let pid = is_running ? inst.pid : null;
 
         push(profiles, {
             id: id,
@@ -309,8 +401,11 @@ function rpc_list() {
     for (let p in profiles) {
         if (p.running) {
             running_cnt++;
-        } else if (p.autostart && !p.running) {
-            failed_cnt++;
+        } else {
+            let inst = instances[`profile_${p.id}`];
+            if (inst && (inst.running === false || inst.running === 0) && inst.respawn_count && inst.respawn_count > 0) {
+                failed_cnt++;
+            }
         }
     }
 
@@ -375,9 +470,9 @@ function rpc_import(params) {
         ensure_dirs();
         let target_path = `${BASE_PROFILES_DIR}/${filename}`;
 
-        // Reject existing symlinks (lstat check)
-        let target_st = stat(target_path);
-        if (target_st && target_st.type == "link") {
+        // Reject existing symlinks using real lstat check
+        let target_lst = lstat(target_path);
+        if (target_lst && target_lst.type == "link") {
             release_lock();
             return { ok: false, error: "Target destination is a symbolic link; replacement forbidden" };
         }
@@ -410,9 +505,15 @@ function rpc_import(params) {
             return { ok: false, error: `Unmanaged orphan file '${filename}' already exists at destination; import rejected` };
         }
 
-        // Write to temporary file with mode 0600
+        // Write to temporary file created with mode 0600 BEFORE content write
         let tmp_path = `${BASE_PROFILES_DIR}/.tmp_import_${id}_${time()}_${int(rand() * 100000)}.json`;
-        writefile(tmp_path, content);
+        let fh = open(tmp_path, "w", 0600);
+        if (!fh) {
+            release_lock();
+            return { ok: false, error: "Failed to open temporary file with mode 0600" };
+        }
+        fh.write(content);
+        fh.close();
         chmod(tmp_path, 0600);
 
         // Atomically rename into place
@@ -478,6 +579,13 @@ function rpc_replace(params) {
 
         ensure_dirs();
 
+        // Reject existing symlinks using real lstat check
+        let target_lst = lstat(target_path);
+        if (target_lst && target_lst.type == "link") {
+            release_lock();
+            return { ok: false, error: "Target destination is a symbolic link; replacement forbidden" };
+        }
+
         // Check running state
         let instances = get_procd_instances();
         let was_running = (instances[`profile_${id}`] && instances[`profile_${id}`].running) ? true : false;
@@ -487,9 +595,17 @@ function rpc_replace(params) {
             rename(target_path, backup_path);
         }
 
-        // Write new content to tmp file and atomically rename
-        writefile(tmp_path, content);
+        // Write new content to tmp file with mode 0600 and atomically rename
+        let fh = open(tmp_path, "w", 0600);
+        if (!fh) {
+            if (access(backup_path)) rename(backup_path, target_path);
+            release_lock();
+            return { ok: false, error: "Failed to open temporary file with mode 0600" };
+        }
+        fh.write(content);
+        fh.close();
         chmod(tmp_path, 0600);
+
         if (!rename(tmp_path, target_path)) {
             if (access(backup_path)) rename(backup_path, target_path);
             unlink(tmp_path);
@@ -498,15 +614,11 @@ function rpc_replace(params) {
         }
         chmod(target_path, 0600);
 
-        // If was running, restart instance with verification
+        // If was running, restart instance with bounded verification
         if (was_running && access(INIT_SCRIPT)) {
             run_cmd(`"${INIT_SCRIPT}" restart "${id}" 2>&1`);
-            let p = popen("sleep 0.5 2>/dev/null || sleep 1", "r");
-            if (p) p.close();
-
-            let inst_after = get_procd_instances();
-            let running_after = (inst_after[`profile_${id}`] && inst_after[`profile_${id}`].running);
-            if (!running_after) {
+            let poll = poll_instance_state(id, true, 3000);
+            if (!poll.ok || !poll.running) {
                 // Rollback on restart failure
                 if (access(backup_path)) {
                     rename(backup_path, target_path);
@@ -556,13 +668,18 @@ function rpc_delete(params) {
 
         // Move file to .trash/
         ensure_dirs();
-        if (access(target_path)) {
-            let trash_dest = `${TRASH_DIR}/${time()}_${filename}`;
-            if (!rename(target_path, trash_dest)) {
-                release_lock();
-                return { ok: false, error: "Failed to archive profile file into .trash/" };
+        let target_lst = lstat(target_path);
+        if (target_lst) {
+            if (target_lst.type == "link") {
+                unlink(target_path);
+            } else if (access(target_path)) {
+                let trash_dest = `${TRASH_DIR}/${time()}_${filename}`;
+                if (!rename(target_path, trash_dest)) {
+                    release_lock();
+                    return { ok: false, error: "Failed to archive profile file into .trash/" };
+                }
+                chmod(trash_dest, 0600);
             }
-            chmod(trash_dest, 0600);
         }
 
         u.delete("xray_core", id);
@@ -580,56 +697,88 @@ function rpc_start(params) {
     let id = trim(params.id || "");
     if (!is_valid_id(id)) return { ok: false, error: "Invalid profile ID" };
 
-    if (access(INIT_SCRIPT)) {
-        let res = run_process(`"${INIT_SCRIPT}" start "${id}"`);
-        if (res.exit_code !== 0) {
-            return { ok: false, error: "Failed to invoke service start" };
-        }
-        let p = popen("sleep 0.5 2>/dev/null || sleep 1", "r");
-        if (p) p.close();
-
-        let inst = get_procd_instances();
-        let target_inst = inst[`profile_${id}`];
-        if (target_inst && target_inst.running && target_inst.pid > 0) {
-            return { ok: true, running: true, pid: target_inst.pid };
-        } else {
-            return { ok: false, error: "Profile failed to start or exited immediately" };
-        }
+    if (!access(INIT_SCRIPT)) {
+        return { ok: false, error: "Init service script missing or not executable" };
     }
-    return { ok: true };
+
+    let u = get_uci();
+    u.load("xray_core");
+    let profile_sec = u.get("xray_core", id);
+    if (!profile_sec || profile_sec[".type"] != "profile") {
+        return { ok: false, error: `Profile '${id}' not found in configuration` };
+    }
+
+    let filename = profile_sec.filename || `${id}.json`;
+    let filepath = `${BASE_PROFILES_DIR}/${filename}`;
+    if (!access(filepath)) {
+        return { ok: false, error: `Profile file '${filename}' missing from storage` };
+    }
+
+    let res = run_process(`"${INIT_SCRIPT}" start "${id}"`);
+    if (res.exit_code !== 0) {
+        return { ok: false, error: "Failed to invoke service start" };
+    }
+
+    let poll = poll_instance_state(id, true, 3000);
+    if (poll.ok && poll.running && poll.pid > 0) {
+        return { ok: true, running: true, pid: poll.pid };
+    } else {
+        return { ok: false, error: "Profile failed to start or exited immediately" };
+    }
 }
 
 function rpc_stop(params) {
     let id = trim(params.id || "");
     if (!is_valid_id(id)) return { ok: false, error: "Invalid profile ID" };
 
-    if (access(INIT_SCRIPT)) {
-        run_cmd(`"${INIT_SCRIPT}" stop "${id}" >/dev/null 2>&1`);
+    if (!access(INIT_SCRIPT)) {
+        return { ok: false, error: "Init service script missing or not executable" };
     }
-    return { ok: true };
+
+    let res = run_process(`"${INIT_SCRIPT}" stop "${id}"`);
+    if (res.exit_code !== 0) {
+        return { ok: false, error: "Failed to invoke service stop" };
+    }
+
+    let poll = poll_instance_state(id, false, 3000);
+    if (!poll.ok && poll.running) {
+        return { ok: false, error: "Profile failed to stop within timeout" };
+    }
+    return { ok: true, running: false };
 }
 
 function rpc_restart(params) {
     let id = trim(params.id || "");
     if (!is_valid_id(id)) return { ok: false, error: "Invalid profile ID" };
 
-    if (access(INIT_SCRIPT)) {
-        let res = run_process(`"${INIT_SCRIPT}" restart "${id}"`);
-        if (res.exit_code !== 0) {
-            return { ok: false, error: "Failed to invoke service restart" };
-        }
-        let p = popen("sleep 0.5 2>/dev/null || sleep 1", "r");
-        if (p) p.close();
-
-        let inst = get_procd_instances();
-        let target_inst = inst[`profile_${id}`];
-        if (target_inst && target_inst.running && target_inst.pid > 0) {
-            return { ok: true, running: true, pid: target_inst.pid };
-        } else {
-            return { ok: false, error: "Profile failed to restart or exited immediately" };
-        }
+    if (!access(INIT_SCRIPT)) {
+        return { ok: false, error: "Init service script missing or not executable" };
     }
-    return { ok: true };
+
+    let u = get_uci();
+    u.load("xray_core");
+    let profile_sec = u.get("xray_core", id);
+    if (!profile_sec || profile_sec[".type"] != "profile") {
+        return { ok: false, error: `Profile '${id}' not found in configuration` };
+    }
+
+    let filename = profile_sec.filename || `${id}.json`;
+    let filepath = `${BASE_PROFILES_DIR}/${filename}`;
+    if (!access(filepath)) {
+        return { ok: false, error: `Profile file '${filename}' missing from storage` };
+    }
+
+    let res = run_process(`"${INIT_SCRIPT}" restart "${id}"`);
+    if (res.exit_code !== 0) {
+        return { ok: false, error: "Failed to invoke service restart" };
+    }
+
+    let poll = poll_instance_state(id, true, 3000);
+    if (poll.ok && poll.running && poll.pid > 0) {
+        return { ok: true, running: true, pid: poll.pid };
+    } else {
+        return { ok: false, error: "Profile failed to restart or exited immediately" };
+    }
 }
 
 function rpc_set_autostart(params) {
@@ -639,6 +788,11 @@ function rpc_set_autostart(params) {
 
     let u = get_uci();
     u.load("xray_core");
+    let profile_sec = u.get("xray_core", id);
+    if (!profile_sec || profile_sec[".type"] != "profile") {
+        return { ok: false, error: `Profile '${id}' not found` };
+    }
+
     u.set("xray_core", id, "autostart", autostart);
     u.commit("xray_core");
     return { ok: true };
@@ -652,6 +806,11 @@ function rpc_rename(params) {
 
     let u = get_uci();
     u.load("xray_core");
+    let profile_sec = u.get("xray_core", id);
+    if (!profile_sec || profile_sec[".type"] != "profile") {
+        return { ok: false, error: `Profile '${id}' not found` };
+    }
+
     u.set("xray_core", id, "name", name);
     u.commit("xray_core");
     return { ok: true };
@@ -664,6 +823,11 @@ function rpc_reorder(params) {
 
     let u = get_uci();
     u.load("xray_core");
+    let profile_sec = u.get("xray_core", id);
+    if (!profile_sec || profile_sec[".type"] != "profile") {
+        return { ok: false, error: `Profile '${id}' not found` };
+    }
+
     let current_order = int(u.get("xray_core", id, "order") || "0");
     if (direction == "up") {
         current_order = current_order > 0 ? current_order - 1 : 0;
@@ -676,19 +840,19 @@ function rpc_reorder(params) {
 }
 
 function rpc_enable_service() {
-    if (access(INIT_SCRIPT)) {
-        let res = run_process(`"${INIT_SCRIPT}" enable 2>&1`);
-        return { ok: res.exit_code === 0 };
+    if (!access(INIT_SCRIPT)) {
+        return { ok: false, error: "Init service script missing or not executable" };
     }
-    return { ok: true };
+    let res = run_process(`"${INIT_SCRIPT}" enable 2>&1`);
+    return { ok: res.exit_code === 0 };
 }
 
 function rpc_disable_service() {
-    if (access(INIT_SCRIPT)) {
-        let res = run_process(`"${INIT_SCRIPT}" disable 2>&1`);
-        return { ok: res.exit_code === 0 };
+    if (!access(INIT_SCRIPT)) {
+        return { ok: false, error: "Init service script missing or not executable" };
     }
-    return { ok: true };
+    let res = run_process(`"${INIT_SCRIPT}" disable 2>&1`);
+    return { ok: res.exit_code === 0 };
 }
 
 function rpc_disable_legacy() {

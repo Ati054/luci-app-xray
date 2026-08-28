@@ -63,6 +63,21 @@ for c in config.mjs stream.mjs tls.mjs; do
     assert_equal "1" "$([ -f "${XRAY_DIR}/common/${c}" ] && echo 1 || echo 0)" "Installed package contains common/${c}"
 done
 
+# Test 3b: Verify static transitive imports resolve inside isolated staging root
+MISSING_IMPORTS=0
+for src in $(find "${XRAY_DIR}" -type f \( -name "*.mjs" -o -name "*.uc" -o -name "*.ut" \)); do
+    src_dir=$(dirname "$src")
+    for rel_path in $(grep -E "^\s*(import|export)\s+.*from\s+[\"'].*[\"']" "$src" 2>/dev/null | grep -E "from\s+[\"'](\.|\.\.)" | sed -E "s/.*from\s+[\"']([^\"']+)[\"'].*/\1/" || true); do
+        [ -z "$rel_path" ] && continue
+        target_path=$(cd "$src_dir" 2>/dev/null && realpath -m "$rel_path" 2>/dev/null || echo "$src_dir/$rel_path")
+        if [ ! -f "$target_path" ]; then
+            echo "  [FAIL] Unresolved import in $(basename "$src"): '$rel_path' -> missing '$target_path'"
+            MISSING_IMPORTS=$((MISSING_IMPORTS + 1))
+        fi
+    done
+done
+assert_equal "0" "${MISSING_IMPORTS}" "All relative static imports resolve strictly inside isolated staging root"
+
 # Test 4: Verify that gen_config.uc executes strictly from the isolated staging root
 if command -v ucode >/dev/null 2>&1; then
     UCI_DIR="${STAGE_ROOT}/etc/config"
@@ -82,6 +97,8 @@ EOF
     STATUS=$?
     assert_equal "0" "${STATUS}" "Isolated staging gen_config.uc executes with exit code 0"
     assert_equal "" "$(cat "${ERR_LOG}")" "Isolated staging gen_config.uc produces no stderr"
+    assert_equal "1" "$([ -s "${OUT_LOG}" ] && echo 1 || echo 0)" "Isolated staging gen_config.uc produces non-empty output"
+    assert_equal "1" "$(grep -c '"outbounds"' "${OUT_LOG}" || echo 0)" "Isolated staging gen_config.uc output contains outbounds definition"
 else
     echo "  [SKIP] ucode CLI not available in current environment for execution check."
 fi

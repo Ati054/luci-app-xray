@@ -19,6 +19,19 @@ assert_equal() {
     fi
 }
 
+assert_match() {
+    local pattern="$1"
+    local text="$2"
+    local msg="$3"
+    if echo "$text" | grep -E -q "$pattern"; then
+        echo "  [PASS] $msg"
+        PASSED=$((PASSED + 1))
+    else
+        echo "  [FAIL] $msg (pattern '$pattern' not found in '$text')"
+        FAILED=$((FAILED + 1))
+    fi
+}
+
 echo "=== Test Suite: Init Script Lifecycle Isolation & State Transitions ==="
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -256,7 +269,7 @@ EOF
     CLEANUP_FIREWALL=$(grep -c "firewall" "${LOG_FILE}" 2>/dev/null || true)
     CLEANUP_DNSMASQ=$(grep -c "dnsmasq" "${LOG_FILE}" 2>/dev/null || true)
     assert_equal "0" "${CLEANUP_FIREWALL:-0}" "Unrelated table 251 rule must not trigger firewall flush"
-    assert_equal "0" "${DNSMASQ_CALLS:-0}" "Unrelated table 251 rule must not trigger dnsmasq flush"
+    assert_equal "0" "${CLEANUP_DNSMASQ:-0}" "Unrelated table 251 rule must not trigger dnsmasq flush"
 }
 
 # Test case 4B: Exact Xray signature triggers migration cleanup
@@ -285,6 +298,101 @@ EOF
     CLEANUP_DNSMASQ=$(grep -c "dnsmasq" "${LOG_FILE}" 2>/dev/null || true)
     assert_equal "1" "$((CLEANUP_FIREWALL > 0))" "Exact Xray signature must trigger firewall cleanup"
     assert_equal "1" "$((CLEANUP_DNSMASQ > 0))" "Exact Xray signature must trigger dnsmasq cleanup"
+}
+
+# Test case 5: xray_profiles multi-instance reload and lifecycle isolation
+{
+    echo "\nTest Case 5: xray_profiles multi-instance lifecycle and reload"
+    PROFILES_INIT="${SCRIPT_DIR}/../core/root/etc/init.d/xray_profiles"
+    PROFILES_DIR="${MOCK_DIR}/opt/xray/profiles"
+    mkdir -p "${PROFILES_DIR}"
+
+    # Create dummy valid profile file
+    echo '{"outbounds":[{"protocol":"vless","settings":{"reverse":{"tag":"rev-in"}}}]}' > "${PROFILES_DIR}/profile1.json"
+    echo '{"outbounds":[{"protocol":"vless","settings":{"reverse":{"tag":"rev-in"}}}]}' > "${PROFILES_DIR}/profile2.json"
+
+    # Mock ubus
+    cat << EOF > "${MOCK_DIR}/bin/ubus"
+#!/bin/sh
+echo "ubus \$*" >> "${LOG_FILE}"
+if [ "\$1" = "call" ] && [ "\$2" = "service" ] && [ "\$3" = "list" ]; then
+    echo '{"xray_profiles":{"instances":{"profile_p1":{"running":true,"pid":111},"profile_p2":{"running":true,"pid":222}}}}'
+fi
+exit 0
+EOF
+    chmod +x "${MOCK_DIR}/bin/ubus"
+
+    (
+        . "${MOCK_DIR}/procd_mock.sh"
+        config_load() { :; }
+        config_get() {
+            local var="$1"
+            local sec="$2"
+            local opt="$3"
+            local def="$4"
+            case "${sec}_${opt}" in
+                "p1_filename") eval "$var='profile1.json'" ;;
+                "p1_name") eval "$var='Profile 1'" ;;
+                "p1_autostart") eval "$var='0'" ;; # Manually started, not autostart
+                "p1_enabled") eval "$var='1'" ;;
+                "p2_filename") eval "$var='profile2.json'" ;;
+                "p2_name") eval "$var='Profile 2'" ;;
+                "p2_autostart") eval "$var='1'" ;; # Autostart
+                "p2_enabled") eval "$var='1'" ;;
+                "p3_filename") eval "$var='profile3_missing.json'" ;;
+                "p3_name") eval "$var='Profile 3 Invalid'" ;;
+                "p3_autostart") eval "$var='1'" ;;
+                "p3_enabled") eval "$var='1'" ;;
+                *) eval "$var='$def'" ;;
+            esac
+        }
+        config_foreach() {
+            local callback="$1"
+            local type="$2"
+            "$callback" "p1"
+            "$callback" "p2"
+            "$callback" "p3"
+        }
+        procd_open_instance() {
+            echo "PROCD_OPEN: $1" >> "${LOG_FILE}"
+        }
+
+        PROFILES_DIR="${PROFILES_DIR}"
+        XRAY_BIN="${MOCK_DIR}/opt/xray/current/xray"
+        NAME="xray_profiles"
+        UCI_PACKAGE="xray_core"
+        . "${PROFILES_INIT}"
+
+        reload_service
+        echo "PHASE: RELOAD_DONE" >> "${LOG_FILE}"
+
+        # Test single target start for p1: must declare p1 AND running p2
+        start_service "p1"
+        echo "PHASE: TARGET_DONE" >> "${LOG_FILE}"
+
+        # Test targeted stop for p1
+        stop_service "p1"
+    )
+
+    RELOAD_SECTION=$(sed -n '1,/PHASE: RELOAD_DONE/p' "${LOG_FILE}" 2>/dev/null || cat "${LOG_FILE}")
+    TARGET_SECTION=$(sed -n '/PHASE: RELOAD_DONE/,/PHASE: TARGET_DONE/p' "${LOG_FILE}" 2>/dev/null || cat "${LOG_FILE}")
+
+    HAS_P1_RELOAD=$(echo "${RELOAD_SECTION}" | grep -c "PROCD_OPEN: profile_p1" || true)
+    HAS_P2_RELOAD=$(echo "${RELOAD_SECTION}" | grep -c "PROCD_OPEN: profile_p2" || true)
+    HAS_P3_RELOAD=$(echo "${RELOAD_SECTION}" | grep -c "PROCD_OPEN: profile_p3" || true)
+
+    assert_equal "1" "$((HAS_P1_RELOAD > 0))" "reload_service declares running manual profile p1"
+    assert_equal "1" "$((HAS_P2_RELOAD > 0))" "reload_service declares autostart profile p2"
+    assert_equal "0" "${HAS_P3_RELOAD}" "reload_service safely skips invalid/missing profile p3"
+
+    HAS_P1_TARGET=$(echo "${TARGET_SECTION}" | grep -c "PROCD_OPEN: profile_p1" || true)
+    HAS_P2_TARGET=$(echo "${TARGET_SECTION}" | grep -c "PROCD_OPEN: profile_p2" || true)
+
+    assert_equal "1" "$((HAS_P1_TARGET > 0))" "Targeted start declares target instance profile_p1"
+    assert_equal "1" "$((HAS_P2_TARGET > 0))" "Targeted start preserves running peer instance profile_p2"
+
+    DELETED_P1=$(grep -c 'ubus call service delete {"name": "xray_profiles", "instance": "profile_p1"}' "${LOG_FILE}" 2>/dev/null || true)
+    assert_equal "1" "$((DELETED_P1 > 0))" "Targeted stop_service issues targeted ubus service delete"
 }
 
 echo "\nSummary: ${PASSED} passed, ${FAILED} failed"

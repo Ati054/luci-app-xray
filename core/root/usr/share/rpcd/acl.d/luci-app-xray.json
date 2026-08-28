@@ -7,7 +7,9 @@
             ],
             "ubus": {
                 "xray_profiles": [
-                    "*"
+                    "list",
+                    "validate",
+                    "diagnostic"
                 ],
                 "service": [
                     "list",
@@ -29,7 +31,18 @@
             ],
             "ubus": {
                 "xray_profiles": [
-                    "*"
+                    "import",
+                    "replace",
+                    "delete",
+                    "start",
+                    "stop",
+                    "restart",
+                    "set_autostart",
+                    "rename",
+                    "reorder",
+                    "enable_service",
+                    "disable_service",
+                    "disable_legacy"
                 ],
                 "service": [
                     "delete"
