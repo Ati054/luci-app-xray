@@ -1,0 +1,73 @@
+{
+  "log": {
+    "access": "none",
+    "loglevel": "warning",
+    "dnsLog": false
+  },
+  "inbounds": [],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "freedom",
+      "tag": "reverse-egress",
+      "settings": {
+        "domainStrategy": "UseIP",
+        "finalRules": [
+          {
+            "action": "allow",
+            "network": "tcp,udp",
+            "ip": [
+              "!geoip:private"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "protocol": "vless",
+      "tag": "reverse-xhttp",
+      "settings": {
+        "address": "198.51.100.20",
+        "port": 443,
+        "id": "22222222-2222-2222-2222-222222222222",
+        "flow": "",
+        "encryption": "none",
+        "reverse": {
+          "tag": "reverse-smoke-b-in"
+        }
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "fingerprint": "chrome",
+          "serverName": "smoke-b.example.com",
+          "publicKey": "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=",
+          "shortId": "fedcba9876543210",
+          "spiderX": "/"
+        },
+        "xhttpSettings": {
+          "host": "smoke-b.example.com",
+          "path": "/smoke-xhttp",
+          "mode": "auto"
+        }
+      }
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "reverse-smoke-b-in"
+        ],
+        "outboundTag": "reverse-egress"
+      }
+    ]
+  }
+}

@@ -191,11 +191,17 @@ jobs:
           fi
           cp -p "$STATUS_SRC_PKG" "${{ github.workspace }}/$STATUS_BASE"
 
+          # Copy Hardware Smoke Test Bundle
+          cp -p "${{ github.workspace }}/tests/hardware/profile_mode_smoke.sh" "${{ github.workspace }}/profile_mode_smoke.sh"
+          cp -p "${{ github.workspace }}/tests/fixtures/profile-smoke-a.json" "${{ github.workspace }}/profile-smoke-a.json"
+          cp -p "${{ github.workspace }}/tests/fixtures/profile-smoke-b.json" "${{ github.workspace }}/profile-smoke-b.json"
+          cp -p "${{ github.workspace }}/tests/fixtures/profile-invalid.json" "${{ github.workspace }}/profile-invalid.json"
+
           echo "CORE_PACKAGE=$CORE_BASE" >> $GITHUB_ENV
           echo "STATUS_PACKAGE=$STATUS_BASE" >> $GITHUB_ENV
 
-          echo "Copied canonical packages:"
-          ls -lh "${{ github.workspace }}/$CORE_BASE" "${{ github.workspace }}/$STATUS_BASE"
+          echo "Copied canonical packages and hardware smoke bundle:"
+          ls -lh "${{ github.workspace }}/$CORE_BASE" "${{ github.workspace }}/$STATUS_BASE" "${{ github.workspace }}/profile_mode_smoke.sh"
       - name: Generate Checksums and Build Info
         run: |
           cd "${{ github.workspace }}"
@@ -223,7 +229,7 @@ jobs:
             echo "project=luci-app-xray"
             echo "variant=modern-vless-reverse"
             echo "package_version=3.7.1"
-            echo "package_release=2"
+            echo "package_release=3"
             echo "openwrt_release=${{ matrix.id }}"
             echo "package_format=${PKG_FORMAT}"
             echo "package_architecture=all"
@@ -250,6 +256,9 @@ jobs:
             luci-app-xray*
             SHA256SUMS-*.txt
             BUILD-INFO-*.txt
+            profile_mode_smoke.sh
+            profile-smoke-*.json
+            profile-invalid.json
           if-no-files-found: error
           retention-days: 14
       - name: Upload Debug Log on Failure

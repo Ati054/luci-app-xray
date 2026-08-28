@@ -1,0 +1,68 @@
+{
+  "log": {
+    "access": "none",
+    "loglevel": "warning",
+    "dnsLog": false
+  },
+  "inbounds": [],
+  "outbounds": [
+    {
+      "protocol": "freedom",
+      "tag": "direct"
+    },
+    {
+      "protocol": "freedom",
+      "tag": "reverse-egress",
+      "settings": {
+        "domainStrategy": "UseIP",
+        "finalRules": [
+          {
+            "action": "allow",
+            "network": "tcp,udp",
+            "ip": [
+              "!geoip:private"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "protocol": "vless",
+      "tag": "reverse-raw",
+      "settings": {
+        "address": "192.0.2.10",
+        "port": 443,
+        "id": "11111111-1111-1111-1111-111111111111",
+        "flow": "xtls-rprx-vision",
+        "encryption": "none",
+        "reverse": {
+          "tag": "reverse-smoke-a-in"
+        }
+      },
+      "streamSettings": {
+        "network": "tcp",
+        "security": "reality",
+        "realitySettings": {
+          "show": false,
+          "fingerprint": "chrome",
+          "serverName": "smoke-a.example.com",
+          "publicKey": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=",
+          "shortId": "0123456789abcdef",
+          "spiderX": "/"
+        }
+      }
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": [
+      {
+        "type": "field",
+        "inboundTag": [
+          "reverse-smoke-a-in"
+        ],
+        "outboundTag": "reverse-egress"
+      }
+    ]
+  }
+}

@@ -2,51 +2,50 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-xray
 PKG_VERSION:=3.7.1
-PKG_RELEASE:=2
+PKG_RELEASE:=3
 
-PKG_LICENSE:=MPLv2
-PKG_LICENSE_FILES:=LICENSE
+PKG_LICENSE:=MPL-2.0
 PKG_MAINTAINER:=yichya <mail@yichya.dev>
-PKG_BUILD_PARALLEL:=1
 
-include $(INCLUDE_DIR)/package.mk
+PKG_CONFIG_DEPENDS:= \
+	CONFIG_PACKAGE_XRAY_INCLUDE_CLOUDFLARE_ORIGIN_ROOT_CA \
+	CONFIG_PACKAGE_XRAY_IGNORE_TP_SPEC_DEF_GW \
+	CONFIG_PACKAGE_XRAY_RESTART_DNSMASQ_ON_IFACE_CHANGE \
+	CONFIG_PACKAGE_XRAY_RLIMIT_NOFILE_LARGE \
+	CONFIG_PACKAGE_XRAY_RLIMIT_DATA_SMALL \
+	CONFIG_PACKAGE_XRAY_RLIMIT_DATA_LARGE
 
-define Package/$(PKG_NAME)
-	SECTION:=Custom
-	CATEGORY:=Extra packages
-	TITLE:=LuCI Xray client with modern VLESS Reverse
-	DEPENDS:=firewall4 +kmod-nft-tproxy +luci-base +dnsmasq +ca-bundle
-	PKGARCH:=all
-endef
+LUCI_TITLE:=LuCI Xray client with modern VLESS Reverse
+LUCI_DESCRIPTION:=LuCI client for Xray with modern VLESS Reverse support and optional transparent proxy features.
+LUCI_DEPENDS:=+ucode +ucode-mod-uci +ucode-mod-fs +coreutils-base64 +ca-bundle +ip-full +kmod-nft-tproxy +rpcd-mod-ucode
+LUCI_PKGARCH:=all
 
-define Package/$(PKG_NAME)/description
-	LuCI client for Xray with modern VLESS Reverse support and optional transparent proxy features.
-endef
+include $(TOPDIR)/feeds/luci/luci.mk
 
 define Package/$(PKG_NAME)/config
-menu "luci-app-xray Configuration"
+menu "Configuration"
 	depends on PACKAGE_$(PKG_NAME)
 
 config PACKAGE_XRAY_INCLUDE_CLOUDFLARE_ORIGIN_ROOT_CA
-	bool "Include Cloudflare Origin Root CA"
-	default n
-
-config PACKAGE_XRAY_RLIMIT_NOFILE_LARGE
-	bool "Increase Max Open Files Limit (recommended)"
-	default y
-
-config PACKAGE_XRAY_RESTART_DNSMASQ_ON_IFACE_CHANGE
-	bool "Restart dnsmasq on interface change (select this if using dnsmasq v2.87)"
+	bool "Include Cloudflare Origin CA root certificates (for gRPC with custom domain)"
 	default n
 
 config PACKAGE_XRAY_IGNORE_TP_SPEC_DEF_GW
-	bool "Ignore TP_SPEC_DEF_GW (select this if using private IPv4 address)"
+	bool "Do not query default gateway and don't add specific route for transparent proxy"
+	default n
+
+config PACKAGE_XRAY_RESTART_DNSMASQ_ON_IFACE_CHANGE
+	bool "Restart dnsmasq on any network interface changes (for some dynamic direct rules)"
+	default n
+
+config PACKAGE_XRAY_RLIMIT_NOFILE_LARGE
+	bool "Large file limit (about 51200)"
 	default n
 
 choice
-	prompt "Limit memory use by setting rlimit_data (experimental)"
-	default PACKAGE_XRAY_RLIMIT_DATA_UNLIMITED
-	config PACKAGE_XRAY_RLIMIT_DATA_UNLIMITED
+	prompt "Data limit (for low-memory devices)"
+	default PACKAGE_XRAY_RLIMIT_DATA_DEFAULT
+	config PACKAGE_XRAY_RLIMIT_DATA_DEFAULT
 		bool "Not limited"
 	config PACKAGE_XRAY_RLIMIT_DATA_SMALL
 		bool "Small limit (about 50MB)"
@@ -67,6 +66,15 @@ if [[ -z "$${IPKG_INSTROOT}" ]]; then
 		( . /etc/uci-defaults/xray_core ) && rm -f /etc/uci-defaults/xray_core
 	fi
 	rm -rf /tmp/luci-indexcache* /tmp/luci-modulecache
+	if [ -L /usr/share/xray/xray.pid ]; then
+		rm -f /usr/share/xray/xray.pid
+	fi
+	if [ -f /var/run/xray.pid ]; then
+		PID="$$(cat /var/run/xray.pid 2>/dev/null)"
+		if [ -z "$$PID" ] || ! kill -0 "$$PID" 2>/dev/null; then
+			rm -f /var/run/xray.pid
+		fi
+	fi
 fi
 exit 0
 endef
@@ -84,6 +92,7 @@ ifdef CONFIG_PACKAGE_XRAY_INCLUDE_CLOUDFLARE_ORIGIN_ROOT_CA
 endif
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./root/etc/init.d/xray_core $(1)/etc/init.d/xray_core
+	$(INSTALL_BIN) ./root/etc/init.d/xray_profiles $(1)/etc/init.d/xray_profiles
 	$(INSTALL_DIR) $(1)/etc/config
 	$(INSTALL_DATA) ./root/etc/config/xray_core $(1)/etc/config/xray_core
 	$(INSTALL_DIR) $(1)/etc/uci-defaults
@@ -92,12 +101,14 @@ endif
 	$(INSTALL_BIN) ./root/etc/hotplug.d/iface/01-transparent-proxy-ipset $(1)/etc/hotplug.d/iface/01-transparent-proxy-ipset
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/xray
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/core.js $(1)/www/luci-static/resources/view/xray/core.js
+	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/profiles.js $(1)/www/luci-static/resources/view/xray/profiles.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/preview.js $(1)/www/luci-static/resources/view/xray/preview.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/protocol.js $(1)/www/luci-static/resources/view/xray/protocol.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/shared.js $(1)/www/luci-static/resources/view/xray/shared.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/transport.js $(1)/www/luci-static/resources/view/xray/transport.js
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/xray $(1)/usr/libexec/rpcd/xray
+	$(INSTALL_BIN) ./root/usr/libexec/rpcd/xray_profiles $(1)/usr/libexec/rpcd/xray_profiles
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
 	$(INSTALL_DATA) ./root/usr/share/luci/menu.d/luci-app-xray.json $(1)/usr/share/luci/menu.d/luci-app-xray.json
 	$(INSTALL_DIR) $(1)/usr/share/nftables.d/table-pre
@@ -105,7 +116,6 @@ endif
 	$(INSTALL_DIR) $(1)/usr/share/rpcd/acl.d
 	$(INSTALL_DATA) ./root/usr/share/rpcd/acl.d/luci-app-xray.json $(1)/usr/share/rpcd/acl.d/luci-app-xray.json
 	$(INSTALL_DIR) $(1)/usr/share/xray
-	$(LN) /var/run/xray.pid $(1)/usr/share/xray/xray.pid
 	$(LN) /opt/xray/current/xray $(1)/usr/share/xray/xray
 ifdef CONFIG_PACKAGE_XRAY_IGNORE_TP_SPEC_DEF_GW
 	$(INSTALL_DATA) ./root/usr/share/xray/ignore_tp_spec_def_gw $(1)/usr/share/xray/ignore_tp_spec_def_gw
@@ -125,6 +135,7 @@ endif
 	$(INSTALL_BIN) ./root/usr/share/xray/default_gateway.uc $(1)/usr/share/xray/default_gateway.uc
 	$(INSTALL_BIN) ./root/usr/share/xray/dnsmasq_include.ut $(1)/usr/share/xray/dnsmasq_include.ut
 	$(INSTALL_BIN) ./root/usr/share/xray/firewall_include.ut $(1)/usr/share/xray/firewall_include.ut
+	$(INSTALL_DATA) ./root/usr/share/xray/gen_config.mjs $(1)/usr/share/xray/gen_config.mjs
 	$(INSTALL_BIN) ./root/usr/share/xray/gen_config.uc $(1)/usr/share/xray/gen_config.uc
 	$(INSTALL_DIR) $(1)/usr/share/xray/common
 	$(INSTALL_DATA) ./root/usr/share/xray/common/config.mjs $(1)/usr/share/xray/common/config.mjs
@@ -143,9 +154,6 @@ endif
 	$(INSTALL_DATA) ./root/usr/share/xray/protocol/hysteria.mjs $(1)/usr/share/xray/protocol/hysteria.mjs
 	$(INSTALL_DATA) ./root/usr/share/xray/protocol/trojan.mjs $(1)/usr/share/xray/protocol/trojan.mjs
 	$(INSTALL_DATA) ./root/usr/share/xray/protocol/vless.mjs $(1)/usr/share/xray/protocol/vless.mjs
-	$(INSTALL_DATA) ./root/usr/share/xray/protocol/vmess.mjs $(1)/usr/share/xray/protocol/vmess.mjs
-	$(INSTALL_DATA) ./root/usr/share/xray/protocol/socks.mjs $(1)/usr/share/xray/protocol/socks.mjs
-	$(INSTALL_DATA) ./root/usr/share/xray/protocol/http.mjs $(1)/usr/share/xray/protocol/http.mjs
 endef
 
-$(eval $(call BuildPackage,$(PKG_NAME)))
+# call BuildPackage - OpenWrt buildroot signature

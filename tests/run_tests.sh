@@ -63,7 +63,18 @@ fi
 echo "\n--- 4. Running init lifecycle and state transition tests ---"
 sh "${SCRIPT_DIR}/test_init_lifecycle.sh"
 
-echo "\n--- 5. Running Xray semantic validation ---"
+echo "\n--- 5. Running JSON profile manager and process isolation tests ---"
+if command -v ucode >/dev/null 2>&1; then
+    sh "${SCRIPT_DIR}/test_profile_manager.sh"
+else
+    if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
+        echo "::error::ucode CLI is required in CI mode."
+        exit 1
+    fi
+    echo "  [SKIP] ucode CLI not available in current environment."
+fi
+
+echo "\n--- 6. Running Xray semantic validation ---"
 sh "${SCRIPT_DIR}/test_xray_validation.sh" "${XRAY_BIN:-xray}"
 
 echo "\nAll test suites completed successfully."

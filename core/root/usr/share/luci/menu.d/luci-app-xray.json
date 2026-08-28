@@ -1,6 +1,21 @@
 {
+    "admin/services/xray_profiles": {
+        "title": "Xray Reverse",
+        "action": {
+            "type": "view",
+            "path": "xray/profiles"
+        },
+        "depends": {
+            "acl": [
+                "luci-app-xray"
+            ],
+            "uci": {
+                "xray_core": true
+            }
+        }
+    },
     "admin/services/xray_core": {
-        "title": "Xray",
+        "title": "Xray (Расширенные настройки)",
         "action": {
             "type": "view",
             "path": "xray/core"

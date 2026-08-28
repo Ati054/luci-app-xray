@@ -29,9 +29,9 @@ export CMAKE_PREFIX_PATH="/usr:/usr/local:${CMAKE_PREFIX_PATH}"
 export PKG_CONFIG_PATH="/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig:/usr/local/lib/pkgconfig:${PKG_CONFIG_PATH}"
 export LD_LIBRARY_PATH="/usr/lib:/usr/lib64:/usr/local/lib:${LD_LIBRARY_PATH}"
 
-LIBUBOX_REF="e7608b69283d919d031d13cc8e21692503f5dbea"
-UCI_REF="74f6277aabffc943d026f406df57c22595134c42"
-UCODE_REF="fa2c1bc01420f656b1997cad6829b91f81161895"
+LIBUBOX_REF="7dd127841e82eb1cfb61185da37dde7b9bd9ba6d"
+UCI_REF="66127cd76c5d0bd46d5a90302cc6110f53a4e2f8"
+UCODE_REF="85922056ef7abeace3cca3ab28bc1ac2d88e31b1"
 
 fetch_pinned_repo() {
     local name="$1"

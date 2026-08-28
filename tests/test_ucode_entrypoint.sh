@@ -1,5 +1,5 @@
 #!/bin/sh
-# Tests ucode gen_config.uc CLI direct execution vs library module import behavior
+# Tests ucode gen_config.uc CLI direct execution vs gen_config.mjs library module import behavior
 
 set -e
 
@@ -22,7 +22,8 @@ assert_equal() {
 echo "=== Test Suite: ucode Entrypoint CLI vs Library Import Behavior ==="
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-GEN_CONFIG_PATH="${SCRIPT_DIR}/../core/root/usr/share/xray/gen_config.uc"
+GEN_CONFIG_UC="${SCRIPT_DIR}/../core/root/usr/share/xray/gen_config.uc"
+GEN_CONFIG_MJS="${SCRIPT_DIR}/../core/root/usr/share/xray/gen_config.mjs"
 
 if ! command -v ucode >/dev/null 2>&1; then
     if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
@@ -39,18 +40,18 @@ cleanup() {
 }
 trap cleanup EXIT
 
-# Test 1: Module import produces zero stdout and zero stderr with exit code 0
+# Test 1: Module import from gen_config.mjs produces zero stdout and zero stderr with exit code 0
 IMPORT_ERR="${TMP_DIR}/import_err.log"
 IMPORT_OUT="${TMP_DIR}/import_out.log"
 
 ucode -e '
-    import { gen_config_from_data } from "'"${GEN_CONFIG_PATH}"'";
+    import { gen_config_from_data } from "'"${GEN_CONFIG_MJS}"'";
 ' > "${IMPORT_OUT}" 2> "${IMPORT_ERR}"
 IMPORT_STATUS=$?
 
-assert_equal "0" "${IMPORT_STATUS}" "Importing gen_config.uc exits with 0"
-assert_equal "" "$(cat "${IMPORT_OUT}")" "Importing gen_config.uc produces no stdout output"
-assert_equal "" "$(cat "${IMPORT_ERR}")" "Importing gen_config.uc produces no stderr output"
+assert_equal "0" "${IMPORT_STATUS}" "Importing gen_config.mjs exits with 0"
+assert_equal "" "$(cat "${IMPORT_OUT}")" "Importing gen_config.mjs produces no stdout output"
+assert_equal "" "$(cat "${IMPORT_ERR}")" "Importing gen_config.mjs produces no stderr output"
 
 # Test 2: Direct CLI execution with deterministic UCI configuration
 UCI_DIR="${TMP_DIR}/etc/config"
@@ -73,7 +74,7 @@ CLI_OUT="${TMP_DIR}/cli_out.json"
 CLI_ERR="${TMP_DIR}/cli_err.log"
 
 export UCI_CONFIG_DIR="${UCI_DIR}"
-ucode "${GEN_CONFIG_PATH}" > "${CLI_OUT}" 2> "${CLI_ERR}"
+ucode "${GEN_CONFIG_UC}" > "${CLI_OUT}" 2> "${CLI_ERR}"
 CLI_STATUS=$?
 
 assert_equal "0" "${CLI_STATUS}" "Direct execution of gen_config.uc exits with 0"

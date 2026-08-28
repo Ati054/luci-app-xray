@@ -22,16 +22,44 @@ assert_equal() {
 echo "=== Test Suite: Package Metadata & Standalone Binary Alignment ==="
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-MAKEFILE="${SCRIPT_DIR}/../core/Makefile"
+CORE_MAKEFILE="${SCRIPT_DIR}/../core/Makefile"
+STATUS_MAKEFILE="${SCRIPT_DIR}/../status/Makefile"
+GEODATA_MAKEFILE="${SCRIPT_DIR}/../geodata/Makefile"
 
 # Test 1: core/Makefile must not have +xray-core in DEPENDS
-DEPENDS_LINE=$(grep "^[[:space:]]*DEPENDS:=" "${MAKEFILE}")
+DEPENDS_LINE=$(grep "^[[:space:]]*DEPENDS:=" "${CORE_MAKEFILE}")
 HAS_XRAY_CORE_DEP=$(echo "${DEPENDS_LINE}" | grep -c "+xray-core" || true)
 assert_equal "0" "${HAS_XRAY_CORE_DEP}" "core/Makefile must not depend on +xray-core"
 
 # Test 2: core/Makefile must point symlink to /opt/xray/current/xray
-HAS_OPT_SYMLINK=$(grep -c "LN.*opt/xray/current/xray" "${MAKEFILE}" || true)
+HAS_OPT_SYMLINK=$(grep -c "LN.*opt/xray/current/xray" "${CORE_MAKEFILE}" || true)
 assert_equal "1" "$((HAS_OPT_SYMLINK > 0))" "core/Makefile must install symlink pointing to /opt/xray/current/xray"
+
+# Test 3: PKG_RELEASE must be 3 across core, status, and geodata Makefiles
+CORE_REL=$(grep "^PKG_RELEASE:=" "${CORE_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n')
+STATUS_REL=$(grep "^PKG_RELEASE:=" "${STATUS_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n')
+GEODATA_REL=$(grep "^PKG_RELEASE:=" "${GEODATA_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n')
+
+assert_equal "3" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=3"
+assert_equal "3" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=3"
+assert_equal "3" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=3"
+
+# Test 4: core/Makefile installs xray_profiles init script and rpcd backend
+HAS_PROFILES_INIT=$(grep -c "init.d/xray_profiles" "${CORE_MAKEFILE}" || true)
+HAS_PROFILES_RPCD=$(grep -c "rpcd/xray_profiles" "${CORE_MAKEFILE}" || true)
+HAS_PROFILES_VIEW=$(grep -c "view/xray/profiles.js" "${CORE_MAKEFILE}" || true)
+HAS_GEN_MJS=$(grep -c "gen_config.mjs" "${CORE_MAKEFILE}" || true)
+
+assert_equal "1" "$((HAS_PROFILES_INIT > 0))" "core/Makefile installs init.d/xray_profiles"
+assert_equal "1" "$((HAS_PROFILES_RPCD > 0))" "core/Makefile installs rpcd/xray_profiles"
+assert_equal "1" "$((HAS_PROFILES_VIEW > 0))" "core/Makefile installs view/xray/profiles.js"
+assert_equal "1" "$((HAS_GEN_MJS > 0))" "core/Makefile installs gen_config.mjs"
+
+# Test 5: core/Makefile must not install permanent xray.pid symlink
+HAS_PID_SYMLINK=$(grep -c "xray.pid" "${CORE_MAKEFILE}" | grep -v "rm -f" || true)
+# Only postinst cleanup of xray.pid is allowed
+PID_LN_COUNT=$(grep -c "LN.*xray.pid" "${CORE_MAKEFILE}" || true)
+assert_equal "0" "${PID_LN_COUNT}" "core/Makefile does not install permanent xray.pid symlink"
 
 echo "\nSummary: ${PASSED} passed, ${FAILED} failed"
 if [ "${FAILED}" -gt 0 ]; then

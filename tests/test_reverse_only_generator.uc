@@ -27,7 +27,7 @@ function assert(cond, msg) {
 
 print("=== Test Suite: Reverse-only Generator Contract ===\n");
 
-import { outbounds_reverse, rules_reverse, gen_config_from_data } from "../core/root/usr/share/xray/gen_config.uc";
+import { outbounds_reverse, rules_reverse, gen_config_from_data } from "../core/root/usr/share/xray/gen_config.mjs";
 
 // Test 5 & 6: Reverse egress finalRules and clean routing rule
 {

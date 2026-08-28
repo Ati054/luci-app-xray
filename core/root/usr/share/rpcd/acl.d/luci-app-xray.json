@@ -4,12 +4,37 @@
         "read": {
             "uci": [
                 "xray_core"
-            ]
+            ],
+            "ubus": {
+                "xray_profiles": [
+                    "*"
+                ],
+                "service": [
+                    "list",
+                    "status"
+                ]
+            },
+            "file": {
+                "/usr/share/xray/*": [
+                    "read"
+                ],
+                "/opt/xray/current/*": [
+                    "read"
+                ]
+            }
         },
         "write": {
             "uci": [
                 "xray_core"
-            ]
+            ],
+            "ubus": {
+                "xray_profiles": [
+                    "*"
+                ],
+                "service": [
+                    "delete"
+                ]
+            }
         }
     }
 }

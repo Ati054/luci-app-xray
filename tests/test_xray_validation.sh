@@ -36,7 +36,7 @@ if command -v ucode >/dev/null 2>&1; then
     echo "Generating dynamic reverse-only config from ucode..."
     TMP_JSON="$(mktemp)"
     ucode -e '
-        import { gen_config_from_data } from "'"${SCRIPT_DIR}"'/../core/root/usr/share/xray/gen_config.uc";
+        import { gen_config_from_data } from "'"${SCRIPT_DIR}"'/../core/root/usr/share/xray/gen_config.mjs";
         import { get_dual_reverse_config } from "'"${SCRIPT_DIR}"'/fixtures/sample_configs.uc";
         print(sprintf("%.4J\n", gen_config_from_data(get_dual_reverse_config())));
     ' > "${TMP_JSON}"

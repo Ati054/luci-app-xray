@@ -2,12 +2,20 @@
 'require form';
 'require fs';
 'require network';
+'require rpc';
 'require tools.widgets as widgets';
 'require uci';
 'require view';
 'require view.xray.protocol as protocol';
 'require view.xray.shared as shared';
 'require view.xray.transport as transport';
+
+var callServiceList = rpc.declare({
+    object: 'service',
+    method: 'list',
+    params: ['name'],
+    expect: { '': {} }
+});
 
 function server_alias(v) {
     return v.alias || v.server + ":" + v.server_port;
@@ -91,19 +99,26 @@ function access_control_format(config_data, s, t) {
     };
 }
 
-function check_resource_files(load_result) {
+function check_resource_files(load_result, service_status) {
     let geoip_existence = false;
     let geoip_size = 0;
     let geosite_existence = false;
     let geosite_size = 0;
     let xray_bin_default = false;
     let xray_running = false;
-    for (const f of load_result) {
+
+    if (service_status && service_status.xray_core && service_status.xray_core.instances) {
+        for (const instName in service_status.xray_core.instances) {
+            if (service_status.xray_core.instances[instName].running) {
+                xray_running = true;
+                break;
+            }
+        }
+    }
+
+    for (const f of (load_result || [])) {
         if (f.name == "xray") {
             xray_bin_default = true;
-        }
-        if (f.name == "xray.pid") {
-            xray_running = true;
         }
         if (f.name == "geoip.dat") {
             geoip_existence = true;
@@ -129,13 +144,14 @@ return view.extend({
         return Promise.all([
             uci.load(shared.variant),
             fs.list("/usr/share/xray"),
-            network.getHostHints()
+            network.getHostHints(),
+            callServiceList('xray_core').catch(function() { return {}; })
         ]);
     },
 
     render: function (load_result) {
         const config_data = load_result[0];
-        const { geoip_existence, geoip_size, geosite_existence, geosite_size, xray_bin_default, xray_running } = check_resource_files(load_result[1]);
+        const { geoip_existence, geoip_size, geosite_existence, geosite_size, xray_bin_default, xray_running } = check_resource_files(load_result[1], load_result[3]);
         const status_text = xray_running ? _("[Xray is running]") : _("[Xray is stopped]");
         const hosts = load_result[2].hosts;
 

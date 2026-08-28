@@ -43,9 +43,27 @@ try {
     assert(false, `Fixture JSON parsing failed: ${e.message}`);
 }
 
+// Check Smoke Fixtures
+try {
+    const smokeAPath = path.join(__dirname, 'fixtures', 'profile-smoke-a.json');
+    const smokeBPath = path.join(__dirname, 'fixtures', 'profile-smoke-b.json');
+    const smokeInvPath = path.join(__dirname, 'fixtures', 'profile-invalid.json');
+
+    const smokeA = JSON.parse(fs.readFileSync(smokeAPath, 'utf8'));
+    const smokeB = JSON.parse(fs.readFileSync(smokeBPath, 'utf8'));
+    const smokeInv = JSON.parse(fs.readFileSync(smokeInvPath, 'utf8'));
+
+    assert(smokeA.outbounds.some(o => o.settings && o.settings.reverse && o.settings.reverse.tag === 'reverse-smoke-a-in'), 'Smoke A has valid reverse tag');
+    assert(smokeB.outbounds.some(o => o.settings && o.settings.reverse && o.settings.reverse.tag === 'reverse-smoke-b-in'), 'Smoke B has valid reverse tag');
+    assert(smokeInv.inbounds.length === 1 && smokeInv.inbounds[0].port === 1080, 'Smoke Invalid has listening inbound');
+} catch (e) {
+    assert(false, `Smoke Fixture check failed: ${e.message}`);
+}
+
 // Check LuCI JS files syntax
 const jsFiles = [
     'core/root/www/luci-static/resources/view/xray/core.js',
+    'core/root/www/luci-static/resources/view/xray/profiles.js',
     'core/root/www/luci-static/resources/view/xray/preview.js',
     'core/root/www/luci-static/resources/view/xray/protocol.js',
     'core/root/www/luci-static/resources/view/xray/shared.js',
