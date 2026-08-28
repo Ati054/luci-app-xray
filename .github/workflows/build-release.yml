@@ -282,12 +282,16 @@ jobs:
                   raw = f.read()
               chunks, cur = [], raw
               while cur:
+                  idx = cur.find(b'\x1f\x8b')
+                  if idx == -1:
+                      break
+                  cur = cur[idx:]
                   d = zlib.decompressobj(16 + zlib.MAX_WBITS)
                   try:
                       chunks.append(d.decompress(cur))
                       cur = d.unused_data
                   except Exception:
-                      break
+                      cur = cur[2:]
               for chunk in chunks:
                   try:
                       with tarfile.open(fileobj=io.BytesIO(chunk), mode='r:*') as t:
