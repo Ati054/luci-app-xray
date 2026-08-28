@@ -277,14 +277,26 @@ jobs:
 
           TMP_PKG="$(mktemp -d)"
           if [ "${{ matrix.id }}" = "25.12.5" ]; then
-            # APK files contain concatenated gzip streams (.PKGINFO stream + data stream)
-            # GNU tar -i / --ignore-zeros continues reading through EOF zero-blocks between members
-            ( gzip -dc "$CORE_PACKAGE" | tar -i -C "$TMP_PKG" -xf - ) 2>/dev/null || \
-            tar -i -C "$TMP_PKG" -zxf "$CORE_PACKAGE" 2>/dev/null || true
-
-            if [ ! -f "$TMP_PKG/etc/init.d/xray_core" ]; then
-              python3 -c "import gzip, io, tarfile, sys; d = gzip.decompress(open(sys.argv[1], 'rb').read()); b = io.BytesIO(d); dest = sys.argv[2]; [tarfile.TarFile(fileobj=b).extractall(dest) for _ in range(5) if b.tell() < len(d)]" "$CORE_PACKAGE" "$TMP_PKG" 2>/dev/null || true
-            fi
+            python3 -c "
+import zlib, io, tarfile, sys, os
+with open(sys.argv[1], 'rb') as f:
+    raw = f.read()
+chunks, cur = [], raw
+while cur:
+    d = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    try:
+        data = d.decompress(cur)
+        chunks.append(data)
+        cur = d.unused_data
+    except Exception:
+        break
+for chunk in chunks:
+    try:
+        with tarfile.open(fileobj=io.BytesIO(chunk), mode='r:*') as t:
+            t.extractall(sys.argv[2])
+    except Exception:
+        pass
+" "$CORE_PACKAGE" "$TMP_PKG"
           else
             if ar -t "$CORE_PACKAGE" >/dev/null 2>&1; then
               ar -p "$CORE_PACKAGE" data.tar.gz | tar -C "$TMP_PKG" -zxf -
