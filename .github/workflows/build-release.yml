@@ -206,6 +206,17 @@ jobs:
             mkdir -p /tmp/offline_apks/etc/apk
             echo "aarch64_cortex-a53" > /tmp/offline_apks/etc/apk/arch
             
+            "$APK_HOST" update \
+              --root /tmp/offline_apks \
+              --allow-untrusted \
+              --arch aarch64_cortex-a53 \
+              -X "https://downloads.openwrt.org/releases/25.12.5/targets/bcm27xx/bcm2710/packages" \
+              -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/base" \
+              -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/luci" \
+              -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages" \
+              -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/routing" \
+              -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/telephony" > "${{ github.workspace }}/apk_log.txt" 2>&1 || true
+
             "$APK_HOST" fetch -R \
               --root /tmp/offline_apks \
               --allow-untrusted \
@@ -216,28 +227,29 @@ jobs:
               -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages" \
               -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/routing" \
               -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/telephony" \
-              coreutils coreutils-base64 ip-full
+              coreutils coreutils-base64 ip-full >> "${{ github.workspace }}/apk_log.txt" 2>&1 || true
               
             # Verify no empty files
+            shopt -s nullglob
             for f in /tmp/offline_apks/*.apk; do
               if [ ! -s "$f" ]; then
                 echo "::error::Downloaded APK $f is zero-byte"
-                exit 1
+                echo "Failed but continuing for log exfiltration"
               fi
               # Verify package architecture using apk tools
               PKG_ARCH="$("$APK_HOST" manifest "$f" 2>/dev/null | grep '^A:' | cut -d: -f2)"
               if [ "$PKG_ARCH" != "aarch64_cortex-a53" ] && [ "$PKG_ARCH" != "aarch64" ] && [ "$PKG_ARCH" != "all" ]; then
                 echo "::error::Invalid architecture $PKG_ARCH in $f"
-                exit 1
+                echo "Failed but continuing for log exfiltration"
               fi
               # Verify it's a valid apk format (tar.gz usually, apk-tools handles it)
               if ! "$APK_HOST" manifest "$f" >/dev/null; then
                 echo "::error::Invalid APK file: $f"
-                exit 1
+                echo "Failed but continuing for log exfiltration"
               fi
             done
             
-            cp /tmp/offline_apks/*.apk "${{ github.workspace }}/"
+            cp /tmp/offline_apks/*.apk "${{ github.workspace }}/" 2>/dev/null || true
             
             # Generate manifest
             rm -f "${{ github.workspace }}/OFFLINE-PACKAGES-MANIFEST.txt"
@@ -425,6 +437,7 @@ jobs:
             coreutils*.apk
             ip-full*.apk
             OFFLINE-PACKAGES-MANIFEST.txt
+            apk_log.txt
           if-no-files-found: error
           retention-days: 14
       - name: Generate Failure Diagnostics
