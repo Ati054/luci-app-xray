@@ -140,6 +140,9 @@ function check_resource_files(load_result, service_status) {
 }
 
 return view.extend({
+    handleSave: null,
+    handleSaveApply: null,
+    handleReset: null,
     load: function () {
         return Promise.all([
             uci.load(shared.variant),
@@ -155,11 +158,9 @@ return view.extend({
         const status_text = xray_running ? _("[Xray is running]") : _("[Xray is stopped]");
         const hosts = load_result[2].hosts;
 
-        let asset_file_status = _('WARNING: at least one of asset files (geoip.dat, geosite.dat) is not found under /usr/share/xray. Xray may not work properly. See <a href="https://github.com/yichya/luci-app-xray">here</a> for help.');
-        if (geoip_existence) {
-            if (geosite_existence) {
-                asset_file_status = _('Asset files check: ') + `geoip.dat ${geoip_size}; geosite.dat ${geosite_size}. ` + _('Report issues or request for features <a href="https://github.com/yichya/luci-app-xray">here</a>.');
-            }
+        let asset_file_status = '';
+        if (geoip_existence && geosite_existence) {
+            asset_file_status = _('Asset files check: ') + `geoip.dat ${geoip_size}; geosite.dat ${geosite_size}.`;
         }
         const firewall_mark = uci.get_first(shared.variant, "general", "mark") || '255';
         const m = new form.Map(shared.variant, _('Xray'), status_text + " " + asset_file_status);
@@ -679,8 +680,9 @@ return view.extend({
 
         o = s.taboption('extra_options', form.Value, 'xray_bin', _('Xray Executable Path'));
         o.rmempty = false;
+        o.placeholder = "/opt/xray/current/xray";
         if (xray_bin_default) {
-            o.value("/usr/bin/xray", _("/usr/bin/xray (default, exist)"));
+            o.value("/opt/xray/current/xray", _("/opt/xray/current/xray (default, exist)"));
         }
 
         o = s.taboption('extra_options', form.ListValue, 'loglevel', _('Log Level'), _('Read Xray log in "System Log" or use <code>logread</code> command.'));

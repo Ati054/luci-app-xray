@@ -3,4 +3,6 @@
 
 import { gen_config } from "./gen_config.mjs";
 
-printf("%.4J\n", gen_config());
+if (!sourcepath(1)) {
+    printf("%.4J\n", gen_config());
+}

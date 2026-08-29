@@ -179,7 +179,7 @@ return view.extend({
             E('span', { 'class': 'label success' }, summary.binary_version || _('Установлен')) :
             E('span', { 'class': 'label danger' }, _('Не найден'));
             
-        var binPathText = summary.binary_path || '/usr/bin/xray';
+        var binPathText = summary.binary_path || '/opt/xray/current/xray';
 
         var serviceStatusBadge = summary.service_enabled ?
             E('span', { 'class': 'label success' }, _('Включен в автозагрузку')) :

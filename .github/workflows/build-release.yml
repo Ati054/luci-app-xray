@@ -198,10 +198,64 @@ jobs:
           cp -p "${{ github.workspace }}/tests/fixtures/profile-invalid.json" "${{ github.workspace }}/profile-invalid.json"
 
           if [ "${{ matrix.id }}" = "25.12.5" ]; then
-            # Download aarch64_cortex-a53 dependencies for offline deployment
-            wget -q -O "${{ github.workspace }}/coreutils-base64.apk" "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages/coreutils-base64_9.5-2_aarch64_cortex-a53.apk" || true
-            wget -q -O "${{ github.workspace }}/coreutils.apk" "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages/coreutils_9.5-2_aarch64_cortex-a53.apk" || true
-            wget -q -O "${{ github.workspace }}/ip-full.apk" "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/base/ip-full_6.9.0-2_aarch64_cortex-a53.apk" || true
+            # Download aarch64_cortex-a53 dependencies for offline deployment using apk solver
+            APK_HOST="$SDK_HOME/staging_dir/host/bin/apk"
+            mkdir -p /tmp/offline_apks
+            
+            # Create a basic apk configuration
+            mkdir -p /tmp/offline_apks/etc/apk
+            echo "aarch64_cortex-a53" > /tmp/offline_apks/etc/apk/arch
+            
+            "$APK_HOST" fetch -R \
+              --root /tmp/offline_apks \
+              --allow-untrusted \
+              --arch aarch64_cortex-a53 \
+              -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/base" \
+              -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/luci" \
+              -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages" \
+              -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/routing" \
+              -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/telephony" \
+              coreutils coreutils-base64 ip-full
+              
+            # Verify no empty files
+            for f in /tmp/offline_apks/*.apk; do
+              if [ ! -s "$f" ]; then
+                echo "::error::Downloaded APK $f is zero-byte"
+                exit 1
+              fi
+              # Verify package architecture using apk tools
+              PKG_ARCH="$("$APK_HOST" manifest "$f" 2>/dev/null | grep '^A:' | cut -d: -f2)"
+              if [ "$PKG_ARCH" != "aarch64_cortex-a53" ] && [ "$PKG_ARCH" != "aarch64" ] && [ "$PKG_ARCH" != "all" ]; then
+                echo "::error::Invalid architecture $PKG_ARCH in $f"
+                exit 1
+              fi
+              # Verify it's a valid apk format (tar.gz usually, apk-tools handles it)
+              if ! "$APK_HOST" manifest "$f" >/dev/null; then
+                echo "::error::Invalid APK file: $f"
+                exit 1
+              fi
+            done
+            
+            cp /tmp/offline_apks/*.apk "${{ github.workspace }}/"
+            
+            # Generate manifest
+            rm -f "${{ github.workspace }}/OFFLINE-PACKAGES-MANIFEST.txt"
+            for f in "${{ github.workspace }}"/*.apk; do
+              case "$f" in
+                *luci-app-xray*)
+                  ;;
+                *)
+                  PKG_NAME="$("$APK_HOST" manifest "$f" 2>/dev/null | grep '^P:' | cut -d: -f2)"
+                  PKG_VER="$("$APK_HOST" manifest "$f" 2>/dev/null | grep '^V:' | cut -d: -f2)"
+                  PKG_ARCH="$("$APK_HOST" manifest "$f" 2>/dev/null | grep '^A:' | cut -d: -f2)"
+                  PKG_DEPS="$("$APK_HOST" manifest "$f" 2>/dev/null | grep '^D:' | cut -d: -f2)"
+                  PKG_SIZE="$(stat -c%s "$f" 2>/dev/null || stat -f%z "$f")"
+                  PKG_SHA="$(sha256sum "$f" | awk '{print $1}')"
+                  BASENAME="$(basename "$f")"
+                  echo "$BASENAME;$PKG_NAME;$PKG_VER;;$PKG_ARCH;$PKG_SIZE;$PKG_SHA;official;$PKG_DEPS" >> "${{ github.workspace }}/OFFLINE-PACKAGES-MANIFEST.txt"
+                  ;;
+              esac
+            done
           fi
 
           echo "CORE_PACKAGE=$CORE_BASE" >> $GITHUB_ENV
@@ -213,30 +267,20 @@ jobs:
         run: |
           cd "${{ github.workspace }}"
 
-          # 1. Generate SHA256SUMS file
-          CHECKSUM_FILE="SHA256SUMS-openwrt-${{ matrix.id }}-all.txt"
-          (
-            sha256sum "$CORE_PACKAGE"
-            sha256sum "$STATUS_PACKAGE"
-          ) | sort -k2,2 > "$CHECKSUM_FILE"
-
-          echo "=== Generated $CHECKSUM_FILE ==="
-          cat "$CHECKSUM_FILE"
-
-          echo "Verifying checksums with sha256sum -c..."
-          sha256sum -c "$CHECKSUM_FILE"
-
-          # 2. Generate BUILD-INFO file
+          # 1. Generate BUILD-INFO file
           BUILD_INFO_FILE="BUILD-INFO-openwrt-${{ matrix.id }}-all.txt"
           CORE_SIZE="$(wc -c < "$CORE_PACKAGE" | tr -d ' ')"
           STATUS_SIZE="$(wc -c < "$STATUS_PACKAGE" | tr -d ' ')"
           PKG_FORMAT="$([ "${{ matrix.id }}" = "25.12.5" ] && echo "apk" || echo "ipk")"
 
+          PKG_VERSION="$(grep -oP '^PKG_VERSION:=\K.*' core/Makefile || echo '3.7.1')"
+          PKG_RELEASE="$(grep -oP '^PKG_RELEASE:=\K.*' core/Makefile || echo '7')"
+
           {
             echo "project=luci-app-xray"
             echo "variant=modern-vless-reverse"
-            echo "package_version=3.7.1"
-            echo "package_release=5"
+            echo "package_version=${PKG_VERSION}"
+            echo "package_release=${PKG_RELEASE}"
             echo "openwrt_release=${{ matrix.id }}"
             echo "package_format=${PKG_FORMAT}"
             echo "package_architecture=all"
@@ -252,6 +296,23 @@ jobs:
 
           echo "=== Generated $BUILD_INFO_FILE ==="
           cat "$BUILD_INFO_FILE"
+
+          # 2. Generate SHA256SUMS file
+          CHECKSUM_FILE="SHA256SUMS-openwrt-${{ matrix.id }}-all.txt"
+          
+          # Find all relevant files to checksum
+          rm -f "$CHECKSUM_FILE"
+          for f in *.apk *.ipk profile_mode_smoke.sh install_and_smoke_r7.sh profile-*.json "$BUILD_INFO_FILE" OFFLINE-PACKAGES-MANIFEST.txt; do
+            if [ -f "$f" ]; then
+              sha256sum "$f" >> "$CHECKSUM_FILE"
+            fi
+          done
+
+          echo "=== Generated $CHECKSUM_FILE ==="
+          cat "$CHECKSUM_FILE"
+
+          echo "Verifying checksums with sha256sum -c..."
+          sha256sum -c "$CHECKSUM_FILE"
 
           echo "CHECKSUM_FILE=$CHECKSUM_FILE" >> $GITHUB_ENV
           echo "BUILD_INFO_FILE=$BUILD_INFO_FILE" >> $GITHUB_ENV
@@ -359,9 +420,10 @@ jobs:
             profile_mode_smoke.sh
             profile-smoke-*.json
             profile-invalid.json
-            install_and_smoke_r6.sh
+            install_and_smoke_r7.sh
             coreutils*.apk
             ip-full*.apk
+            OFFLINE-PACKAGES-MANIFEST.txt
           if-no-files-found: error
           retention-days: 14
       - name: Generate Failure Diagnostics

@@ -70,31 +70,33 @@ function run_process(cmd_str) {
     let err_file = `${tmp_prefix}.err`;
     let rc_file = `${tmp_prefix}.rc`;
 
-    let wrapped = `(${cmd_str}) > "${out_file}" 2> "${err_file}"; echo $? > "${rc_file}"`;
-    let p = popen(wrapped, "r");
-    if (p) {
-        p.read("all");
-        p.close();
-    }
-
     let rc = -1;
     let stdout_content = "";
     let stderr_content = "";
 
-    if (access(rc_file)) {
-        rc = int(trim(readfile(rc_file) || "-1"));
+    try {
+        let wrapped = `(${cmd_str}) > "${out_file}" 2> "${err_file}"; echo $? > "${rc_file}"`;
+        let p = popen(wrapped, "r");
+        if (p) {
+            p.read("all");
+            p.close();
+        }
+
+        if (access(rc_file)) {
+            rc = int(trim(readfile(rc_file) || "-1"));
+        }
+        if (access(out_file)) {
+            stdout_content = readfile(out_file) || "";
+        }
+        if (access(err_file)) {
+            stderr_content = readfile(err_file) || "";
+        }
+    } finally {
         unlink(rc_file);
-    }
-    if (access(out_file)) {
-        stdout_content = readfile(out_file) || "";
         unlink(out_file);
-    }
-    if (access(err_file)) {
-        stderr_content = readfile(err_file) || "";
         unlink(err_file);
+        rmdir(tmp_dir);
     }
-    
-    rmdir(tmp_dir);
 
     return {
         exit_code: rc,
@@ -121,7 +123,7 @@ function acquire_lock() {
     for (let attempt = 0; attempt < 30; attempt++) {
         if (mkdir(LOCK_DIR, 0700)) {
             let meta = { pid: 0, ts: time() };
-            let fh = open(LOCK_META, "w", 0600);
+            let fh = open(LOCK_META, "wx", 0600);
             if (fh) {
                 fh.write(sprintf("%.0J", meta));
                 fh.close();
@@ -329,19 +331,23 @@ function validate_content_full(content_str) {
     ensure_dirs();
     let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.tmp_test_XXXXXX`);
     let tmp_path = `${tmp_dir}/config.json`;
-    let fh = open(tmp_path, "w", 0600);
+    let fh = open(tmp_path, "wx", 0600);
     if (!fh) {
         rmdir(tmp_dir);
         return { ok: false, error: "Failed to open temporary file with mode 0600 for validation" };
     }
-    fh.write(content_str);
-    fh.close();
-    chmod(tmp_path, 0600);
-
-    let test_cmd = `XRAY_LOCATION_ASSET="${ASSET_DIR}" "${XRAY_BIN}" run -test -config "${tmp_path}"`;
-    let run_res = run_process(test_cmd);
-    unlink(tmp_path);
-    rmdir(tmp_dir);
+    
+    let run_res;
+    try {
+        fh.write(content_str);
+        fh.close();
+        chmod(tmp_path, 0600);
+        let test_cmd = `XRAY_LOCATION_ASSET="${ASSET_DIR}" "${XRAY_BIN}" run -test -config "${tmp_path}"`;
+        run_res = run_process(test_cmd);
+    } finally {
+        unlink(tmp_path);
+        rmdir(tmp_dir);
+    }
 
     if (run_res.exit_code !== 0) {
         return { ok: false, error: `Xray configuration validation test failed (exit code ${run_res.exit_code})` };
@@ -516,24 +522,27 @@ function rpc_import(params) {
         // Write to temporary file created with mode 0600 BEFORE content write
         let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.tmp_import_XXXXXX`);
         let tmp_path = `${tmp_dir}/config.json`;
-        let fh = open(tmp_path, "w", 0600);
+        let fh = open(tmp_path, "wx", 0600);
         if (!fh) {
             rmdir(tmp_dir);
             release_lock();
             return { ok: false, error: "Failed to open temporary file with mode 0600" };
         }
-        fh.write(content);
-        fh.close();
-        chmod(tmp_path, 0600);
+        
+        try {
+            fh.write(content);
+            fh.close();
+            chmod(tmp_path, 0600);
 
-        // Atomically rename into place
-        if (!rename(tmp_path, target_path)) {
+            // Atomically rename into place
+            if (!rename(tmp_path, target_path)) {
+                release_lock();
+                return { ok: false, error: "Failed to atomically install profile file" };
+            }
+        } finally {
             unlink(tmp_path);
             rmdir(tmp_dir);
-            release_lock();
-            return { ok: false, error: "Failed to atomically install profile file" };
         }
-        rmdir(tmp_dir);
         chmod(target_path, 0600);
 
         // Add UCI metadata section
@@ -610,46 +619,48 @@ function rpc_replace(params) {
         }
 
         // Write new content to tmp file with mode 0600 and atomically rename
-        let fh = open(tmp_path, "w", 0600);
+        let fh = open(tmp_path, "wx", 0600);
         if (!fh) {
-            if (access(backup_path)) rename(backup_path, target_path);
+            if (access(backup_path)) {
+                rename(backup_path, target_path);
+                unlink(backup_path);
+            }
             rmdir(tmp_dir);
             release_lock();
             return { ok: false, error: "Failed to open temporary file with mode 0600" };
         }
-        fh.write(content);
-        fh.close();
-        chmod(tmp_path, 0600);
+        
+        try {
+            fh.write(content);
+            fh.close();
+            chmod(tmp_path, 0600);
 
-        if (!rename(tmp_path, target_path)) {
-            if (access(backup_path)) rename(backup_path, target_path);
-            unlink(tmp_path);
-            rmdir(tmp_dir);
-            release_lock();
-            return { ok: false, error: "Failed to atomically replace profile file" };
-        }
-        chmod(target_path, 0600);
-
-        // If was running, restart instance with bounded verification
-        if (was_running && access(INIT_SCRIPT)) {
-            run_cmd(`"${INIT_SCRIPT}" restart "${id}" 2>&1`);
-            let poll = poll_instance_state(id, true, 3000);
-            if (!poll.ok || !poll.running) {
-                // Rollback on restart failure
-                if (access(backup_path)) {
-                    rename(backup_path, target_path);
-                    run_cmd(`"${INIT_SCRIPT}" restart "${id}" >/dev/null 2>&1`);
-                }
-                rmdir(tmp_dir);
+            if (!rename(tmp_path, target_path)) {
+                if (access(backup_path)) rename(backup_path, target_path);
                 release_lock();
-                return { ok: false, error: "Restart failed on replacement; rolled back to previous valid profile" };
+                return { ok: false, error: "Failed to atomically replace profile file" };
             }
-        }
+            chmod(target_path, 0600);
 
-        if (access(backup_path)) {
-            unlink(backup_path);
+            // If was running, restart instance with bounded verification
+            if (was_running && access(INIT_SCRIPT)) {
+                run_cmd(`"${INIT_SCRIPT}" restart "${id}" 2>&1`);
+                let poll = poll_instance_state(id, true, 3000);
+                if (!poll.ok || !poll.running) {
+                    // Rollback on restart failure
+                    if (access(backup_path)) {
+                        rename(backup_path, target_path);
+                        run_cmd(`"${INIT_SCRIPT}" restart "${id}" >/dev/null 2>&1`);
+                    }
+                    release_lock();
+                    return { ok: false, error: "Restart failed on replacement; rolled back to previous valid profile" };
+                }
+            }
+        } finally {
+            if (access(tmp_path)) unlink(tmp_path);
+            if (access(backup_path)) unlink(backup_path);
+            rmdir(tmp_dir);
         }
-        rmdir(tmp_dir);
 
         release_lock();
         return { ok: true };

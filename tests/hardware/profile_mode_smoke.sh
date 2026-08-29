@@ -29,7 +29,7 @@ FIXTURE_B="$(resolve_fixture "profile-smoke-b.json")"
 FIXTURE_INV="$(resolve_fixture "profile-invalid.json")"
 
 if [ -z "${FIXTURE_A}" ] || [ -z "${FIXTURE_B}" ] || [ -z "${FIXTURE_INV}" ]; then
-    echo "::error::Required smoke fixtures not found in ${SCRIPT_DIR}, ${SCRIPT_DIR}/fixtures, or ${SCRIPT_DIR}/../fixtures"
+    echo "::error::Required smoke fixtures not found"
     exit 1
 fi
 
@@ -76,8 +76,8 @@ fi
 TMP_DIR="$(mktemp -d)"
 cleanup() {
     echo "Cleaning up smoke test artifacts..."
-    "${RPCD_BACKEND}" call delete '{"id": "smoke_a"}' >/dev/null 2>&1 || true
-    "${RPCD_BACKEND}" call delete '{"id": "smoke_b"}' >/dev/null 2>&1 || true
+    "${RPCD_BACKEND}" call delete '{"id": "smoke_a"}' </dev/null >/dev/null 2>&1 || true
+    "${RPCD_BACKEND}" call delete '{"id": "smoke_b"}' </dev/null >/dev/null 2>&1 || true
     /etc/init.d/xray_profiles stop >/dev/null 2>&1 || true
     if [ -f "${TMP_DIR}/uci_backup.export" ]; then
         uci import xray_core < "${TMP_DIR}/uci_backup.export" 2>/dev/null || true
@@ -94,38 +94,49 @@ nft list ruleset > "${TMP_DIR}/nftables_before.txt" 2>/dev/null || true
 
 # 4. Import Smoke Profiles
 echo "--- Importing Smoke Profiles via RPCD Backend ---"
-CONTENT_A="$(cat "${FIXTURE_A}")"
-CONTENT_B="$(cat "${FIXTURE_B}")"
-CONTENT_INV="$(cat "${FIXTURE_INV}")"
+# use base64 or safe JSON construction to avoid quoting hell, or simply format properly
+CONTENT_A="$(cat "${FIXTURE_A}" | tr -d '\n\r' | sed 's/"/\\"/g')"
+CONTENT_B="$(cat "${FIXTURE_B}" | tr -d '\n\r' | sed 's/"/\\"/g')"
+CONTENT_INV="$(cat "${FIXTURE_INV}" | tr -d '\n\r' | sed 's/"/\\"/g')"
 
-RES_A="$("${RPCD_BACKEND}" call import "{\"name\":\"Smoke A\",\"filename\":\"smoke-a.json\",\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\",\"autostart\":false}")"
+RES_A="$("${RPCD_BACKEND}" call import "{\"name\":\"Smoke A\",\"filename\":\"smoke-a.json\",\"content\":\"${CONTENT_A}\",\"autostart\":false}" </dev/null)"
 echo "Import A Result: ${RES_A}"
 echo "${RES_A}" | grep -q '"ok":true' || { echo "::error::Failed to import smoke-a.json"; exit 1; }
 
-RES_B="$("${RPCD_BACKEND}" call import "{\"name\":\"Smoke B\",\"filename\":\"smoke-b.json\",\"content\":\"$(echo "${CONTENT_B}" | tr -d '\n\r' | sed 's/"/\\"/g')\",\"autostart\":false}")"
+RES_B="$("${RPCD_BACKEND}" call import "{\"name\":\"Smoke B\",\"filename\":\"smoke-b.json\",\"content\":\"${CONTENT_B}\",\"autostart\":false}" </dev/null)"
 echo "Import B Result: ${RES_B}"
 echo "${RES_B}" | grep -q '"ok":true' || { echo "::error::Failed to import smoke-b.json"; exit 1; }
 
 # 5. Verify Invalid Profile Rejection
 echo "--- Verifying Invalid Profile Rejection Policy ---"
-RES_INV="$("${RPCD_BACKEND}" call validate "{\"content\":\"$(echo "${CONTENT_INV}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}")"
+# Disable set -e for the validate call because rpcd might exit non-zero
+set +e
+RES_INV="$("${RPCD_BACKEND}" call validate "{\"content\":\"${CONTENT_INV}\"}" </dev/null)"
+set -e
 echo "Validation Invalid Result: ${RES_INV}"
 echo "${RES_INV}" | grep -q '"ok":false' || { echo "::error::Invalid profile was unexpectedly accepted"; exit 1; }
 
 # 6. Start Profile A and Profile B independently
 echo "--- Starting Profile A and Profile B ---"
-START_A="$("${RPCD_BACKEND}" call start '{"id": "smoke_a"}')"
+START_A="$("${RPCD_BACKEND}" call start '{"id": "smoke_a"}' </dev/null)"
 echo "Start A: ${START_A}"
 
-START_B="$("${RPCD_BACKEND}" call start '{"id": "smoke_b"}')"
+START_B="$("${RPCD_BACKEND}" call start '{"id": "smoke_b"}' </dev/null)"
 echo "Start B: ${START_B}"
 
-# 7. Check List & Record PIDs
-LIST_RES="$("${RPCD_BACKEND}" call list '{}')"
+# 7. Check List & Record PIDs using jsonfilter
+LIST_RES="$("${RPCD_BACKEND}" call list '{}' </dev/null)"
 echo "Profile List: ${LIST_RES}"
 
-PID_A="$(echo "${LIST_RES}" | grep -o '"id":"smoke_a"[^}]*' | grep -o '"pid":[0-9]*' | cut -d: -f2 || true)"
-PID_B="$(echo "${LIST_RES}" | grep -o '"id":"smoke_b"[^}]*' | grep -o '"pid":[0-9]*' | cut -d: -f2 || true)"
+# We check if jsonfilter is available, if not fallback to awk
+if type jsonfilter >/dev/null 2>&1; then
+    PID_A="$(echo "${LIST_RES}" | jsonfilter -e '@.profiles[@.id="smoke_a"].pid' || true)"
+    PID_B="$(echo "${LIST_RES}" | jsonfilter -e '@.profiles[@.id="smoke_b"].pid' || true)"
+else
+    # Simple fallback parsing JSON with sed/awk securely
+    PID_A="$(echo "${LIST_RES}" | sed -n 's/.*"id":"smoke_a".*"pid":\([0-9]*\).*/\1/p' || true)"
+    PID_B="$(echo "${LIST_RES}" | sed -n 's/.*"id":"smoke_b".*"pid":\([0-9]*\).*/\1/p' || true)"
+fi
 
 if [ -z "${PID_A}" ] || [ "${PID_A}" = "null" ] || [ "${PID_A}" -le 0 ]; then
     echo "::error::Profile A failed to start or has invalid PID: ${PID_A}"
@@ -135,16 +146,24 @@ if [ -z "${PID_B}" ] || [ "${PID_B}" = "null" ] || [ "${PID_B}" -le 0 ]; then
     echo "::error::Profile B failed to start or has invalid PID: ${PID_B}"
     exit 1
 fi
+if [ "${PID_A}" = "${PID_B}" ]; then
+    echo "::error::Profiles A and B share the same PID: ${PID_A}"
+    exit 1
+fi
 
 echo "  [PASS] Profile A running (PID: ${PID_A})"
 echo "  [PASS] Profile B running (PID: ${PID_B})"
 
 # 8. Stop Profile A and prove Profile B PID is unchanged
 echo "--- Stopping Profile A ---"
-"${RPCD_BACKEND}" call stop '{"id": "smoke_a"}' >/dev/null 2>&1
+"${RPCD_BACKEND}" call stop '{"id": "smoke_a"}' </dev/null >/dev/null 2>&1
 
-LIST_AFTER_STOP_A="$("${RPCD_BACKEND}" call list '{}')"
-PID_B_AFTER="$(echo "${LIST_AFTER_STOP_A}" | grep -o '"id":"smoke_b"[^}]*' | grep -o '"pid":[0-9]*' | cut -d: -f2 || true)"
+LIST_AFTER_STOP_A="$("${RPCD_BACKEND}" call list '{}' </dev/null)"
+if type jsonfilter >/dev/null 2>&1; then
+    PID_B_AFTER="$(echo "${LIST_AFTER_STOP_A}" | jsonfilter -e '@.profiles[@.id="smoke_b"].pid' || true)"
+else
+    PID_B_AFTER="$(echo "${LIST_AFTER_STOP_A}" | sed -n 's/.*"id":"smoke_b".*"pid":\([0-9]*\).*/\1/p' || true)"
+fi
 
 if [ "${PID_B}" != "${PID_B_AFTER}" ]; then
     echo "::error::Process isolation violated: Stopping A altered PID of B (${PID_B} -> ${PID_B_AFTER})"
@@ -154,11 +173,19 @@ echo "  [PASS] Profile B PID strictly preserved (${PID_B} == ${PID_B_AFTER})"
 
 # 9. Restart Profile B and prove only B changes PID
 echo "--- Restarting Profile B ---"
-"${RPCD_BACKEND}" call restart '{"id": "smoke_b"}' >/dev/null 2>&1
+"${RPCD_BACKEND}" call restart '{"id": "smoke_b"}' </dev/null >/dev/null 2>&1
 
-LIST_AFTER_RESTART_B="$("${RPCD_BACKEND}" call list '{}')"
-PID_B_NEW="$(echo "${LIST_AFTER_RESTART_B}" | grep -o '"id":"smoke_b"[^}]*' | grep -o '"pid":[0-9]*' | cut -d: -f2 || true)"
+LIST_AFTER_RESTART_B="$("${RPCD_BACKEND}" call list '{}' </dev/null)"
+if type jsonfilter >/dev/null 2>&1; then
+    PID_B_NEW="$(echo "${LIST_AFTER_RESTART_B}" | jsonfilter -e '@.profiles[@.id="smoke_b"].pid' || true)"
+else
+    PID_B_NEW="$(echo "${LIST_AFTER_RESTART_B}" | sed -n 's/.*"id":"smoke_b".*"pid":\([0-9]*\).*/\1/p' || true)"
+fi
 
+if [ -z "${PID_B_NEW}" ] || [ "${PID_B_NEW}" = "null" ]; then
+    echo "::error::Profile B not running after restart"
+    exit 1
+fi
 if [ "${PID_B_NEW}" = "${PID_B}" ]; then
     echo "::error::Restarting B failed to spawn new PID: ${PID_B_NEW}"
     exit 1
@@ -167,8 +194,9 @@ echo "  [PASS] Profile B restarted with new PID (${PID_B} -> ${PID_B_NEW})"
 
 # 10. Stop and delete profiles
 echo "--- Cleaning up Smoke Profiles ---"
-"${RPCD_BACKEND}" call delete '{"id": "smoke_a"}' >/dev/null 2>&1
-"${RPCD_BACKEND}" call delete '{"id": "smoke_b"}' >/dev/null 2>&1
+"${RPCD_BACKEND}" call stop '{"id": "smoke_b"}' </dev/null >/dev/null 2>&1
+"${RPCD_BACKEND}" call delete '{"id": "smoke_a"}' </dev/null >/dev/null 2>&1
+"${RPCD_BACKEND}" call delete '{"id": "smoke_b"}' </dev/null >/dev/null 2>&1
 
 # 11. Verify absence of network or firewall side-effects
 ip rule show > "${TMP_DIR}/ip_rules_after.txt" 2>/dev/null || true
