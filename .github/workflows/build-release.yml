@@ -123,7 +123,7 @@ jobs:
           sh "${{ github.workspace }}/tests/ci/fetch_xray.sh" "v26.7.28" "/tmp/xray-bin"
       - name: Run Test Suite
         run: |
-          export PATH="/tmp/xray-bin:/usr/bin:/usr/local/bin:$SDK_HOME/staging_dir/host/bin:$PATH"
+          export PATH="/opt/ucode-pinned/bin:/tmp/xray-bin:/usr/bin:/usr/local/bin:$SDK_HOME/staging_dir/host/bin:$PATH"
           if ! CI=true XRAY_BIN="/tmp/xray-bin/xray" sh "${{ github.workspace }}/tests/run_tests.sh" 2>&1 | tee /tmp/run_tests.log; then
             echo "## Test Suite Failed" >> "$GITHUB_STEP_SUMMARY"
             echo '```' >> "$GITHUB_STEP_SUMMARY"
@@ -196,6 +196,13 @@ jobs:
           cp -p "${{ github.workspace }}/tests/fixtures/profile-smoke-a.json" "${{ github.workspace }}/profile-smoke-a.json"
           cp -p "${{ github.workspace }}/tests/fixtures/profile-smoke-b.json" "${{ github.workspace }}/profile-smoke-b.json"
           cp -p "${{ github.workspace }}/tests/fixtures/profile-invalid.json" "${{ github.workspace }}/profile-invalid.json"
+
+          if [ "${{ matrix.id }}" = "25.12.5" ]; then
+            # Download aarch64_cortex-a53 dependencies for offline deployment
+            wget -q -O "${{ github.workspace }}/coreutils-base64.apk" "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages/coreutils-base64_9.5-2_aarch64_cortex-a53.apk" || true
+            wget -q -O "${{ github.workspace }}/coreutils.apk" "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages/coreutils_9.5-2_aarch64_cortex-a53.apk" || true
+            wget -q -O "${{ github.workspace }}/ip-full.apk" "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/base/ip-full_6.9.0-2_aarch64_cortex-a53.apk" || true
+          fi
 
           echo "CORE_PACKAGE=$CORE_BASE" >> $GITHUB_ENV
           echo "STATUS_PACKAGE=$STATUS_BASE" >> $GITHUB_ENV
@@ -352,6 +359,9 @@ jobs:
             profile_mode_smoke.sh
             profile-smoke-*.json
             profile-invalid.json
+            install_and_smoke_r6.sh
+            coreutils*.apk
+            ip-full*.apk
           if-no-files-found: error
           retention-days: 14
       - name: Generate Failure Diagnostics

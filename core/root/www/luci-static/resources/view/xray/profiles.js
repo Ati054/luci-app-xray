@@ -100,6 +100,10 @@ var callProfilesDisableLegacy = rpc.declare({
 });
 
 return view.extend({
+    handleSave: null,
+    handleSaveApply: null,
+    handleReset: null,
+
     load: function() {
         return callProfilesList().catch(function() {
             return { ok: false, profiles: [], summary: {} };
@@ -174,10 +178,8 @@ return view.extend({
         var binStatusBadge = summary.binary_found ?
             E('span', { 'class': 'label success' }, summary.binary_version || _('Установлен')) :
             E('span', { 'class': 'label danger' }, _('Не найден'));
-
-        var assetStatusBadge = summary.assets_found ?
-            E('span', { 'class': 'label success' }, _('Найдены')) :
-            E('span', { 'class': 'label warning' }, _('Отсутствуют'));
+            
+        var binPathText = summary.binary_path || '/usr/bin/xray';
 
         var serviceStatusBadge = summary.service_enabled ?
             E('span', { 'class': 'label success' }, _('Включен в автозагрузку')) :
@@ -205,10 +207,7 @@ return view.extend({
 
         var cards = E('div', { 'class': 'cbi-section', 'style': 'display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 1.5em;' }, [
             E('div', { 'class': 'cbi-value', 'style': 'flex: 1 1 200px; padding: 10px; border: 1px solid #e0e0e0; border-radius: 4px;' }, [
-                E('strong', {}, _('Исполняемый файл Xray: ')), binStatusBadge
-            ]),
-            E('div', { 'class': 'cbi-value', 'style': 'flex: 1 1 200px; padding: 10px; border: 1px solid #e0e0e0; border-radius: 4px;' }, [
-                E('strong', {}, _('Геобазы GeoIP/GeoSite: ')), assetStatusBadge
+                E('strong', {}, _('Xray (%s): ').format(binPathText)), binStatusBadge
             ]),
             E('div', { 'class': 'cbi-value', 'style': 'flex: 1 1 200px; padding: 10px; border: 1px solid #e0e0e0; border-radius: 4px;' }, [
                 E('strong', {}, _('Сервис xray_profiles: ')), serviceStatusBadge, serviceToggleBtn

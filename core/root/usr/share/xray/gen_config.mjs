@@ -258,7 +258,7 @@ export function server_tags(server) {
         outbound_tag: outbound_tag,
         reverse_tag: reverse_tag
     };
-}
+};
 
 export function outbounds_reverse(general, config) {
     let result = [
@@ -317,7 +317,7 @@ export function outbounds_reverse(general, config) {
         }
     }
     return result;
-}
+};
 
 export function rules_reverse(general, config) {
     let inbound_tags = [];
@@ -354,14 +354,17 @@ export function rules_reverse(general, config) {
             push(inbound_tags, reverse_tag);
         }
     }
-    return [
-        {
-            type: "field",
-            inboundTag: inbound_tags,
-            outboundTag: "reverse-egress"
-        }
-    ];
-}
+    if (length(inbound_tags) > 0) {
+        return [
+            {
+                type: "field",
+                inboundTag: inbound_tags,
+                outboundTag: "reverse-egress"
+            }
+        ];
+    }
+    return [];
+};
 
 export function gen_config_from_data(config) {
     const general = filter(values(config), k => k[".type"] == "general")[0] || {};
@@ -415,9 +418,9 @@ export function gen_config_from_data(config) {
         };
     };
     return custom_configuration_hook(result);
-}
+};
 
 export function gen_config() {
     const config = load_config();
     return gen_config_from_data(config);
-}
+};

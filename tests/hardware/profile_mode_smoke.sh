@@ -46,7 +46,8 @@ fi
 ARCH="$(uname -m 2>/dev/null || true)"
 if [ "$1" != "--force" ]; then
     if [ "${ARCH}" != "aarch64" ]; then
-        echo "::warning::Non-aarch64 architecture detected (${ARCH}). Use --force if running in simulation."
+        echo "::error::Non-aarch64 architecture detected (${ARCH}). Use --force if running in simulation."
+        exit 1
     fi
 fi
 
@@ -58,6 +59,12 @@ if [ ! -x "${XRAY_BIN}" ]; then
 fi
 XRAY_VER="$("${XRAY_BIN}" version 2>/dev/null | head -n 1 || true)"
 echo "Found Xray runtime: ${XRAY_VER}"
+if [ "$1" != "--force" ]; then
+    if ! echo "${XRAY_VER}" | grep -q "26.7.28"; then
+        echo "::error::Xray 26.7.28 required. Found: ${XRAY_VER}"
+        exit 1
+    fi
+fi
 
 RPCD_BACKEND="/usr/libexec/rpcd/xray_profiles"
 if [ ! -x "${RPCD_BACKEND}" ]; then

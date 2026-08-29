@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-xray
 PKG_VERSION:=3.7.1
-PKG_RELEASE:=5
+PKG_RELEASE:=6
 
 PKG_LICENSE:=MPL-2.0
 PKG_MAINTAINER:=yichya <mail@yichya.dev>

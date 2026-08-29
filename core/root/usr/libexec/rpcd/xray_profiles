@@ -1,7 +1,7 @@
 #!/usr/bin/ucode
 "use strict";
 
-import { readfile, writefile, open, stat, lstat, access, rename, unlink, chmod, mkdir, rmdir, glob, popen } from "fs";
+import { readfile, writefile, open, stat, lstat, access, rename, unlink, chmod, mkdir, mkdtemp, rmdir, glob, popen } from "fs";
 import { cursor } from "uci";
 
 // Parse CLI flags and arguments
@@ -9,6 +9,7 @@ let mock_dir = null;
 let cmd = null;
 let method = null;
 let args_str = "{}";
+let has_args = false;
 
 for (let i = 0; i < length(ARGV); i++) {
     if (ARGV[i] == "--mock-dir" && i + 1 < length(ARGV)) {
@@ -17,13 +18,14 @@ for (let i = 0; i < length(ARGV); i++) {
         cmd = ARGV[i];
     } else if (!method) {
         method = ARGV[i];
-    } else if (!args_str || args_str == "{}") {
+    } else if (!has_args) {
         args_str = ARGV[i];
+        has_args = true;
     }
 }
 
 // Read stdin if piped and not passed in args
-if (cmd == "call" && (!args_str || args_str == "{}")) {
+if (cmd == "call" && !has_args) {
     let stdin_data = readfile("/dev/stdin");
     if (stdin_data && length(stdin_data) > 0) {
         args_str = stdin_data;
@@ -62,7 +64,8 @@ function ensure_dirs() {
 // Process runner capturing exact exit code, stdout and stderr
 function run_process(cmd_str) {
     ensure_dirs();
-    let tmp_prefix = `${BASE_PROFILES_DIR}/.run_${time()}_${int(rand() * 100000)}`;
+    let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.run_XXXXXX`);
+    let tmp_prefix = `${tmp_dir}/run`;
     let out_file = `${tmp_prefix}.out`;
     let err_file = `${tmp_prefix}.err`;
     let rc_file = `${tmp_prefix}.rc`;
@@ -90,6 +93,8 @@ function run_process(cmd_str) {
         stderr_content = readfile(err_file) || "";
         unlink(err_file);
     }
+    
+    rmdir(tmp_dir);
 
     return {
         exit_code: rc,
@@ -322,9 +327,11 @@ function validate_content_full(content_str) {
 
     // Write to temporary file with mode 0600 created before writing
     ensure_dirs();
-    let tmp_path = `${BASE_PROFILES_DIR}/.tmp_test_${time()}_${int(rand() * 100000)}.json`;
+    let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.tmp_test_XXXXXX`);
+    let tmp_path = `${tmp_dir}/config.json`;
     let fh = open(tmp_path, "w", 0600);
     if (!fh) {
+        rmdir(tmp_dir);
         return { ok: false, error: "Failed to open temporary file with mode 0600 for validation" };
     }
     fh.write(content_str);
@@ -334,6 +341,7 @@ function validate_content_full(content_str) {
     let test_cmd = `XRAY_LOCATION_ASSET="${ASSET_DIR}" "${XRAY_BIN}" run -test -config "${tmp_path}"`;
     let run_res = run_process(test_cmd);
     unlink(tmp_path);
+    rmdir(tmp_dir);
 
     if (run_res.exit_code !== 0) {
         return { ok: false, error: `Xray configuration validation test failed (exit code ${run_res.exit_code})` };
@@ -506,9 +514,11 @@ function rpc_import(params) {
         }
 
         // Write to temporary file created with mode 0600 BEFORE content write
-        let tmp_path = `${BASE_PROFILES_DIR}/.tmp_import_${id}_${time()}_${int(rand() * 100000)}.json`;
+        let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.tmp_import_XXXXXX`);
+        let tmp_path = `${tmp_dir}/config.json`;
         let fh = open(tmp_path, "w", 0600);
         if (!fh) {
+            rmdir(tmp_dir);
             release_lock();
             return { ok: false, error: "Failed to open temporary file with mode 0600" };
         }
@@ -519,9 +529,11 @@ function rpc_import(params) {
         // Atomically rename into place
         if (!rename(tmp_path, target_path)) {
             unlink(tmp_path);
+            rmdir(tmp_dir);
             release_lock();
             return { ok: false, error: "Failed to atomically install profile file" };
         }
+        rmdir(tmp_dir);
         chmod(target_path, 0600);
 
         // Add UCI metadata section
@@ -574,14 +586,16 @@ function rpc_replace(params) {
 
         let filename = profile_sec.filename || `${id}.json`;
         let target_path = `${BASE_PROFILES_DIR}/${filename}`;
-        let backup_path = `${BASE_PROFILES_DIR}/.bak_${id}_${time()}.json`;
-        let tmp_path = `${BASE_PROFILES_DIR}/.tmp_replace_${id}_${time()}.json`;
+        let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.tmp_replace_XXXXXX`);
+        let backup_path = `${tmp_dir}/backup.json`;
+        let tmp_path = `${tmp_dir}/config.json`;
 
         ensure_dirs();
 
         // Reject existing symlinks using real lstat check
         let target_lst = lstat(target_path);
         if (target_lst && target_lst.type == "link") {
+            rmdir(tmp_dir);
             release_lock();
             return { ok: false, error: "Target destination is a symbolic link; replacement forbidden" };
         }
@@ -599,6 +613,7 @@ function rpc_replace(params) {
         let fh = open(tmp_path, "w", 0600);
         if (!fh) {
             if (access(backup_path)) rename(backup_path, target_path);
+            rmdir(tmp_dir);
             release_lock();
             return { ok: false, error: "Failed to open temporary file with mode 0600" };
         }
@@ -609,6 +624,7 @@ function rpc_replace(params) {
         if (!rename(tmp_path, target_path)) {
             if (access(backup_path)) rename(backup_path, target_path);
             unlink(tmp_path);
+            rmdir(tmp_dir);
             release_lock();
             return { ok: false, error: "Failed to atomically replace profile file" };
         }
@@ -624,6 +640,7 @@ function rpc_replace(params) {
                     rename(backup_path, target_path);
                     run_cmd(`"${INIT_SCRIPT}" restart "${id}" >/dev/null 2>&1`);
                 }
+                rmdir(tmp_dir);
                 release_lock();
                 return { ok: false, error: "Restart failed on replacement; rolled back to previous valid profile" };
             }
@@ -632,6 +649,7 @@ function rpc_replace(params) {
         if (access(backup_path)) {
             unlink(backup_path);
         }
+        rmdir(tmp_dir);
 
         release_lock();
         return { ok: true };
