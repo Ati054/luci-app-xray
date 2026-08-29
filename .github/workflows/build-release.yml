@@ -276,8 +276,24 @@ jobs:
           fi
 
           TMP_PKG="$(mktemp -d)"
+          trap 'rm -rf "$TMP_PKG"' EXIT INT TERM
+
           if [ "${{ matrix.id }}" = "25.12.5" ]; then
-            python3 tests/ci/extract_openwrt_apk.py "$CORE_PACKAGE" "$TMP_PKG"
+            APK_HOST="$SDK_HOME/staging_dir/host/bin/apk"
+            [ -x "$APK_HOST" ] || {
+              echo "::error::SDK host apk executable not found: $APK_HOST"
+              exit 1
+            }
+            echo "Using SDK host apk binary:"
+            "$APK_HOST" --version
+
+            rm -rf "$TMP_PKG"
+            mkdir -p "$TMP_PKG"
+
+            "$APK_HOST" --allow-untrusted extract \
+              --no-chown \
+              --destination "$TMP_PKG" \
+              "$CORE_PACKAGE"
           else
             if ar -t "$CORE_PACKAGE" >/dev/null 2>&1; then
               ar -p "$CORE_PACKAGE" data.tar.gz | tar -C "$TMP_PKG" -zxf -
@@ -338,12 +354,35 @@ jobs:
             profile-invalid.json
           if-no-files-found: error
           retention-days: 14
+      - name: Generate Failure Diagnostics
+        if: failure()
+        run: |
+          cd "${{ github.workspace }}"
+          {
+            echo "=== Failure Diagnostic ==="
+            echo "Date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+            echo "Matrix: ${{ matrix.id }} (${{ matrix.arch }})"
+            if [ -n "$SDK_HOME" ] && [ -x "$SDK_HOME/staging_dir/host/bin/apk" ]; then
+              echo "Host apk version: $("$SDK_HOME/staging_dir/host/bin/apk" --version 2>&1 || true)"
+            fi
+            if [ -n "$CORE_PACKAGE" ] && [ -f "$CORE_PACKAGE" ]; then
+              echo "Core package: $CORE_PACKAGE"
+              echo "Core package size: $(wc -c < "$CORE_PACKAGE" 2>/dev/null || true)"
+              echo -n "Core package first 32 bytes hex: "
+              hexdump -n 32 -e '16/1 "%02x " "\n"' "$CORE_PACKAGE" 2>/dev/null || od -N 32 -t x1 "$CORE_PACKAGE" 2>/dev/null || true
+            fi
+          } > /tmp/apk_diagnostic.txt 2>&1 || true
       - name: Upload Debug Log on Failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: debug-logs-${{ matrix.id }}-${{ matrix.arch }}
-          path: /tmp/*.log
+          path: |
+            /tmp/*.log
+            /tmp/apk_diagnostic.txt
+            ${{ github.workspace }}/luci-app-xray*
+            ${{ github.workspace }}/SHA256SUMS-*.txt
+            ${{ github.workspace }}/BUILD-INFO-*.txt
           if-no-files-found: ignore
       - name: Release and Upload Assets
         if: startsWith(github.ref, 'refs/tags/')
