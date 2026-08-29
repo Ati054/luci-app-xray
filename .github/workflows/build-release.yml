@@ -210,6 +210,7 @@ jobs:
               --root /tmp/offline_apks \
               --allow-untrusted \
               --arch aarch64_cortex-a53 \
+              -X "https://downloads.openwrt.org/releases/25.12.5/targets/bcm27xx/bcm2710/packages" \
               -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/base" \
               -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/luci" \
               -X "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages" \
