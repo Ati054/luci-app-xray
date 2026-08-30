@@ -143,6 +143,12 @@ def main() -> int:
             "backend reports per-profile geodata requirements")
     require("assets_found" not in backend, "backend exposes no misleading global assets status")
 
+    generator_entry = read("core/root/usr/share/xray/gen_config.uc")
+    generator_config = read("core/root/usr/share/xray/common/config.mjs")
+    require('gen_config(getenv("UCI_CONFIG_DIR"))' in generator_entry and
+            "config_dir ? cursor(config_dir) : cursor()" in generator_config,
+            "generator preserves production UCI defaults and supports isolated test roots")
+
     profiles_view = read("core/root/www/luci-static/resources/view/xray/profiles.js")
     require("handleSave: null" in profiles_view and "handleSaveApply: null" in profiles_view and "handleReset: null" in profiles_view,
             "profile page disables generic LuCI controls")

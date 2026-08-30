@@ -2,8 +2,8 @@
 
 import { cursor } from "uci";
 
-export function load_config() {
-    const uci = cursor();
+export function load_config(config_dir) {
+    const uci = config_dir ? cursor(config_dir) : cursor();
     if (!uci.load("xray_core")) {
         die("Failed to load UCI configuration for xray_core");
     }

@@ -420,7 +420,7 @@ export function gen_config_from_data(config) {
     return custom_configuration_hook(result);
 };
 
-export function gen_config() {
-    const config = load_config();
+export function gen_config(config_dir) {
+    const config = load_config(config_dir);
     return gen_config_from_data(config);
 };
