@@ -140,7 +140,8 @@ def main() -> int:
     require("grep -o '\"id\"" not in hardware, "hardware smoke does not parse formatted JSON with grep")
 
     backend = read("core/root/usr/libexec/rpcd/xray_profiles")
-    require("rand()" not in backend and "mkdtemp" in backend, "backend uses exclusive target-supported temporaries")
+    require("rand()" not in backend and "make_temp_dir" in backend and "if (mkdir(path, 0700))" in backend,
+            "backend uses portable atomic exclusive temporaries")
     require('readfile("/proc/self/stat")' in backend and "pid: 0" not in backend,
             "backend lock records a live owner PID")
     require('access(XRAY_BIN, "x")' in backend, "backend binary_found requires executable access")

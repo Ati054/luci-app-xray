@@ -1,7 +1,7 @@
 #!/usr/bin/ucode
 "use strict";
 
-import { readfile, writefile, open, stat, lstat, access, rename, unlink, chmod, mkdir, mkdtemp, rmdir, glob, popen } from "fs";
+import { readfile, writefile, open, stat, lstat, access, rename, unlink, chmod, mkdir, rmdir, glob, popen } from "fs";
 import { cursor } from "uci";
 
 // Parse CLI flags and arguments
@@ -61,10 +61,30 @@ function ensure_dirs() {
     chmod(TRASH_DIR, 0700);
 }
 
+let temp_counter = 0;
+
+// mkdir() is an atomic exclusive create on every supported ucode/fs version.
+// PID, wall clock and a per-process counter keep names unique without randomness.
+function make_temp_dir(prefix) {
+    ensure_dirs();
+    let pid = current_pid();
+    if (!pid) return null;
+
+    for (let attempt = 0; attempt < 128; attempt++) {
+        temp_counter++;
+        let path = `${BASE_PROFILES_DIR}/${prefix}_${pid}_${time()}_${temp_counter}`;
+        if (mkdir(path, 0700)) {
+            chmod(path, 0700);
+            return path;
+        }
+    }
+
+    return null;
+}
+
 // Process runner capturing exact exit code, stdout and stderr
 function run_process(cmd_str) {
-    ensure_dirs();
-    let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.run_XXXXXX`);
+    let tmp_dir = make_temp_dir(".run");
     if (!tmp_dir) {
         return { exit_code: -1, stdout: "", stderr: "Unable to create process capture directory" };
     }
@@ -392,7 +412,7 @@ function validate_content_full(content_str) {
 
     // Write to temporary file with mode 0600 created before writing
     ensure_dirs();
-    let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.tmp_test_XXXXXX`);
+    let tmp_dir = make_temp_dir(".tmp_test");
     if (!tmp_dir) {
         return { ok: false, error: "Failed to create exclusive temporary directory for validation" };
     }
@@ -592,7 +612,7 @@ function rpc_import(params) {
         }
 
         // Write to temporary file created with mode 0600 BEFORE content write
-        let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.tmp_import_XXXXXX`);
+        let tmp_dir = make_temp_dir(".tmp_import");
         if (!tmp_dir) {
             release_lock();
             return { ok: false, error: "Failed to create exclusive temporary directory for import" };
@@ -679,7 +699,7 @@ function rpc_replace(params) {
 
         let filename = profile_sec.filename || `${id}.json`;
         let target_path = `${BASE_PROFILES_DIR}/${filename}`;
-        let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.tmp_replace_XXXXXX`);
+        let tmp_dir = make_temp_dir(".tmp_replace");
         if (!tmp_dir) {
             release_lock();
             return { ok: false, error: "Failed to create exclusive temporary directory for replacement" };

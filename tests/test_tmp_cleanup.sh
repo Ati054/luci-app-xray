@@ -53,9 +53,21 @@ while [ "${i}" -le 6 ]; do
     i=$((i + 1))
 done
 
+wait_failed=0
 for pid in ${pids}; do
-    wait "${pid}"
+    if ! wait "${pid}"; then
+        wait_failed=1
+    fi
 done
+
+if [ "${wait_failed}" -ne 0 ]; then
+    echo "FAIL: at least one concurrent validation process exited non-zero"
+    for result in "${MOCK_ROOT}"/result-*.json; do
+        echo "--- ${result} ---"
+        cat "${result}"
+    done
+    exit 1
+fi
 
 for result in "${MOCK_ROOT}"/result-*.json; do
     grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' "${result}" || {
