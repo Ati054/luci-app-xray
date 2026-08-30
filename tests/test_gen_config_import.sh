@@ -22,7 +22,7 @@ print("IMPORT_OK\\n");
 EOF
 
 IMPORT_STATUS=0
-"${UCODE_BIN}" "${TMP_DIR}/import.uc" > "${TMP_DIR}/stdout" 2> "${TMP_DIR}/stderr" || IMPORT_STATUS=$?
+"${UCODE_BIN}" -R "${TMP_DIR}/import.uc" > "${TMP_DIR}/stdout" 2> "${TMP_DIR}/stderr" || IMPORT_STATUS=$?
 [ "${IMPORT_STATUS}" -eq 0 ] || {
     echo "FAIL: importing gen_config.uc exited with status ${IMPORT_STATUS}"
     cat "${TMP_DIR}/stderr"
