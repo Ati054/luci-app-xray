@@ -141,7 +141,7 @@ ${SUDO} cmake --install "${TMP_BUILD_DIR}/ucode/build"
 ${SUDO} ln -sfn /opt/ucode-pinned/bin/ucode /usr/bin/ucode
 
 echo "=== Verifying ucode and uci module ==="
-/opt/ucode-pinned/bin/ucode -v
+/opt/ucode-pinned/bin/ucode -e 'print("ucode runtime loaded successfully\n");'
 /opt/ucode-pinned/bin/ucode -e 'import { cursor } from "uci"; print("UCI module loaded successfully\n");'
 [ "$(readlink -f /usr/bin/ucode)" = "/opt/ucode-pinned/bin/ucode" ] || {
     echo "::error::The rpcd shebang does not resolve to the SDK-pinned ucode binary" >&2

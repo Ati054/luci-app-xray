@@ -91,6 +91,10 @@ def main() -> int:
             "bundle builder verifies complete R9 checksums")
     require("OFFLINE-PACKAGES-MANIFEST.txt" in bundle_script,
             "bundle builder emits the dependency manifest")
+    setup_ucode = read("tests/ci/setup_ucode.sh")
+    require("/opt/ucode-pinned/bin/ucode -v" not in setup_ucode and
+            "ucode runtime loaded successfully" in setup_ucode,
+            "SDK-selected ucode is verified through a supported evaluation")
     critical_paths = (
         ".github/workflows/build-release.yml",
         "scripts/build_r9_offline_bundle.sh",
