@@ -56,6 +56,7 @@ PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" "${SCRIPT_DIR}/test_r9_contracts.py"
 PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" "${SCRIPT_DIR}/test_r9_manifest.py"
 PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" "${SCRIPT_DIR}/test_workflow_shell.py"
 sh "${SCRIPT_DIR}/test_installer_r9.sh"
+sh "${SCRIPT_DIR}/test_setup_ucode_discovery.sh"
 
 echo "\n--- 3. Running ucode unit tests and tag invariant contracts ---"
 if check_tool "${UCODE_BIN}"; then

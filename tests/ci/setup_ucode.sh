@@ -42,13 +42,42 @@ source_revision() {
     printf '%s\n' "${revision}"
 }
 
-LIBUBOX_REF="$(source_revision "${SDK_HOME}/package/libs/libubox/Makefile")"
-UCI_REF="$(source_revision "${SDK_HOME}/package/system/uci/Makefile")"
-UCODE_REF="$(source_revision "${SDK_HOME}/package/utils/ucode/Makefile")"
+find_source_makefile() {
+    local package_name="$1"
+    local matches_file="${TMP_BUILD_DIR}/${package_name}.makefiles"
+    local source_root
+    local match_count
+
+    : > "${matches_file}"
+    for source_root in "${SDK_HOME}/package" "${SDK_HOME}/feeds"; do
+        [ -d "${source_root}" ] || continue
+        find "${source_root}" -type f -path "*/${package_name}/Makefile" -print >> "${matches_file}"
+    done
+    sort -u "${matches_file}" -o "${matches_file}"
+    match_count="$(sed '/^$/d' "${matches_file}" | wc -l | tr -d '[:space:]')"
+    [ "${match_count}" -eq 1 ] || {
+        echo "::error::Expected exactly one SDK source Makefile for ${package_name}, found ${match_count}" >&2
+        sed 's/^/  candidate: /' "${matches_file}" >&2
+        return 1
+    }
+    sed -n '1p' "${matches_file}"
+}
+
+LIBUBOX_MAKEFILE="$(find_source_makefile libubox)"
+UCI_MAKEFILE="$(find_source_makefile uci)"
+UCODE_MAKEFILE="$(find_source_makefile ucode)"
+LIBUBOX_REF="$(source_revision "${LIBUBOX_MAKEFILE}")"
+UCI_REF="$(source_revision "${UCI_MAKEFILE}")"
+UCODE_REF="$(source_revision "${UCODE_MAKEFILE}")"
 
 echo "SDK-selected libubox revision: ${LIBUBOX_REF}"
 echo "SDK-selected uci revision: ${UCI_REF}"
 echo "SDK-selected ucode revision: ${UCODE_REF}"
+
+if [ "${SETUP_UCODE_DISCOVERY_ONLY:-0}" = "1" ]; then
+    echo "SDK source discovery completed successfully."
+    exit 0
+fi
 
 fetch_pinned_repo() {
     local name="$1"
