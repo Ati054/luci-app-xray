@@ -126,6 +126,10 @@ grep -q -- '--network' "${ADD_HELP}" || {
     echo "ERROR: SDK apk add lacks the boolean --network capability" >&2
     exit 1
 }
+grep -q -- '--usermode' "${APK_HELP}" || {
+    echo "ERROR: SDK apk lacks non-root isolated database support" >&2
+    exit 1
+}
 grep -q -- '--simulate' "${ADD_HELP}" || {
     echo "ERROR: SDK apk add lacks --simulate" >&2
     exit 1
@@ -322,6 +326,7 @@ SEED_REPOSITORY="file://${SEED_INDEX_DIR}/packages.adb"
 ARTIFACT_REPOSITORY="file://${ARTIFACT_INDEX_DIR}/packages.adb"
 
 "${APK_HOST}" \
+    --usermode \
     --root "${SIM_ROOT}" \
     --arch "${TARGET_ARCH}" \
     --allow-untrusted \
@@ -343,6 +348,7 @@ NETWORK_TRACE="${TMP_ROOT}/offline-network.trace"
 
 strace -f -e trace=network -o "${NETWORK_TRACE}" \
     "${APK_HOST}" \
+    --usermode \
     --root "${SIM_ROOT}" \
     --arch "${TARGET_ARCH}" \
     --allow-untrusted \
@@ -356,6 +362,7 @@ strace -f -e trace=network -o "${NETWORK_TRACE}" \
 } >> "${OFFLINE_LOG}"
 strace -f -e trace=network -o "${NETWORK_TRACE}.install" \
     "${APK_HOST}" \
+    --usermode \
     --root "${SIM_ROOT}" \
     --arch "${TARGET_ARCH}" \
     --allow-untrusted \
@@ -371,6 +378,7 @@ if grep -E 'socket\(AF_INET|socket\(AF_INET6|sa_family=AF_INET|sa_family=AF_INET
 fi
 
 "${APK_HOST}" \
+    --usermode \
     --root "${SIM_ROOT}" \
     --arch "${TARGET_ARCH}" \
     --repositories-file /dev/null \
