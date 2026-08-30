@@ -61,6 +61,13 @@ function ensure_dirs() {
     chmod(TRASH_DIR, 0700);
 }
 
+function current_pid() {
+    let proc_stat = readfile("/proc/self/stat");
+    if (!proc_stat) return 0;
+    let fields = split(trim(proc_stat), " ");
+    return int(fields[0] || "0");
+}
+
 let temp_counter = 0;
 
 // mkdir() is an atomic exclusive create on every supported ucode/fs version.
@@ -143,13 +150,6 @@ function is_pid_alive(pid) {
     if (!pid || pid <= 0) return false;
     let st = stat(`/proc/${pid}`);
     return st && st.type == "directory";
-}
-
-function current_pid() {
-    let proc_stat = readfile("/proc/self/stat");
-    if (!proc_stat) return 0;
-    let fields = split(trim(proc_stat), " ");
-    return int(fields[0] || "0");
 }
 
 // Mutex Locking with Stale-Lock Detection and Recovery
