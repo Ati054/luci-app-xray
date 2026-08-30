@@ -150,6 +150,8 @@ def main() -> int:
     require("assets_found" not in backend, "backend exposes no misleading global assets status")
     require("finally" not in backend and "throw " not in backend and "is_array(" not in backend,
             "backend cleanup uses target-compatible ucode syntax")
+    require(".section(" not in backend and 'u.set("xray_core", id, "profile")' in backend,
+            "backend creates named UCI sections through the portable cursor API")
 
     generator_entry = read("core/root/usr/share/xray/gen_config.uc")
     generator_config = read("core/root/usr/share/xray/common/config.mjs")

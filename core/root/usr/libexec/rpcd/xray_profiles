@@ -649,14 +649,21 @@ function rpc_import(params) {
         }
         chmod(target_path, 0600);
 
-        // Add UCI metadata section
-        u.section("xray_core", "profile", id, {
-            name: name,
-            filename: filename,
-            order: "0",
-            autostart: autostart
-        });
-        u.commit("xray_core");
+        // Add a named UCI section using the ucode cursor API available on all
+        // supported OpenWrt releases, then populate its options explicitly.
+        let metadata_ok = u.set("xray_core", id, "profile");
+        if (metadata_ok) metadata_ok = u.set("xray_core", id, "name", name);
+        if (metadata_ok) metadata_ok = u.set("xray_core", id, "filename", filename);
+        if (metadata_ok) metadata_ok = u.set("xray_core", id, "order", "0");
+        if (metadata_ok) metadata_ok = u.set("xray_core", id, "autostart", autostart);
+        if (metadata_ok) metadata_ok = u.commit("xray_core");
+
+        if (!metadata_ok) {
+            u.revert("xray_core");
+            unlink(target_path);
+            release_lock();
+            return { ok: false, error: "Failed to persist profile metadata" };
+        }
 
         if (autostart == "1" && access(INIT_SCRIPT)) {
             run_cmd(`"${INIT_SCRIPT}" start "${id}" >/dev/null 2>&1`);

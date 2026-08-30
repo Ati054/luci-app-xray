@@ -89,6 +89,7 @@ if [ "$1" = "version" ]; then
 fi
 if [ "$1" = "run" ] && [ "$2" = "-test" ]; then
     CONFIG_FILE="$4"
+    MOCK_XRAY_MODE="$(cat "${0%/*}/xray-mode" 2>/dev/null || true)"
     if [ "$MOCK_XRAY_MODE" = "fail_23" ]; then
         echo "Failed to start: invalid config" >&2
         exit 23
@@ -138,25 +139,28 @@ echo "\n--- Test Group: Exact Exit-Status Validation ---"
 CONTENT_A="$(cat "${FIXTURE_A}")"
 
 # 1. Nonzero exit with "Failed to start" and exit code 23 (no word "error") must be rejected
-MOCK_XRAY_MODE="fail_23" RES_FAIL_23="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "{\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
+printf '%s\n' 'fail_23' > "${MOCK_ROOT}/xray-mode"
+RES_FAIL_23="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "{\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
 assert_match '"ok":false' "${RES_FAIL_23}" "Test 1: Nonzero exit with 'Failed to start' (code 23) is rejected"
 
 # 2. Exit 0 with harmless output passes
-MOCK_XRAY_MODE="success_harmless" RES_PASS_HARMLESS="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "{\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
+printf '%s\n' 'success_harmless' > "${MOCK_ROOT}/xray-mode"
+RES_PASS_HARMLESS="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "{\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
 assert_match '"ok":true' "${RES_PASS_HARMLESS}" "Test 2: Exit 0 with harmless output passes validation"
 
 # 3. Exit 0 with silent output passes
-MOCK_XRAY_MODE="success_silent" RES_PASS_SILENT="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "{\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
+printf '%s\n' 'success_silent' > "${MOCK_ROOT}/xray-mode"
+RES_PASS_SILENT="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "{\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
 assert_match '"ok":true' "${RES_PASS_SILENT}" "Test 3: Exit 0 with silent output passes validation"
 
 # 4. Missing Xray binary is a hard failure
 MISSING_BIN_MOCK_ROOT="${MOCK_ROOT}/no_bin"
 mkdir -p "${MISSING_BIN_MOCK_ROOT}"
-RES_NO_BIN="$("${RPCD_BACKEND}" --mock-dir "${MISSING_BIN_MOCK_ROOT}" call validate "{\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
+RES_NO_BIN="$(XRAY_BIN="${MISSING_BIN_MOCK_ROOT}/xray" "${RPCD_BACKEND}" --mock-dir "${MISSING_BIN_MOCK_ROOT}" call validate "{\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
 assert_match '"ok":false' "${RES_NO_BIN}" "Test 4: Missing Xray binary is a hard validation failure"
 
 # Reset mock mode
-unset MOCK_XRAY_MODE
+rm -f "${MOCK_ROOT}/xray-mode"
 
 # -------------------------------------------------------------------
 # Test Group 2: Import Validation & Security Whitelist
@@ -176,7 +180,7 @@ assert_match 'Invalid canonical filename' "${RES_TRAVERSAL}" "Test 6b: Rejection
 # 7. Oversized content is rejected (> 512 KiB) using 100% valid JSON structure
 PADDING_STR="$(head -c 550000 /dev/zero | tr '\0' 'x')"
 OVERSIZED_CONTENT="{\"outbounds\":[{\"protocol\":\"vless\",\"settings\":{\"reverse\":{\"tag\":\"rev-in\"}},\"tag\":\"${PADDING_STR}\"}]}"
-RES_OVERSIZED="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import "{\"name\":\"Big\",\"filename\":\"big.json\",\"content\":\"${OVERSIZED_CONTENT}\"}" 2>&1 || true)"
+RES_OVERSIZED="$(printf '%s\n' "{\"name\":\"Big\",\"filename\":\"big.json\",\"content\":\"${OVERSIZED_CONTENT}\"}" | "${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import 2>&1 || true)"
 assert_match '"ok":false' "${RES_OVERSIZED}" "Test 7a: Oversized content (> 512 KiB) is rejected using valid JSON structure"
 assert_match 'size exceeds 512 KiB limit' "${RES_OVERSIZED}" "Test 7b: Rejection error message explicitly identifies size limit violation"
 
@@ -192,7 +196,7 @@ done
 # -------------------------------------------------------------------
 echo "\n--- Test Group: Reverse-Profile Safety Policy ---"
 CONTENT_INV="$(cat "${FIXTURE_INV}")"
-RES_POLICY_INBOUND="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "{\"content\":\"$(echo "${CONTENT_A}" | sed 's/"settings":/"inbounds":[{"port":1080,"protocol":"socks"}],"settings":/' | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
+RES_POLICY_INBOUND="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "{\"content\":\"$(echo "${CONTENT_INV}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}" 2>&1 || true)"
 assert_match '"ok":false' "${RES_POLICY_INBOUND}" "Test 9a: Profile with listening inbound is rejected by policy"
 assert_match 'listening inbounds are prohibited' "${RES_POLICY_INBOUND}" "Test 9b: Error message explicitly identifies forbidden listening inbounds"
 
