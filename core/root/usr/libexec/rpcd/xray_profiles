@@ -10,6 +10,8 @@ let cmd = null;
 let method = null;
 let args_str = "{}";
 let has_args = false;
+let stdin_too_large = false;
+const MAX_RPC_INPUT_BYTES = 1048576;
 
 for (let i = 0; i < length(ARGV); i++) {
     if (ARGV[i] == "--mock-dir" && i + 1 < length(ARGV)) {
@@ -26,8 +28,12 @@ for (let i = 0; i < length(ARGV); i++) {
 
 // Read stdin if piped and not passed in args
 if (cmd == "call" && !has_args) {
-    let stdin_data = readfile("/dev/stdin");
-    if (stdin_data && length(stdin_data) > 0) {
+    let stdin_handle = open("/dev/stdin", "r");
+    let stdin_data = stdin_handle ? stdin_handle.read(MAX_RPC_INPUT_BYTES + 1) : null;
+    if (stdin_handle) stdin_handle.close();
+    if (stdin_data && length(stdin_data) > MAX_RPC_INPUT_BYTES) {
+        stdin_too_large = true;
+    } else if (stdin_data && length(stdin_data) > 0) {
         args_str = stdin_data;
     }
 }
@@ -39,6 +45,11 @@ try {
     }
 } catch (e) {
     args = {};
+}
+
+if (cmd == "call" && stdin_too_large) {
+    printf("%.4J\n", { ok: false, error: "RPC request exceeds 1 MiB limit" });
+    exit(1);
 }
 
 // Paths configuration
@@ -692,7 +703,7 @@ function rpc_replace(params) {
     try {
         let u = get_uci();
         u.load("xray_core");
-        let profile_sec = u.get("xray_core", id);
+        let profile_sec = u.get_all("xray_core", id);
         if (!profile_sec || profile_sec[".type"] != "profile") {
             release_lock();
             return { ok: false, error: `Profile '${id}' not found` };
@@ -807,7 +818,7 @@ function rpc_delete(params) {
     try {
         let u = get_uci();
         u.load("xray_core");
-        let profile_sec = u.get("xray_core", id);
+        let profile_sec = u.get_all("xray_core", id);
         if (!profile_sec) {
             release_lock();
             return { ok: false, error: `Profile '${id}' not found` };
@@ -865,7 +876,7 @@ function rpc_start(params) {
 
     let u = get_uci();
     u.load("xray_core");
-    let profile_sec = u.get("xray_core", id);
+    let profile_sec = u.get_all("xray_core", id);
     if (!profile_sec || profile_sec[".type"] != "profile") {
         return { ok: false, error: `Profile '${id}' not found in configuration` };
     }
@@ -919,7 +930,7 @@ function rpc_restart(params) {
 
     let u = get_uci();
     u.load("xray_core");
-    let profile_sec = u.get("xray_core", id);
+    let profile_sec = u.get_all("xray_core", id);
     if (!profile_sec || profile_sec[".type"] != "profile") {
         return { ok: false, error: `Profile '${id}' not found in configuration` };
     }
@@ -950,7 +961,7 @@ function rpc_set_autostart(params) {
 
     let u = get_uci();
     u.load("xray_core");
-    let profile_sec = u.get("xray_core", id);
+    let profile_sec = u.get_all("xray_core", id);
     if (!profile_sec || profile_sec[".type"] != "profile") {
         return { ok: false, error: `Profile '${id}' not found` };
     }
@@ -968,7 +979,7 @@ function rpc_rename(params) {
 
     let u = get_uci();
     u.load("xray_core");
-    let profile_sec = u.get("xray_core", id);
+    let profile_sec = u.get_all("xray_core", id);
     if (!profile_sec || profile_sec[".type"] != "profile") {
         return { ok: false, error: `Profile '${id}' not found` };
     }
@@ -985,7 +996,7 @@ function rpc_reorder(params) {
 
     let u = get_uci();
     u.load("xray_core");
-    let profile_sec = u.get("xray_core", id);
+    let profile_sec = u.get_all("xray_core", id);
     if (!profile_sec || profile_sec[".type"] != "profile") {
         return { ok: false, error: `Profile '${id}' not found` };
     }

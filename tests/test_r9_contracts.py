@@ -152,6 +152,10 @@ def main() -> int:
             "backend cleanup uses target-compatible ucode syntax")
     require(".section(" not in backend and 'u.set("xray_core", id, "profile")' in backend,
             "backend creates named UCI sections through the portable cursor API")
+    require('u.get("xray_core", id);' not in backend and 'u.get_all("xray_core", id)' in backend,
+            "backend reads complete UCI profile sections")
+    require('stdin_handle.read(MAX_RPC_INPUT_BYTES + 1)' in backend and "MAX_RPC_INPUT_BYTES = 1048576" in backend,
+            "backend reads large stdin payloads through a bounded stream")
 
     generator_entry = read("core/root/usr/share/xray/gen_config.uc")
     generator_config = read("core/root/usr/share/xray/common/config.mjs")
