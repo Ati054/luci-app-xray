@@ -4,15 +4,15 @@ set -eu
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RPCD_XRAY="${SCRIPT_DIR}/../core/root/usr/libexec/rpcd/xray_profiles"
 
-echo "=== Test 8-11: No rand() and exclusive temp file creation ==="
+echo "=== Test 8-11: No rand() and portable exclusive temp creation ==="
 
 if grep -q "rand()" "$RPCD_XRAY"; then
     echo "FAIL: rpcd script still uses rand()"
     exit 1
 fi
 
-if ! grep -q "mkdtemp" "$RPCD_XRAY"; then
-    echo "FAIL: rpcd script does not use target-supported exclusive directory creation"
+if ! grep -q 'function make_temp_dir' "$RPCD_XRAY" || ! grep -q 'if (mkdir(path, 0700))' "$RPCD_XRAY"; then
+    echo "FAIL: rpcd script does not use portable atomic directory creation"
     exit 1
 fi
 
