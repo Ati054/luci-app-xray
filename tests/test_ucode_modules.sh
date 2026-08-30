@@ -19,10 +19,16 @@ find "${ROOT_DIR}/core/root/usr/share/xray" -type f \( -name '*.uc' -o -name '*.
 trap 'rm -rf "${TMP_ROOT}"' EXIT INT TERM
 
 while IFS= read -r module; do
-    escaped_module="$(printf '%s' "${module}" | sed 's/[\\"]/\\&/g')"
-    printf 'import * as module_under_test from "%s";\n' "${escaped_module}" > "${IMPORT_WRAPPER}"
-    "${UCODE_BIN}" -c -o /dev/null "${IMPORT_WRAPPER}" >/dev/null 2> "${TMP_ROOT}/compile.err" || {
-        echo "FAIL: ucode module did not compile through an import: ${module}" >&2
+    compile_source="${module}"
+    case "${module}" in
+        *.mjs)
+            escaped_module="$(printf '%s' "${module}" | sed 's/[\\"]/\\&/g')"
+            printf 'import * as module_under_test from "%s";\n' "${escaped_module}" > "${IMPORT_WRAPPER}"
+            compile_source="${IMPORT_WRAPPER}"
+            ;;
+    esac
+    "${UCODE_BIN}" -c -o /dev/null "${compile_source}" >/dev/null 2> "${TMP_ROOT}/compile.err" || {
+        echo "FAIL: installed ucode source did not compile: ${module}" >&2
         cat "${TMP_ROOT}/compile.err" >&2
         exit 1
     }
