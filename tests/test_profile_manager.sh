@@ -180,7 +180,8 @@ assert_match 'Invalid canonical filename' "${RES_TRAVERSAL}" "Test 6b: Rejection
 # 7. Oversized content is rejected (> 512 KiB) using 100% valid JSON structure
 PADDING_STR="$(head -c 550000 /dev/zero | tr '\0' 'x')"
 OVERSIZED_CONTENT="{\"outbounds\":[{\"protocol\":\"vless\",\"settings\":{\"reverse\":{\"tag\":\"rev-in\"}},\"tag\":\"${PADDING_STR}\"}]}"
-RES_OVERSIZED="$(printf '%s\n' "{\"name\":\"Big\",\"filename\":\"big.json\",\"content\":\"${OVERSIZED_CONTENT}\"}" | "${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import 2>&1 || true)"
+OVERSIZED_ESCAPED="$(printf '%s' "${OVERSIZED_CONTENT}" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+RES_OVERSIZED="$(printf '%s\n' "{\"name\":\"Big\",\"filename\":\"big.json\",\"content\":\"${OVERSIZED_ESCAPED}\"}" | "${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import 2>&1 || true)"
 assert_match '"ok":false' "${RES_OVERSIZED}" "Test 7a: Oversized content (> 512 KiB) is rejected using valid JSON structure"
 assert_match 'size exceeds 512 KiB limit' "${RES_OVERSIZED}" "Test 7b: Rejection error message explicitly identifies size limit violation"
 
