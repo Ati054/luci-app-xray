@@ -72,21 +72,38 @@ config general 'general'
 	option loglevel 'warning'
 EOF
 
-: > "${TMP_DIR}/parse.stderr"
-find "${ROOT}/usr/share/xray" -type f \( -name '*.uc' -o -name '*.mjs' \) -print | sort | while IFS= read -r host_module; do
+MODULE_LIST="${TMP_DIR}/modules.list"
+IMPORT_WRAPPER="${ROOT}/tmp/import-wrapper.uc"
+find "${ROOT}/usr/share/xray" -type f \( -name '*.uc' -o -name '*.mjs' \) -print | sort > "${MODULE_LIST}"
+printf '%s\n' "${ROOT}/usr/libexec/rpcd/xray_profiles" >> "${MODULE_LIST}"
+sort -o "${MODULE_LIST}" "${MODULE_LIST}"
+while IFS= read -r host_module; do
     target_module="${host_module#${ROOT}}"
-    sudo chroot "${ROOT}" /usr/bin/qemu-aarch64-static /usr/bin/ucode -c "${target_module}" 2>> "${TMP_DIR}/parse.stderr"
-done
-sudo chroot "${ROOT}" /usr/bin/qemu-aarch64-static /usr/bin/ucode -c \
-    /usr/libexec/rpcd/xray_profiles 2>> "${TMP_DIR}/parse.stderr"
-[ ! -s "${TMP_DIR}/parse.stderr" ] || {
-    echo "ERROR: exact target ucode rejected an installed module" >&2
-    cat "${TMP_DIR}/parse.stderr" >&2
-    exit 1
-}
+    compile_source="${target_module}"
+    case "${target_module}" in
+        *.mjs)
+            escaped_module="$(printf '%s' "${target_module}" | sed 's/[\\"]/\\&/g')"
+            printf 'import * as module_under_test from "%s";\n' "${escaped_module}" > "${IMPORT_WRAPPER}"
+            compile_source="/tmp/import-wrapper.uc"
+            ;;
+    esac
+    : > "${TMP_DIR}/parse.stderr"
+    if ! sudo chroot "${ROOT}" /usr/bin/qemu-aarch64-static /usr/bin/ucode \
+        -cdynlink=ubus -o /dev/null "${compile_source}" \
+        > /dev/null 2> "${TMP_DIR}/parse.stderr"; then
+        echo "ERROR: exact target ucode rejected installed module ${target_module}" >&2
+        cat "${TMP_DIR}/parse.stderr" >&2
+        exit 1
+    fi
+done < "${MODULE_LIST}"
 
-sudo chroot "${ROOT}" /usr/bin/qemu-aarch64-static /usr/bin/ucode /usr/share/xray/gen_config.uc \
-    > "${TMP_DIR}/generated.json" 2> "${TMP_DIR}/entrypoint.stderr"
+if ! sudo chroot "${ROOT}" /usr/bin/qemu-aarch64-static /usr/bin/ucode \
+    /usr/share/xray/gen_config.uc \
+    > "${TMP_DIR}/generated.json" 2> "${TMP_DIR}/entrypoint.stderr"; then
+    echo "ERROR: target gen_config.uc execution failed" >&2
+    cat "${TMP_DIR}/entrypoint.stderr" >&2
+    exit 1
+fi
 [ ! -s "${TMP_DIR}/entrypoint.stderr" ] || {
     echo "ERROR: target gen_config.uc wrote to stderr" >&2
     cat "${TMP_DIR}/entrypoint.stderr" >&2

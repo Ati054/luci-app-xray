@@ -124,6 +124,13 @@ def main() -> int:
     require('--destination "${CORE_PAYLOAD}" "${CORE_APK}"' in target_ucode and
             'cp -a "${CORE_PAYLOAD}/." "${ROOT}/"' in target_ucode,
             "target ucode proof extracts the core payload before layering it onto the apk root")
+    require("import * as module_under_test" in target_ucode and
+            "-cdynlink=ubus -o /dev/null" in target_ucode and
+            "exact target ucode rejected installed module ${target_module}" in target_ucode,
+            "target ucode proof imports modules and preserves per-file failure diagnostics")
+    require("if ! sudo chroot" in target_ucode and
+            "target gen_config.uc execution failed" in target_ucode,
+            "target ucode proof reports entrypoint failures before cleanup")
     critical_paths = (
         ".github/workflows/build-release.yml",
         "scripts/build_r9_offline_bundle.sh",
