@@ -93,8 +93,10 @@ def main() -> int:
             bundle_script.count("--no-network") >= 3,
             "bundle builder maps apk v3 boolean help to fail-closed no-network transactions")
     require("grep -q -- '--usermode' \"${ADD_HELP}\"" in bundle_script and
-            bundle_script.count("--usermode") >= 5,
-            "bundle builder detects and enables apk add usermode databases")
+            "--usermode \\\n    --root \"${SIM_ROOT}\"" in bundle_script and
+            "add --initdb --no-cache --no-network" in bundle_script and
+            bundle_script.count("--usermode") == 2,
+            "bundle builder uses apk usermode only while initializing the isolated database")
     require("strace" in bundle_script and "AF_INET" in bundle_script,
             "offline proof audits network syscalls")
     require("SHA256SUMS-R9.txt" in workflow and "sha256sum -c SHA256SUMS-R9.txt" in workflow,

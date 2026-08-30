@@ -348,7 +348,6 @@ NETWORK_TRACE="${TMP_ROOT}/offline-network.trace"
 
 strace -f -e trace=network -o "${NETWORK_TRACE}" \
     "${APK_HOST}" \
-    --usermode \
     --root "${SIM_ROOT}" \
     --arch "${TARGET_ARCH}" \
     --allow-untrusted \
@@ -362,7 +361,6 @@ strace -f -e trace=network -o "${NETWORK_TRACE}" \
 } >> "${OFFLINE_LOG}"
 strace -f -e trace=network -o "${NETWORK_TRACE}.install" \
     "${APK_HOST}" \
-    --usermode \
     --root "${SIM_ROOT}" \
     --arch "${TARGET_ARCH}" \
     --allow-untrusted \
@@ -378,7 +376,6 @@ if grep -E 'socket\(AF_INET|socket\(AF_INET6|sa_family=AF_INET|sa_family=AF_INET
 fi
 
 "${APK_HOST}" \
-    --usermode \
     --root "${SIM_ROOT}" \
     --arch "${TARGET_ARCH}" \
     --repositories-file /dev/null \
