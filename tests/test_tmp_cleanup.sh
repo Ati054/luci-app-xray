@@ -41,6 +41,7 @@ fi
 exit 1
 EOF
 chmod 0755 "${MOCK_ROOT}/xray"
+export XRAY_BIN="${MOCK_ROOT}/xray"
 
 CONTENT="$(tr -d '\n\r' < "${FIXTURE}" | sed 's/\\/\\\\/g; s/"/\\"/g')"
 PAYLOAD="{\"content\":\"${CONTENT}\"}"
