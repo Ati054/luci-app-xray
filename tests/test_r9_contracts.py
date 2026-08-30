@@ -98,7 +98,7 @@ def main() -> int:
     ucode_sweep = read("tests/test_ucode_modules.sh")
     require("import * as module_under_test" in ucode_sweep and
             'compile_source="${module}"' in ucode_sweep and
-            "-c -o /dev/null" in ucode_sweep,
+            "-cdynlink=ubus -o /dev/null" in ucode_sweep,
             "ucode sweep compiles executables directly and modules through imports")
     critical_paths = (
         ".github/workflows/build-release.yml",

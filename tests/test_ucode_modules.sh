@@ -27,7 +27,7 @@ while IFS= read -r module; do
             compile_source="${IMPORT_WRAPPER}"
             ;;
     esac
-    "${UCODE_BIN}" -c -o /dev/null "${compile_source}" >/dev/null 2> "${TMP_ROOT}/compile.err" || {
+    "${UCODE_BIN}" -cdynlink=ubus -o /dev/null "${compile_source}" >/dev/null 2> "${TMP_ROOT}/compile.err" || {
         echo "FAIL: installed ucode source did not compile: ${module}" >&2
         cat "${TMP_ROOT}/compile.err" >&2
         exit 1
