@@ -35,7 +35,7 @@ fi
 if [ "${1:-}" = "run" ] && [ "${2:-}" = "-test" ] && [ "${3:-}" = "-config" ]; then
     test -s "${4:-}"
     sleep 1
-    [ "${MOCK_XRAY_FAIL:-0}" = "1" ] && exit 23
+    [ -e "${0%/*}/fail-xray" ] && exit 23
     exit 0
 fi
 exit 1
@@ -83,8 +83,10 @@ if find "${MOCK_ROOT}/opt/xray/profiles" -maxdepth 1 -type d \( -name '.tmp_*' -
     exit 1
 fi
 
-if MOCK_XRAY_FAIL=1 XRAY_PROFILES_MOCK_DIR="${MOCK_ROOT}" "${UCODE_BIN}" "${RPCD_BACKEND}" call validate "${PAYLOAD}" > "${MOCK_ROOT}/failure.json" 2>&1; then
+: > "${MOCK_ROOT}/fail-xray"
+if XRAY_PROFILES_MOCK_DIR="${MOCK_ROOT}" "${UCODE_BIN}" "${RPCD_BACKEND}" call validate "${PAYLOAD}" > "${MOCK_ROOT}/failure.json" 2>&1; then
     echo "FAIL: failing Xray validation unexpectedly succeeded"
+    cat "${MOCK_ROOT}/failure.json" >&2
     exit 1
 fi
 grep -Eq '"ok"[[:space:]]*:[[:space:]]*false' "${MOCK_ROOT}/failure.json" || {
