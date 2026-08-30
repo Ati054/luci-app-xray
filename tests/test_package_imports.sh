@@ -89,12 +89,19 @@ EOF
     OUT_LOG="${STAGE_ROOT}/gen_config_out.json"
     ERR_LOG="${STAGE_ROOT}/gen_config_err.log"
 
-    (
+    if (
         cd "${XRAY_DIR}"
         export UCI_CONFIG_DIR="${UCI_DIR}"
         ucode ./gen_config.uc > "${OUT_LOG}" 2> "${ERR_LOG}"
-    )
-    STATUS=$?
+    ); then
+        STATUS=0
+    else
+        STATUS=$?
+    fi
+    if [ "${STATUS}" -ne 0 ]; then
+        echo "  [ucode stderr] gen_config.uc failed with exit ${STATUS}:" >&2
+        sed 's/^/    /' "${ERR_LOG}" >&2
+    fi
     assert_equal "0" "${STATUS}" "Isolated staging gen_config.uc executes with exit code 0"
     assert_equal "" "$(cat "${ERR_LOG}")" "Isolated staging gen_config.uc produces no stderr"
     assert_equal "1" "$([ -s "${OUT_LOG}" ] && echo 1 || echo 0)" "Isolated staging gen_config.uc produces non-empty output"

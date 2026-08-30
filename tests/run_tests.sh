@@ -51,6 +51,7 @@ fi
 echo "\n--- 2. Running shell checksum parser, package metadata, and import graph tests ---"
 sh "${SCRIPT_DIR}/test_checksum_parser.sh"
 sh "${SCRIPT_DIR}/test_package_metadata.sh"
+sh "${SCRIPT_DIR}/test_package_import_failure_reporting.sh"
 sh "${SCRIPT_DIR}/test_package_imports.sh"
 PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" "${SCRIPT_DIR}/test_r9_contracts.py"
 PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" "${SCRIPT_DIR}/test_r9_manifest.py"
