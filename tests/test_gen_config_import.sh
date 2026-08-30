@@ -17,11 +17,17 @@ TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "${TMP_DIR}"' EXIT INT TERM
 
 cat > "${TMP_DIR}/import.uc" <<EOF
-import * as wrapper from "${GEN_CONFIG_UC}";
+import "${GEN_CONFIG_UC}";
 print("IMPORT_OK\\n");
 EOF
 
-"${UCODE_BIN}" "${TMP_DIR}/import.uc" > "${TMP_DIR}/stdout" 2> "${TMP_DIR}/stderr"
+IMPORT_STATUS=0
+"${UCODE_BIN}" "${TMP_DIR}/import.uc" > "${TMP_DIR}/stdout" 2> "${TMP_DIR}/stderr" || IMPORT_STATUS=$?
+[ "${IMPORT_STATUS}" -eq 0 ] || {
+    echo "FAIL: importing gen_config.uc exited with status ${IMPORT_STATUS}"
+    cat "${TMP_DIR}/stderr"
+    exit 1
+}
 test ! -s "${TMP_DIR}/stderr" || {
     echo "FAIL: importing gen_config.uc wrote to stderr"
     cat "${TMP_DIR}/stderr"
