@@ -48,7 +48,7 @@ PAYLOAD="{\"content\":\"${CONTENT}\"}"
 pids=""
 i=1
 while [ "${i}" -le 6 ]; do
-    "${UCODE_BIN}" "${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "${PAYLOAD}" > "${MOCK_ROOT}/result-${i}.json" 2>&1 &
+    XRAY_PROFILES_MOCK_DIR="${MOCK_ROOT}" "${UCODE_BIN}" "${RPCD_BACKEND}" call validate "${PAYLOAD}" > "${MOCK_ROOT}/result-${i}.json" 2>&1 &
     pids="${pids} $!"
     i=$((i + 1))
 done
@@ -71,7 +71,7 @@ if find "${MOCK_ROOT}/opt/xray/profiles" -maxdepth 1 -type d \( -name '.tmp_*' -
     exit 1
 fi
 
-if MOCK_XRAY_FAIL=1 "${UCODE_BIN}" "${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call validate "${PAYLOAD}" > "${MOCK_ROOT}/failure.json" 2>&1; then
+if MOCK_XRAY_FAIL=1 XRAY_PROFILES_MOCK_DIR="${MOCK_ROOT}" "${UCODE_BIN}" "${RPCD_BACKEND}" call validate "${PAYLOAD}" > "${MOCK_ROOT}/failure.json" 2>&1; then
     echo "FAIL: failing Xray validation unexpectedly succeeded"
     exit 1
 fi

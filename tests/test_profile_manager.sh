@@ -36,13 +36,26 @@ echo "=== Test Suite: Xray JSON Reverse Profiles & Lifecycle Invariants ==="
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 ROOT_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
-RPCD_BACKEND="${ROOT_DIR}/core/root/usr/libexec/rpcd/xray_profiles"
+RPCD_SOURCE="${ROOT_DIR}/core/root/usr/libexec/rpcd/xray_profiles"
+UCODE_BIN="${UCODE_BIN:-ucode}"
 INIT_PROFILES="${ROOT_DIR}/core/root/etc/init.d/xray_profiles"
 FIXTURE_A="${SCRIPT_DIR}/fixtures/profile-smoke-a.json"
 FIXTURE_B="${SCRIPT_DIR}/fixtures/profile-smoke-b.json"
 FIXTURE_INV="${SCRIPT_DIR}/fixtures/profile-invalid.json"
 
 MOCK_ROOT="$(mktemp -d)"
+export TEST_RPCD_SOURCE="${RPCD_SOURCE}"
+export TEST_UCODE_BIN="${UCODE_BIN}"
+RPCD_BACKEND="${MOCK_ROOT}/xray_profiles-test-runner"
+cat > "${RPCD_BACKEND}" <<'EOF'
+#!/bin/sh
+if [ "${1:-}" = "--mock-dir" ]; then
+    export XRAY_PROFILES_MOCK_DIR="${2:?missing mock directory}"
+    shift 2
+fi
+exec "${TEST_UCODE_BIN}" "${TEST_RPCD_SOURCE}" "$@"
+EOF
+chmod 0755 "${RPCD_BACKEND}"
 cleanup() {
     # Terminate any lingering background mock processes if running
     if [ -d "${MOCK_ROOT}/pids" ]; then

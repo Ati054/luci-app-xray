@@ -44,7 +44,7 @@ mkfifo "${FIFO}"
 ) &
 WRITER_PID=$!
 
-if ! timeout 2 "${UCODE_BIN}" "${RPCD_XRAY}" --mock-dir "${MOCK_ROOT}" call list '{}' < "${FIFO}" > "${MOCK_ROOT}/explicit.json"; then
+if ! XRAY_PROFILES_MOCK_DIR="${MOCK_ROOT}" timeout 2 "${UCODE_BIN}" "${RPCD_XRAY}" call list '{}' < "${FIFO}" > "${MOCK_ROOT}/explicit.json"; then
     echo "FAIL: explicit {} blocked on open stdin or returned failure"
     exit 1
 fi
@@ -58,7 +58,7 @@ wait "${WRITER_PID}" 2>/dev/null || :
 WRITER_PID=""
 
 # With no CLI JSON argument, stdin is the authoritative rpcd input channel.
-if ! printf '{}\n' | timeout 2 "${UCODE_BIN}" "${RPCD_XRAY}" --mock-dir "${MOCK_ROOT}" call list > "${MOCK_ROOT}/stdin.json"; then
+if ! printf '{}\n' | XRAY_PROFILES_MOCK_DIR="${MOCK_ROOT}" timeout 2 "${UCODE_BIN}" "${RPCD_XRAY}" call list > "${MOCK_ROOT}/stdin.json"; then
     echo "FAIL: stdin invocation without a CLI argument failed"
     exit 1
 fi

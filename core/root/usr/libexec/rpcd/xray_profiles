@@ -5,7 +5,7 @@ import { readfile, writefile, open, stat, lstat, access, rename, unlink, chmod, 
 import { cursor } from "uci";
 
 // Parse CLI flags and arguments
-let mock_dir = null;
+let mock_dir = getenv("XRAY_PROFILES_MOCK_DIR") || null;
 let cmd = null;
 let method = null;
 let args_str = "{}";
@@ -77,6 +77,7 @@ function run_process(cmd_str) {
     let stdout_content = "";
     let stderr_content = "";
 
+    let process_error = null;
     try {
         let wrapped = `(${cmd_str}) > "${out_file}" 2> "${err_file}"; echo $? > "${rc_file}"`;
         let p = popen(wrapped, "r");
@@ -94,12 +95,14 @@ function run_process(cmd_str) {
         if (access(err_file)) {
             stderr_content = readfile(err_file) || "";
         }
-    } finally {
-        unlink(rc_file);
-        unlink(out_file);
-        unlink(err_file);
-        rmdir(tmp_dir);
+    } catch (e) {
+        process_error = e;
     }
+    unlink(rc_file);
+    unlink(out_file);
+    unlink(err_file);
+    rmdir(tmp_dir);
+    if (process_error) throw process_error;
 
     return {
         exit_code: rc,
@@ -398,6 +401,7 @@ function validate_content_full(content_str) {
         return { ok: false, error: "Failed to open temporary file with mode 0600 for validation" };
     }
     let run_res = null;
+    let validation_error = null;
     try {
         fh.write(content_str);
         fh.close();
@@ -406,11 +410,13 @@ function validate_content_full(content_str) {
 
         let test_cmd = `XRAY_LOCATION_ASSET="${ASSET_DIR}" "${XRAY_BIN}" run -test -config "${tmp_path}"`;
         run_res = run_process(test_cmd);
-    } finally {
-        if (fh) fh.close();
-        unlink(tmp_path);
-        rmdir(tmp_dir);
+    } catch (e) {
+        validation_error = e;
     }
+    if (fh) fh.close();
+    unlink(tmp_path);
+    rmdir(tmp_dir);
+    if (validation_error) throw validation_error;
 
     if (run_res.exit_code !== 0) {
         return { ok: false, error: `Xray configuration validation test failed (exit code ${run_res.exit_code})` };
@@ -595,6 +601,7 @@ function rpc_import(params) {
             return { ok: false, error: "Failed to open temporary file with mode 0600" };
         }
         let installed = false;
+        let install_error = null;
         try {
             fh.write(content);
             fh.close();
@@ -602,16 +609,14 @@ function rpc_import(params) {
             chmod(tmp_path, 0600);
 
             // Atomically rename into place
-            if (!rename(tmp_path, target_path)) {
-                release_lock();
-                return { ok: false, error: "Failed to atomically install profile file" };
-            }
-            installed = true;
-        } finally {
-            if (fh) fh.close();
-            unlink(tmp_path);
-            rmdir(tmp_dir);
+            installed = rename(tmp_path, target_path) ? true : false;
+        } catch (e) {
+            install_error = e;
         }
+        if (fh) fh.close();
+        unlink(tmp_path);
+        rmdir(tmp_dir);
+        if (install_error) throw install_error;
         if (!installed) {
             release_lock();
             return { ok: false, error: "Failed to atomically install profile file" };
@@ -703,6 +708,8 @@ function rpc_replace(params) {
             release_lock();
             return { ok: false, error: "Failed to open temporary file with mode 0600" };
         }
+        let replacement_error = null;
+        let replacement_exception = null;
         try {
             fh.write(content);
             fh.close();
@@ -713,31 +720,36 @@ function rpc_replace(params) {
                 if (access(backup_path)) {
                     rename(backup_path, target_path);
                 }
-                release_lock();
-                return { ok: false, error: "Failed to atomically replace profile file" };
-            }
-            chmod(target_path, 0600);
+                replacement_error = "Failed to atomically replace profile file";
+            } else {
+                chmod(target_path, 0600);
 
-            // If was running, restart instance with bounded verification
-            if (was_running && access(INIT_SCRIPT, "x")) {
-                run_cmd(`"${INIT_SCRIPT}" restart "${id}" 2>&1`);
-                let poll = poll_instance_state(id, true, 3000);
-                if (!poll.ok || !poll.running) {
-                    // Rollback on restart failure
-                    if (access(backup_path)) {
-                        unlink(target_path);
-                        rename(backup_path, target_path);
-                        run_cmd(`"${INIT_SCRIPT}" restart "${id}" >/dev/null 2>&1`);
+                // If was running, restart instance with bounded verification
+                if (was_running && access(INIT_SCRIPT, "x")) {
+                    run_cmd(`"${INIT_SCRIPT}" restart "${id}" 2>&1`);
+                    let poll = poll_instance_state(id, true, 3000);
+                    if (!poll.ok || !poll.running) {
+                        // Rollback on restart failure
+                        if (access(backup_path)) {
+                            unlink(target_path);
+                            rename(backup_path, target_path);
+                            run_cmd(`"${INIT_SCRIPT}" restart "${id}" >/dev/null 2>&1`);
+                        }
+                        replacement_error = "Restart failed on replacement; rolled back to previous valid profile";
                     }
-                    release_lock();
-                    return { ok: false, error: "Restart failed on replacement; rolled back to previous valid profile" };
                 }
             }
-        } finally {
-            if (fh) fh.close();
-            unlink(tmp_path);
-            unlink(backup_path);
-            rmdir(tmp_dir);
+        } catch (e) {
+            replacement_exception = e;
+        }
+        if (fh) fh.close();
+        unlink(tmp_path);
+        unlink(backup_path);
+        rmdir(tmp_dir);
+        if (replacement_exception) throw replacement_exception;
+        if (replacement_error) {
+            release_lock();
+            return { ok: false, error: replacement_error };
         }
 
         release_lock();

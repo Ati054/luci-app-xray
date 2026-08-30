@@ -16,6 +16,8 @@ TMP_ROOT="$(mktemp -d)"
 MODULE_LIST="${TMP_ROOT}/modules.list"
 IMPORT_WRAPPER="${TMP_ROOT}/import-wrapper.uc"
 find "${ROOT_DIR}/core/root/usr/share/xray" -type f \( -name '*.uc' -o -name '*.mjs' \) -print | sort > "${MODULE_LIST}"
+printf '%s\n' "${ROOT_DIR}/core/root/usr/libexec/rpcd/xray_profiles" >> "${MODULE_LIST}"
+sort -o "${MODULE_LIST}" "${MODULE_LIST}"
 trap 'rm -rf "${TMP_ROOT}"' EXIT INT TERM
 
 while IFS= read -r module; do
@@ -34,4 +36,4 @@ while IFS= read -r module; do
     }
 done < "${MODULE_LIST}"
 
-echo "PASS: every installed ucode module parsed successfully."
+echo "PASS: every installed ucode source and the rpcd backend parsed successfully."
