@@ -23,6 +23,11 @@ assert_match() {
     local pattern="$1"
     local text="$2"
     local msg="$3"
+    case "${pattern}" in
+        '"ok":true') pattern='"ok"[[:space:]]*:[[:space:]]*true' ;;
+        '"ok":false') pattern='"ok"[[:space:]]*:[[:space:]]*false' ;;
+        '"ok":') pattern='"ok"[[:space:]]*:' ;;
+    esac
     if echo "$text" | grep -E -q "$pattern"; then
         echo "  [PASS] $msg"
         PASSED=$((PASSED + 1))
@@ -231,7 +236,8 @@ assert_equal "700" "${DIR_PERM}" "Test 13b: Profiles directory has mode 0700"
 assert_equal "600" "${FILE_PERM}" "Test 13c: Profile file has mode 0600"
 
 # 14. Atomic replacement failure rollback
-PROFILE_A_ID="$(echo "${RES_IMP_A}" | grep -o '"id":"[^"]*' | cut -d'"' -f4 || echo "profile-a")"
+PROFILE_A_ID="$(printf '%s\n' "${RES_IMP_A}" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+PROFILE_A_ID="${PROFILE_A_ID:-profile-a}"
 RES_REP_FAIL="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call replace "{\"id\":\"${PROFILE_A_ID}\",\"content\":\"{ broken syntax\"}" 2>&1 || true)"
 assert_match '"ok":false' "${RES_REP_FAIL}" "Test 14a: Failed replacement returns ok:false"
 assert_match 'reverse-smoke-a-in' "$(cat "${PROFILES_DIR}/profile-a.json")" "Test 14b: Failed replacement preserves previous valid file"
@@ -240,7 +246,8 @@ assert_match 'reverse-smoke-a-in' "$(cat "${PROFILES_DIR}/profile-a.json")" "Tes
 CONTENT_B="$(cat "${FIXTURE_B}")"
 RES_IMP_B="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import "{\"name\":\"Profile B\",\"filename\":\"profile-b.json\",\"content\":\"$(echo "${CONTENT_B}" | tr -d '\n\r' | sed 's/"/\\"/g')\",\"autostart\":true}" 2>&1 || true)"
 assert_match '"ok":true' "${RES_IMP_B}" "Test 15: Import profile B succeeds"
-PROFILE_B_ID="$(echo "${RES_IMP_B}" | grep -o '"id":"[^"]*' | cut -d'"' -f4 || echo "profile-b")"
+PROFILE_B_ID="$(printf '%s\n' "${RES_IMP_B}" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
+PROFILE_B_ID="${PROFILE_B_ID:-profile-b}"
 
 # 16. Rename & Reorder RPC methods
 RES_RENAME="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call rename "{\"id\":\"${PROFILE_A_ID}\",\"name\":\"Renamed A\"}" 2>&1 || true)"

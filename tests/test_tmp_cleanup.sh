@@ -58,7 +58,7 @@ for pid in ${pids}; do
 done
 
 for result in "${MOCK_ROOT}"/result-*.json; do
-    grep -q '"ok":true' "${result}" || {
+    grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' "${result}" || {
         echo "FAIL: concurrent validation failed: ${result}"
         cat "${result}"
         exit 1
@@ -75,8 +75,9 @@ if MOCK_XRAY_FAIL=1 XRAY_PROFILES_MOCK_DIR="${MOCK_ROOT}" "${UCODE_BIN}" "${RPCD
     echo "FAIL: failing Xray validation unexpectedly succeeded"
     exit 1
 fi
-grep -q '"ok":false' "${MOCK_ROOT}/failure.json" || {
+grep -Eq '"ok"[[:space:]]*:[[:space:]]*false' "${MOCK_ROOT}/failure.json" || {
     echo "FAIL: failing Xray validation did not return structured failure"
+    cat "${MOCK_ROOT}/failure.json" >&2
     exit 1
 }
 

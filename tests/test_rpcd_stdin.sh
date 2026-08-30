@@ -48,8 +48,9 @@ if ! XRAY_PROFILES_MOCK_DIR="${MOCK_ROOT}" timeout 2 "${UCODE_BIN}" "${RPCD_XRAY
     echo "FAIL: explicit {} blocked on open stdin or returned failure"
     exit 1
 fi
-grep -q '"ok":true' "${MOCK_ROOT}/explicit.json" || {
+grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' "${MOCK_ROOT}/explicit.json" || {
     echo "FAIL: explicit {} did not return a successful list response"
+    cat "${MOCK_ROOT}/explicit.json" >&2
     exit 1
 }
 
@@ -62,8 +63,9 @@ if ! printf '{}\n' | XRAY_PROFILES_MOCK_DIR="${MOCK_ROOT}" timeout 2 "${UCODE_BI
     echo "FAIL: stdin invocation without a CLI argument failed"
     exit 1
 fi
-grep -q '"ok":true' "${MOCK_ROOT}/stdin.json" || {
+grep -Eq '"ok"[[:space:]]*:[[:space:]]*true' "${MOCK_ROOT}/stdin.json" || {
     echo "FAIL: stdin invocation did not dispatch the list method"
+    cat "${MOCK_ROOT}/stdin.json" >&2
     exit 1
 }
 
