@@ -1,0 +1,33 @@
+{
+  "log": {
+    "access": "none",
+    "loglevel": "warning",
+    "dnsLog": false
+  },
+  "inbounds": [],
+  "outbounds": [
+    {
+      "protocol": "freedom"
+    },
+    {
+      "protocol": "freedom",
+      "tag": "reverse-egress",
+      "settings": {
+        "domainStrategy": "UseIP",
+        "finalRules": [
+          {
+            "action": "allow",
+            "network": "tcp,udp",
+            "ip": [
+              "!geoip:private"
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "routing": {
+    "domainStrategy": "AsIs",
+    "rules": []
+  }
+}

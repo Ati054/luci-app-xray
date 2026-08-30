@@ -1,0 +1,18 @@
+R9 rollback and recovery notes
+==============================
+
+The installer stores its diagnostic log and backup directory under /tmp and
+prints their exact paths before making package changes.
+
+On failure before the APK transaction starts, it restores the saved UCI data,
+profile contents, service enablement, and running state.
+
+On failure after the APK transaction starts, it restores saved UCI/profile
+data where possible but leaves both Xray services stopped and disabled. It does
+not claim to roll package files back: prior APK payloads are not part of the R9
+bundle. Use the recorded installed-packages.txt plus trusted copies of the prior
+packages if an actual package downgrade is required.
+
+Never delete /opt/xray/profiles wholesale. Inspect the retained backup and copy
+only the intended profile files back with directory mode 0700 and file mode
+0600.

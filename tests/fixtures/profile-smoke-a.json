@@ -18,10 +18,7 @@
         "finalRules": [
           {
             "action": "allow",
-            "network": "tcp,udp",
-            "ip": [
-              "!geoip:private"
-            ]
+            "network": "tcp,udp"
           }
         ]
       }
@@ -46,7 +43,7 @@
           "show": false,
           "fingerprint": "chrome",
           "serverName": "smoke-a.example.com",
-          "publicKey": "Z5zr3X3n/5te+6nUL0KfUKXhRzodxp1VOAqq/EboBEg=",
+          "publicKey": "snEYlo40B87Hpx22LjVWfRD_GcmXRvKODyOnlZFQT30",
           "shortId": "0123456789abcdef",
           "spiderX": "/"
         }

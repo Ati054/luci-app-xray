@@ -10,9 +10,17 @@ parse_sha256_digest() {
 
     # Extract all lines that declare SHA256 / SHA2-256
     local sha_lines=""
-    sha_lines=$(grep -iE "^(SHA256|SHA2-256)[[:space:]]*=" "${dgst_file}" || true)
+    if sha_lines=$(grep -iE "^(SHA256|SHA2-256)[[:space:]]*=" "${dgst_file}"); then
+        :
+    else
+        sha_lines=""
+    fi
     if [ -z "${sha_lines}" ]; then
-        sha_lines=$(grep -iE "^SHA256[[:space:]]*\([^)]+\)[[:space:]]*=" "${dgst_file}" || true)
+        if sha_lines=$(grep -iE "^SHA256[[:space:]]*\([^)]+\)[[:space:]]*=" "${dgst_file}"); then
+            :
+        else
+            sha_lines=""
+        fi
     fi
 
     if [ -z "${sha_lines}" ]; then
@@ -22,7 +30,7 @@ parse_sha256_digest() {
 
     # Reject if multiple SHA-256 lines exist (any duplicate or conflicting declaration)
     local line_count
-    line_count=$(echo "${sha_lines}" | grep -c -v "^$" || true)
+    line_count=$(printf '%s\n' "${sha_lines}" | awk 'NF { count++ } END { print count + 0 }')
     if [ "${line_count}" -ne 1 ]; then
         echo "::error::Multiple or duplicate SHA-256 lines found in ${dgst_file} (count: ${line_count})" >&2
         return 1

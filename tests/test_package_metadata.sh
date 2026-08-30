@@ -35,14 +35,14 @@ assert_equal "0" "${HAS_XRAY_CORE_DEP}" "core/Makefile must not depend on +xray-
 HAS_OPT_SYMLINK=$(grep -c "LN.*opt/xray/current/xray" "${CORE_MAKEFILE}" || true)
 assert_equal "1" "$((HAS_OPT_SYMLINK > 0))" "core/Makefile must install symlink pointing to /opt/xray/current/xray"
 
-# Test 3: PKG_RELEASE must be 5 across core, status, and geodata Makefiles
+# Test 3: PKG_RELEASE must be 9 across core, status, and geodata Makefiles
 CORE_REL=$(grep "^PKG_RELEASE:=" "${CORE_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 STATUS_REL=$(grep "^PKG_RELEASE:=" "${STATUS_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 GEODATA_REL=$(grep "^PKG_RELEASE:=" "${GEODATA_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 
-assert_equal "5" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=5"
-assert_equal "5" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=5"
-assert_equal "5" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=5"
+assert_equal "9" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=9"
+assert_equal "9" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=9"
+assert_equal "9" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=9"
 
 # Test 3b: core/Makefile must contain +firewall4 and +dnsmasq in LUCI_DEPENDS
 LUCI_DEP_LINE=$(grep "^[[:space:]]*LUCI_DEPENDS:=" "${CORE_MAKEFILE}" || true)

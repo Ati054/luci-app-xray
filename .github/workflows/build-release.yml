@@ -1,428 +1,264 @@
-name: Build and Release
+name: Build and Release R9
 
 on:
   push:
     branches:
-      - feat/openwrt-25.12-vless-reverse
+      - codex/r9-recovery
     tags:
       - "*"
   workflow_dispatch:
 
 env:
   PACKAGE_NAME: luci-app-xray
-  CACHE_DIR: ~/cache
 
 jobs:
-  release:
-    name: OpenWrt ${{ matrix.id }} packages (${{ matrix.arch }} SDK, package architecture all)
+  build:
+    name: OpenWrt ${{ matrix.id }} / ${{ matrix.target_arch }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         include:
           - id: 23.05.5
-            arch: x86_64
+            target_arch: x86_64
             sdk_url_path: https://downloads.openwrt.org/releases/23.05.5/targets/x86/64
             sdk_name: -sdk-23.05.5-x86-64_
+            package_format: ipk
+            core_filename: luci-app-xray_3.7.1-9_all.ipk
+            status_filename: luci-app-xray-status_3.7.1-9_all.ipk
           - id: 25.12.5
-            arch: x86_64
-            sdk_url_path: https://downloads.openwrt.org/releases/25.12.5/targets/x86/64
-            sdk_name: -sdk-25.12.5-x86-64_
+            target_arch: aarch64_cortex-a53
+            sdk_url_path: https://downloads.openwrt.org/releases/25.12.5/targets/bcm27xx/bcm2710
+            sdk_name: -sdk-25.12.5-bcm27xx-bcm2710_
+            package_format: apk
+            core_filename: luci-app-xray-3.7.1-r9.apk
+            status_filename: luci-app-xray-status-3.7.1-r9.apk
 
     env:
       SDK_URL_PATH: ${{ matrix.sdk_url_path }}
       SDK_NAME: ${{ matrix.sdk_name }}
-      CCACHE_DIR: ~/.ccache
+      CCACHE_DIR: ${{ runner.temp }}/ccache
       CONFIG_CCACHE: y
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Prepare Cache Key
-        id: cache_key
-        run: echo "timestamp=$(date +%s)" >> "$GITHUB_OUTPUT"
+      - name: Install build and proof dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y \
+            build-essential bison ccache cmake file flex gettext git \
+            libjson-c-dev libncurses-dev pkg-config qemu-user-static \
+            python3-yaml strace unzip wget xsltproc zstd
 
-      - name: Setup Cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.CACHE_DIR }}
-            ${{ env.CCACHE_DIR }}
-          key: openwrt-${{ matrix.arch }}-${{ matrix.id }}-${{ env.PACKAGE_NAME }}-${{ steps.cache_key.outputs.timestamp }}
-          restore-keys: |
-            openwrt-${{ matrix.arch }}-${{ matrix.id }}-${{ env.PACKAGE_NAME }}-
-      - name: Install Dependencies
+      - name: Download and verify exact OpenWrt SDK
+        shell: bash
         run: |
-          DEBIAN_FRONTEND=noninteractive sudo apt-get install -y ccache gettext libncurses5-dev xsltproc zstd unzip libjson-c-dev cmake pkg-config build-essential flex bison
-      - name: Create Directories
-        run: |
-          CACHE_DIR_SDK="$(eval echo "$CACHE_DIR/sdk")"
-          CACHE_DIR_DL="$(eval echo "$CACHE_DIR/dl")"
-          CACHE_DIR_FEEDS="$(eval echo "$CACHE_DIR/feeds")"
-          echo "CACHE_DIR_SDK: $CACHE_DIR_SDK"
-          echo "CACHE_DIR_DL: $CACHE_DIR_DL"
-          echo "CACHE_DIR_FEEDS: $CACHE_DIR_FEEDS"
-          test -d "$CACHE_DIR_SDK" || mkdir -p "$CACHE_DIR_SDK"
-          test -d "$CACHE_DIR_DL" || mkdir -p "$CACHE_DIR_DL"
-          test -d "$CACHE_DIR_FEEDS" || mkdir -p "$CACHE_DIR_FEEDS"
-          echo "CACHE_DIR_SDK=$CACHE_DIR_SDK" >> $GITHUB_ENV
-          echo "CACHE_DIR_DL=$CACHE_DIR_DL" >> $GITHUB_ENV
-          echo "CACHE_DIR_FEEDS=$CACHE_DIR_FEEDS" >> $GITHUB_ENV
-          echo "SDK_HOME=$(mktemp -d)" >> $GITHUB_ENV
-      - name: Download and Unzip SDK
-        run: |
-          cd "$CACHE_DIR_SDK"
-          if ! ( wget -q -O - "$SDK_URL_PATH/sha256sums" | grep -- "$SDK_NAME" > sha256sums.small 2>/dev/null ) ; then
-            echo "::error::Can not find ${SDK_NAME} file in sha256sums."
+          set -euo pipefail
+          SDK_DOWNLOAD_DIR="$RUNNER_TEMP/sdk-download-${{ matrix.id }}"
+          SDK_HOME="$RUNNER_TEMP/openwrt-sdk-${{ matrix.id }}"
+          mkdir -p "$SDK_DOWNLOAD_DIR" "$SDK_HOME"
+          wget -q -O "$SDK_DOWNLOAD_DIR/sha256sums" "$SDK_URL_PATH/sha256sums"
+
+          mapfile -t SDK_LINES < <(
+            grep -F -- "$SDK_NAME" "$SDK_DOWNLOAD_DIR/sha256sums" |
+              grep -E 'Linux-x86_64\.tar\.(xz|zst)$'
+          )
+          [ "${#SDK_LINES[@]}" -eq 1 ] || {
+            echo "::error::Expected one SDK matching $SDK_NAME, found ${#SDK_LINES[@]}" >&2
+            printf '%s\n' "${SDK_LINES[@]}" >&2
             exit 1
-          fi
-          SDK_FILE="$(cat sha256sums.small | cut -d' ' -f2 | sed 's/*//g')"
-          if ! sha256sum -c ./sha256sums.small >/dev/null 2>&1 ; then
-            wget -q -O "$SDK_FILE" "$SDK_URL_PATH/$SDK_FILE"
-            if ! sha256sum -c ./sha256sums.small >/dev/null 2>&1 ; then
-              echo "::error::SDK can not be verified!"
-              exit 1
-            fi
-          fi
-          cd -
-          file "$CACHE_DIR_SDK/$SDK_FILE"
-          tar -C "$SDK_HOME" --strip=1 -xf "$CACHE_DIR_SDK/$SDK_FILE"
-          cd "$SDK_HOME"
-          test -d "dl" && rm -rf "dl" || true
-          test -d "feeds" && rm -rf "feeds" || true
-          ln -s "$CACHE_DIR_DL" "dl"
-          ln -s "$CACHE_DIR_FEEDS" "feeds"
-          cp feeds.conf.default feeds.conf
-          sed -i 's#git.openwrt.org/openwrt/openwrt#github.com/openwrt/openwrt#' feeds.conf
-          sed -i 's#git.openwrt.org/feed/packages#github.com/openwrt/packages#' feeds.conf
-          sed -i 's#git.openwrt.org/project/luci#github.com/openwrt/luci#' feeds.conf
-          sed -i 's#git.openwrt.org/feed/telephony#github.com/openwrt/telephony#' feeds.conf
-          cd -
-      - name: Update and Install Packages
+          }
+          SDK_FILE="$(printf '%s\n' "${SDK_LINES[0]}" | awk '{print $2}' | sed 's/^\*//')"
+          printf '%s\n' "${SDK_LINES[0]}" > "$SDK_DOWNLOAD_DIR/sdk.sha256"
+          wget -q -O "$SDK_DOWNLOAD_DIR/$SDK_FILE" "$SDK_URL_PATH/$SDK_FILE"
+          (
+            cd "$SDK_DOWNLOAD_DIR"
+            sha256sum -c sdk.sha256
+          )
+          tar -C "$SDK_HOME" --strip-components=1 -xf "$SDK_DOWNLOAD_DIR/$SDK_FILE"
+          {
+            echo "SDK_HOME=$SDK_HOME"
+            echo "APK_HOST=$SDK_HOME/staging_dir/host/bin/apk"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure feeds and package source
+        shell: bash
         run: |
+          set -euo pipefail
           cd "$SDK_HOME"
           ./scripts/feeds update -a
-          ln -s "${{ github.workspace }}" "package/$PACKAGE_NAME"
           ./scripts/feeds install -a
-          cd -
-      - name: Build and Install Host ucode with UCI
-        run: |
-          if ! sh "${{ github.workspace }}/tests/ci/setup_ucode.sh" 2>&1 | tee /tmp/setup_ucode.log; then
-            echo "## setup_ucode.sh Failed" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            tail -n 200 /tmp/setup_ucode.log >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          echo "## setup_ucode.sh Succeeded" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          tail -n 30 /tmp/setup_ucode.log >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-      - name: Fetch and Verify Official Xray 26.7.28
-        run: |
-          sh "${{ github.workspace }}/tests/ci/fetch_xray.sh" "v26.7.28" "/tmp/xray-bin"
-      - name: Run Test Suite
-        run: |
-          export PATH="/opt/ucode-pinned/bin:/tmp/xray-bin:/usr/bin:/usr/local/bin:$SDK_HOME/staging_dir/host/bin:$PATH"
-          if ! CI=true XRAY_BIN="/tmp/xray-bin/xray" sh "${{ github.workspace }}/tests/run_tests.sh" 2>&1 | tee /tmp/run_tests.log; then
-            echo "## Test Suite Failed" >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            tail -n 200 /tmp/run_tests.log >> "$GITHUB_STEP_SUMMARY"
-            echo '```' >> "$GITHUB_STEP_SUMMARY"
-            exit 1
-          fi
-          echo "## Test Suite Succeeded" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          tail -n 40 /tmp/run_tests.log >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-      - name: Build Packages
-        run: |
-          cd "$SDK_HOME"
+          [ ! -e "package/$PACKAGE_NAME" ]
+          ln -s "$GITHUB_WORKSPACE" "package/$PACKAGE_NAME"
           make defconfig
-          make package/${PACKAGE_NAME}/core/{clean,compile} V=s
-          make package/${PACKAGE_NAME}/status/{clean,compile} V=s
 
-          echo "## Package Build Output" >> "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
-          find "$SDK_HOME/bin/" -type f \( -name "*.ipk" -o -name "*.apk" \) -exec ls -lh {} \; | tee -a "$GITHUB_STEP_SUMMARY"
-          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: Build SDK-selected host ucode
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh "$GITHUB_WORKSPACE/tests/ci/setup_ucode.sh" "$SDK_HOME"
+          echo "LD_LIBRARY_PATH=/opt/ucode-pinned/lib:/usr/lib:/usr/lib64:/usr/local/lib" >> "$GITHUB_ENV"
+
+      - name: Fetch and verify official Xray 26.7.28
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh "$GITHUB_WORKSPACE/tests/ci/fetch_xray.sh" v26.7.28 "$RUNNER_TEMP/xray-bin"
+
+      - name: Run complete host test suite
+        shell: bash
+        run: |
+          set -euo pipefail
+          export PATH="/opt/ucode-pinned/bin:$RUNNER_TEMP/xray-bin:$SDK_HOME/staging_dir/host/bin:$PATH"
+          CI=true \
+            UCODE_BIN=/opt/ucode-pinned/bin/ucode \
+            XRAY_BIN="$RUNNER_TEMP/xray-bin/xray" \
+            sh "$GITHUB_WORKSPACE/tests/run_tests.sh"
+
+      - name: Build core and status packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$SDK_HOME"
+          make "package/$PACKAGE_NAME/core/clean" V=s
+          make "package/$PACKAGE_NAME/core/compile" V=s
+          make "package/$PACKAGE_NAME/status/clean" V=s
+          make "package/$PACKAGE_NAME/status/compile" V=s
+
+      - name: Locate exact R9 package identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t CORE_CANDIDATES < <(find "$SDK_HOME/bin" -type f -name '${{ matrix.core_filename }}' -print)
+          mapfile -t STATUS_CANDIDATES < <(find "$SDK_HOME/bin" -type f -name '${{ matrix.status_filename }}' -print)
+          [ "${#CORE_CANDIDATES[@]}" -eq 1 ] || {
+            echo "::error::Expected one exact core R9 package, found ${#CORE_CANDIDATES[@]}" >&2
+            printf '%s\n' "${CORE_CANDIDATES[@]}" >&2
+            exit 1
+          }
+          [ "${#STATUS_CANDIDATES[@]}" -eq 1 ] || {
+            echo "::error::Expected one exact status R9 package, found ${#STATUS_CANDIDATES[@]}" >&2
+            printf '%s\n' "${STATUS_CANDIDATES[@]}" >&2
+            exit 1
+          }
+          {
+            echo "CORE_PACKAGE=${CORE_CANDIDATES[0]}"
+            echo "STATUS_PACKAGE=${STATUS_CANDIDATES[0]}"
+          } >> "$GITHUB_ENV"
+
+      - name: Verify real package contents and modes
+        shell: bash
+        run: |
+          set -euo pipefail
+          sh "$GITHUB_WORKSPACE/tests/ci/verify_package_contents.sh" \
+            "${{ matrix.package_format }}" "$CORE_PACKAGE" "$APK_HOST"
+          sh "$GITHUB_WORKSPACE/tests/ci/verify_package_contents.sh" \
+            "${{ matrix.package_format }}" "$STATUS_PACKAGE" "$APK_HOST"
+
+      - name: Assemble verified artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          DIST_DIR="$GITHUB_WORKSPACE/dist/openwrt-${{ matrix.id }}-all"
+          mkdir -p "$DIST_DIR"
 
           if [ "${{ matrix.id }}" = "25.12.5" ]; then
-            CORE_PKGS="$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray-*.apk" | grep -v "status" | grep -v "geodata" || true)"
-            STATUS_PKGS="$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray-status-*.apk" || true)"
-          elif [ "${{ matrix.id }}" = "23.05.5" ]; then
-            CORE_PKGS="$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray_*.ipk" | grep -v "status" | grep -v "geodata" || true)"
-            STATUS_PKGS="$(find "$SDK_HOME/bin/" -type f -name "luci-app-xray-status_*.ipk" || true)"
+            bash "$GITHUB_WORKSPACE/scripts/build_r9_offline_bundle.sh" \
+              "$APK_HOST" "$DIST_DIR" "$CORE_PACKAGE" "$STATUS_PACKAGE" "$GITHUB_WORKSPACE"
+            cp -p \
+              "$GITHUB_WORKSPACE/install_and_smoke_r9.sh" \
+              "$GITHUB_WORKSPACE/tests/hardware/profile_mode_smoke.sh" \
+              "$GITHUB_WORKSPACE/tests/fixtures/profile-smoke-a.json" \
+              "$GITHUB_WORKSPACE/tests/fixtures/profile-smoke-b.json" \
+              "$GITHUB_WORKSPACE/tests/fixtures/profile-invalid.json" \
+              "$GITHUB_WORKSPACE/ROLLBACK-R9.txt" \
+              "$DIST_DIR/"
           else
-            echo "::error::Unknown OpenWrt release ID: ${{ matrix.id }}"
-            exit 1
+            cp -p "$CORE_PACKAGE" "$STATUS_PACKAGE" "$DIST_DIR/"
           fi
-
-          CORE_COUNT="$(echo "$CORE_PKGS" | grep -c . || true)"
-          STATUS_COUNT="$(echo "$STATUS_PKGS" | grep -c . || true)"
-
-          if [ "$CORE_COUNT" -ne 1 ]; then
-            echo "::error::Expected exactly 1 core package, found $CORE_COUNT: $CORE_PKGS"
-            exit 1
-          fi
-
-          if [ "$STATUS_COUNT" -ne 1 ]; then
-            echo "::error::Expected exactly 1 status package, found $STATUS_COUNT: $STATUS_PKGS"
-            exit 1
-          fi
-
-          echo "CORE_SRC_PKG=$CORE_PKGS" >> $GITHUB_ENV
-          echo "STATUS_SRC_PKG=$STATUS_PKGS" >> $GITHUB_ENV
-          cd -
-      - name: Copy Bin Files
-        run: |
-          CORE_BASE="$(basename "$CORE_SRC_PKG")"
-          STATUS_BASE="$(basename "$STATUS_SRC_PKG")"
-
-          if [ -e "${{ github.workspace }}/$CORE_BASE" ]; then
-            echo "::error::Collision detected: ${{ github.workspace }}/$CORE_BASE already exists"
-            exit 1
-          fi
-          cp -p "$CORE_SRC_PKG" "${{ github.workspace }}/$CORE_BASE"
-
-          if [ -e "${{ github.workspace }}/$STATUS_BASE" ]; then
-            echo "::error::Collision detected: ${{ github.workspace }}/$STATUS_BASE already exists"
-            exit 1
-          fi
-          cp -p "$STATUS_SRC_PKG" "${{ github.workspace }}/$STATUS_BASE"
-
-          # Copy Hardware Smoke Test Bundle
-          cp -p "${{ github.workspace }}/tests/hardware/profile_mode_smoke.sh" "${{ github.workspace }}/profile_mode_smoke.sh"
-          cp -p "${{ github.workspace }}/tests/fixtures/profile-smoke-a.json" "${{ github.workspace }}/profile-smoke-a.json"
-          cp -p "${{ github.workspace }}/tests/fixtures/profile-smoke-b.json" "${{ github.workspace }}/profile-smoke-b.json"
-          cp -p "${{ github.workspace }}/tests/fixtures/profile-invalid.json" "${{ github.workspace }}/profile-invalid.json"
-
-          if [ "${{ matrix.id }}" = "25.12.5" ]; then
-            # Download aarch64_cortex-a53 dependencies for offline deployment
-            wget -q -O "${{ github.workspace }}/coreutils-base64.apk" "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages/coreutils-base64_9.5-2_aarch64_cortex-a53.apk" || true
-            wget -q -O "${{ github.workspace }}/coreutils.apk" "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages/coreutils_9.5-2_aarch64_cortex-a53.apk" || true
-            wget -q -O "${{ github.workspace }}/ip-full.apk" "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/base/ip-full_6.9.0-2_aarch64_cortex-a53.apk" || true
-          fi
-
-          echo "CORE_PACKAGE=$CORE_BASE" >> $GITHUB_ENV
-          echo "STATUS_PACKAGE=$STATUS_BASE" >> $GITHUB_ENV
-
-          echo "Copied canonical packages and hardware smoke bundle:"
-          ls -lh "${{ github.workspace }}/$CORE_BASE" "${{ github.workspace }}/$STATUS_BASE" "${{ github.workspace }}/profile_mode_smoke.sh"
-      - name: Generate Checksums and Build Info
-        run: |
-          cd "${{ github.workspace }}"
-
-          # 1. Generate SHA256SUMS file
-          CHECKSUM_FILE="SHA256SUMS-openwrt-${{ matrix.id }}-all.txt"
-          (
-            sha256sum "$CORE_PACKAGE"
-            sha256sum "$STATUS_PACKAGE"
-          ) | sort -k2,2 > "$CHECKSUM_FILE"
-
-          echo "=== Generated $CHECKSUM_FILE ==="
-          cat "$CHECKSUM_FILE"
-
-          echo "Verifying checksums with sha256sum -c..."
-          sha256sum -c "$CHECKSUM_FILE"
-
-          # 2. Generate BUILD-INFO file
-          BUILD_INFO_FILE="BUILD-INFO-openwrt-${{ matrix.id }}-all.txt"
-          CORE_SIZE="$(wc -c < "$CORE_PACKAGE" | tr -d ' ')"
-          STATUS_SIZE="$(wc -c < "$STATUS_PACKAGE" | tr -d ' ')"
-          PKG_FORMAT="$([ "${{ matrix.id }}" = "25.12.5" ] && echo "apk" || echo "ipk")"
 
           {
             echo "project=luci-app-xray"
             echo "variant=modern-vless-reverse"
             echo "package_version=3.7.1"
-            echo "package_release=5"
+            echo "package_release=9"
             echo "openwrt_release=${{ matrix.id }}"
-            echo "package_format=${PKG_FORMAT}"
+            echo "package_format=${{ matrix.package_format }}"
             echo "package_architecture=all"
-            echo "sdk_architecture=${{ matrix.arch }}"
-            echo "git_commit=${{ github.sha }}"
-            echo "workflow_run_id=${{ github.run_id }}"
-            echo "core_package=${CORE_PACKAGE}"
-            echo "status_package=${STATUS_PACKAGE}"
-            echo "core_package_size_bytes=${CORE_SIZE}"
-            echo "status_package_size_bytes=${STATUS_SIZE}"
-            echo "generated_at_utc=$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-          } > "$BUILD_INFO_FILE"
-
-          echo "=== Generated $BUILD_INFO_FILE ==="
-          cat "$BUILD_INFO_FILE"
-
-          echo "CHECKSUM_FILE=$CHECKSUM_FILE" >> $GITHUB_ENV
-          echo "BUILD_INFO_FILE=$BUILD_INFO_FILE" >> $GITHUB_ENV
-          echo "CORE_PACKAGE=$CORE_PACKAGE" >> $GITHUB_ENV
-          echo "STATUS_PACKAGE=$STATUS_PACKAGE" >> $GITHUB_ENV
-      - name: Verify Package Contents & Smoke Bundle Preflight
-        run: |
-          cd "${{ github.workspace }}"
-
-          # 1. Smoke bundle preflight test
-          sh ./profile_mode_smoke.sh --preflight
-
-          # 2. Verify extracted bundle in an isolated temp directory
-          TMP_BUNDLE="$(mktemp -d)"
-          cp ./profile_mode_smoke.sh ./profile-smoke-a.json ./profile-smoke-b.json ./profile-invalid.json "$TMP_BUNDLE/"
-          (
-            cd "$TMP_BUNDLE"
-            sh ./profile_mode_smoke.sh --preflight
-          )
-          rm -rf "$TMP_BUNDLE"
-
-          # 3. Verify core package payload manifest
-          if [ -z "$CORE_PACKAGE" ] || [ ! -f "$CORE_PACKAGE" ]; then
-            if [ "${{ matrix.id }}" = "25.12.5" ]; then
-              CORE_PACKAGE="$(ls -1 luci-app-xray*.apk 2>/dev/null | grep -v status | grep -v geodata | head -n 1 || true)"
-            else
-              CORE_PACKAGE="$(ls -1 luci-app-xray*.ipk 2>/dev/null | grep -v status | grep -v geodata | head -n 1 || true)"
-            fi
-          fi
-
-          TMP_PKG="$(mktemp -d)"
-          trap 'rm -rf "$TMP_PKG"' EXIT INT TERM
+            echo "sdk_target_architecture=${{ matrix.target_arch }}"
+            echo "git_commit=$GITHUB_SHA"
+            echo "workflow_run_id=$GITHUB_RUN_ID"
+            echo "core_package=$(basename "$CORE_PACKAGE")"
+            echo "status_package=$(basename "$STATUS_PACKAGE")"
+            echo "generated_at_utc=$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          } > "$DIST_DIR/BUILD-INFO-openwrt-${{ matrix.id }}-all.txt"
 
           if [ "${{ matrix.id }}" = "25.12.5" ]; then
-            APK_HOST="$SDK_HOME/staging_dir/host/bin/apk"
-            [ -x "$APK_HOST" ] || {
-              echo "::error::SDK host apk executable not found: $APK_HOST"
-              exit 1
-            }
-            echo "Using SDK host apk binary:"
-            "$APK_HOST" --version
-
-            rm -rf "$TMP_PKG"
-            mkdir -p "$TMP_PKG"
-
-            "$APK_HOST" --allow-untrusted extract \
-              --no-chown \
-              --destination "$TMP_PKG" \
-              "$CORE_PACKAGE"
+            sh "$GITHUB_WORKSPACE/tests/hardware/profile_mode_smoke.sh" --preflight
+            sh "$GITHUB_WORKSPACE/tests/ci/run_target_ucode.sh" \
+              "$APK_HOST" "$DIST_DIR" "$CORE_PACKAGE" "$RUNNER_TEMP/xray-bin/xray"
+            (
+              cd "$DIST_DIR"
+              find . -maxdepth 1 -type f ! -name 'SHA256SUMS-R9.txt' -printf '%P\0' |
+                sort -z |
+                xargs -0 sha256sum > SHA256SUMS-R9.txt
+              sha256sum -c SHA256SUMS-R9.txt
+            )
           else
-            if ar -t "$CORE_PACKAGE" >/dev/null 2>&1; then
-              ar -p "$CORE_PACKAGE" data.tar.gz | tar -C "$TMP_PKG" -zxf -
-            else
-              tar -xzOf "$CORE_PACKAGE" ./data.tar.gz 2>/dev/null | tar -C "$TMP_PKG" -zxf - || \
-              tar -xzOf "$CORE_PACKAGE" data.tar.gz 2>/dev/null | tar -C "$TMP_PKG" -zxf - || \
-              tar -C "$TMP_PKG" -zxf "$CORE_PACKAGE" 2>/dev/null || true
-            fi
+            (
+              cd "$DIST_DIR"
+              sha256sum \
+                '${{ matrix.core_filename }}' \
+                '${{ matrix.status_filename }}' \
+                'BUILD-INFO-openwrt-23.05.5-all.txt' > SHA256SUMS-openwrt-23.05.5-all.txt
+              sha256sum -c SHA256SUMS-openwrt-23.05.5-all.txt
+            )
           fi
 
-          for req in \
-            "etc/init.d/xray_core" \
-            "etc/init.d/xray_profiles" \
-            "usr/libexec/rpcd/xray" \
-            "usr/libexec/rpcd/xray_profiles" \
-            "usr/share/luci/menu.d/luci-app-xray.json" \
-            "usr/share/rpcd/acl.d/luci-app-xray.json" \
-            "usr/share/xray/gen_config.uc" \
-            "usr/share/xray/gen_config.mjs" \
-            "usr/share/xray/common/config.mjs" \
-            "usr/share/xray/common/stream.mjs" \
-            "usr/share/xray/common/tls.mjs" \
-            "usr/share/xray/feature/bridge.mjs" \
-            "usr/share/xray/feature/dns.mjs" \
-            "usr/share/xray/feature/fake_dns.mjs" \
-            "usr/share/xray/feature/inbound.mjs" \
-            "usr/share/xray/feature/manual_tproxy.mjs" \
-            "usr/share/xray/feature/outbound.mjs" \
-            "usr/share/xray/feature/system.mjs" \
-            "usr/share/xray/protocol/http.mjs" \
-            "usr/share/xray/protocol/hysteria.mjs" \
-            "usr/share/xray/protocol/shadowsocks.mjs" \
-            "usr/share/xray/protocol/socks.mjs" \
-            "usr/share/xray/protocol/trojan.mjs" \
-            "usr/share/xray/protocol/vless.mjs" \
-            "usr/share/xray/protocol/vmess.mjs" \
-            "www/luci-static/resources/view/xray/core.js" \
-            "www/luci-static/resources/view/xray/profiles.js"; do
-            if [ ! -f "$TMP_PKG/$req" ] && [ ! -L "$TMP_PKG/$req" ] && [ ! -f "$TMP_PKG/./$req" ]; then
-              echo "::error::Missing required payload file in $CORE_PACKAGE: $req"
-              echo "Extracted files in $TMP_PKG:"
-              find "$TMP_PKG" -type f
-              exit 1
-            fi
-          done
-          echo "  [PASS] Verified all required runtime modules in $CORE_PACKAGE"
-          rm -rf "$TMP_PKG"
-      - name: Upload CI Package Artifacts
+          if find "$DIST_DIR" -maxdepth 1 -type f -size 0 -print | grep -q .; then
+            echo "::error::Artifact contains a zero-byte file" >&2
+            exit 1
+          fi
+          find "$DIST_DIR" -maxdepth 1 -type f -printf '%f %s bytes\n' | sort
+
+      - name: Upload complete verified artifact
         uses: actions/upload-artifact@v4
         with:
-          name: luci-app-xray-vless-reverse-openwrt-${{ matrix.id }}-all-sdk-${{ matrix.arch }}
-          path: |
-            luci-app-xray*
-            SHA256SUMS-*.txt
-            BUILD-INFO-*.txt
-            profile_mode_smoke.sh
-            profile-smoke-*.json
-            profile-invalid.json
-            install_and_smoke_r6.sh
-            coreutils*.apk
-            ip-full*.apk
+          name: luci-app-xray-r9-openwrt-${{ matrix.id }}-all-${{ matrix.target_arch }}
+          path: dist/openwrt-${{ matrix.id }}-all/*
           if-no-files-found: error
           retention-days: 14
-      - name: Generate Failure Diagnostics
-        if: failure()
-        run: |
-          cd "${{ github.workspace }}"
-          {
-            echo "=== Failure Diagnostic ==="
-            echo "Date: $(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-            echo "Matrix: ${{ matrix.id }} (${{ matrix.arch }})"
-            if [ -n "$SDK_HOME" ] && [ -x "$SDK_HOME/staging_dir/host/bin/apk" ]; then
-              echo "Host apk version: $("$SDK_HOME/staging_dir/host/bin/apk" --version 2>&1 || true)"
-            fi
-            if [ -n "$CORE_PACKAGE" ] && [ -f "$CORE_PACKAGE" ]; then
-              echo "Core package: $CORE_PACKAGE"
-              echo "Core package size: $(wc -c < "$CORE_PACKAGE" 2>/dev/null || true)"
-              echo -n "Core package first 32 bytes hex: "
-              hexdump -n 32 -e '16/1 "%02x " "\n"' "$CORE_PACKAGE" 2>/dev/null || od -N 32 -t x1 "$CORE_PACKAGE" 2>/dev/null || true
-            fi
-          } > /tmp/apk_diagnostic.txt 2>&1 || true
-      - name: Upload Debug Log on Failure
-        if: failure()
-        uses: actions/upload-artifact@v4
+
+  release:
+    name: Publish tag assets
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download verified matrix artifacts
+        uses: actions/download-artifact@v4
         with:
-          name: debug-logs-${{ matrix.id }}-${{ matrix.arch }}
-          path: |
-            /tmp/*.log
-            /tmp/apk_diagnostic.txt
-            ${{ github.workspace }}/luci-app-xray*
-            ${{ github.workspace }}/SHA256SUMS-*.txt
-            ${{ github.workspace }}/BUILD-INFO-*.txt
-          if-no-files-found: ignore
-      - name: Release and Upload Assets
-        if: startsWith(github.ref, 'refs/tags/')
+          pattern: luci-app-xray-r9-openwrt-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Reject empty release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          if find release-assets -type f -size 0 -print | grep -q .; then
+            echo "::error::Release contains a zero-byte file" >&2
+            exit 1
+          fi
+          find release-assets -type f -printf '%P %s bytes\n' | sort
+
+      - name: Release tag assets
         uses: softprops/action-gh-release@v2
         with:
-          files: |
-            *.ipk
-            *.apk
-            SHA256SUMS-*.txt
-            BUILD-INFO-*.txt
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  notify:
-    name: Notify Release Publish
-    if: startsWith(github.ref, 'refs/tags/')
-    runs-on: ubuntu-latest
-    env:
-      TRIGGER_URL: ${{ secrets.TRIGGER_URL }}
-      TRIGGER_TOKEN: ${{ secrets.TRIGGER_TOKEN }}
-    needs: release
-    steps:
-      - name: Notify Jenkins
-        run: |
-          if [ -z "$TRIGGER_URL" ] ; then
-            echo "::warning::No trigger url found, skip..."
-            exit 0
-          fi
-          curl -X POST \
-              -H "Content-Type: application/json; charset=utf-8" \
-              -H "Authorization: Bearer $TRIGGER_TOKEN" \
-              -d "{\"event\":\"release\",\"repository\":\"${{ github.repository }}\",\"ref\":\"${{ github.ref }}\"}" \
-              "$TRIGGER_URL" || true
+          files: release-assets/*

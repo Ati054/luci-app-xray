@@ -1,5 +1,5 @@
 #!/bin/sh
-set -e
+set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 RPCD_XRAY="${SCRIPT_DIR}/../core/root/usr/libexec/rpcd/xray_profiles"
@@ -12,9 +12,24 @@ if grep -q "rand()" "$RPCD_XRAY"; then
 fi
 
 if ! grep -q "mkdtemp" "$RPCD_XRAY"; then
-    echo "FAIL: rpcd script does not use mkdtemp"
+    echo "FAIL: rpcd script does not use target-supported exclusive directory creation"
     exit 1
 fi
 
-echo "PASS: rpcd script uses mkdtemp and not rand()."
+if grep -q 'open(.*"wx"' "$RPCD_XRAY"; then
+    echo "FAIL: rpcd script uses unsupported fopen mode wx instead of an exclusive temporary directory"
+    exit 1
+fi
+
+if ! grep -q 'open(tmp_path, "w", 0600)' "$RPCD_XRAY"; then
+    echo "FAIL: temporary profile content is not opened with mode 0600"
+    exit 1
+fi
+
+if grep -q 'let meta = { pid: 0' "$RPCD_XRAY" || ! grep -q 'readfile("/proc/self/stat")' "$RPCD_XRAY"; then
+    echo "FAIL: lock ownership does not record the live backend PID"
+    exit 1
+fi
+
+echo "PASS: rpcd script uses owned locks, exclusive temporary directories, mode 0600, and no rand()."
 exit 0

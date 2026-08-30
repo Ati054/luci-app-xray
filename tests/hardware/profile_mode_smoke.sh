@@ -1,192 +1,430 @@
 #!/bin/sh
-# Hardware Smoke Test for OpenWrt 25.12.5 (aarch64) Raspberry Pi 3
-# Validates complete multi-process JSON Reverse Profile Mode isolation & lifecycle
+# Target-safe OpenWrt 25.12.5 / aarch64 hardware proof for isolated JSON profiles.
 
-set -e
+set -eu
 
-echo "=== OpenWrt 25.12.5 Raspberry Pi 3 Profile Mode Hardware Smoke Test ==="
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+XRAY_BIN="/opt/xray/current/xray"
+RPCD_BACKEND="/usr/libexec/rpcd/xray_profiles"
+PROFILES_DIR="/opt/xray/profiles"
+FINAL_DISABLED="${R9_INSTALLER_FINAL_DISABLED:-0}"
 
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-
-# Robust multi-path fixture resolution
 resolve_fixture() {
-    local fname="$1"
-    if [ -f "${SCRIPT_DIR}/${fname}" ]; then
-        echo "${SCRIPT_DIR}/${fname}"
-    elif [ -f "${SCRIPT_DIR}/fixtures/${fname}" ]; then
-        echo "${SCRIPT_DIR}/fixtures/${fname}"
-    elif [ -f "${SCRIPT_DIR}/../fixtures/${fname}" ]; then
-        echo "${SCRIPT_DIR}/../fixtures/${fname}"
-    elif [ -f "${SCRIPT_DIR}/tests/fixtures/${fname}" ]; then
-        echo "${SCRIPT_DIR}/tests/fixtures/${fname}"
-    else
-        echo ""
-    fi
+    fixture_name="$1"
+    for fixture_path in \
+        "${SCRIPT_DIR}/${fixture_name}" \
+        "${SCRIPT_DIR}/fixtures/${fixture_name}" \
+        "${SCRIPT_DIR}/../fixtures/${fixture_name}"; do
+        if [ -s "${fixture_path}" ]; then
+            printf '%s\n' "${fixture_path}"
+            return 0
+        fi
+    done
+    return 1
 }
 
-FIXTURE_A="$(resolve_fixture "profile-smoke-a.json")"
-FIXTURE_B="$(resolve_fixture "profile-smoke-b.json")"
-FIXTURE_INV="$(resolve_fixture "profile-invalid.json")"
-
-if [ -z "${FIXTURE_A}" ] || [ -z "${FIXTURE_B}" ] || [ -z "${FIXTURE_INV}" ]; then
-    echo "::error::Required smoke fixtures not found in ${SCRIPT_DIR}, ${SCRIPT_DIR}/fixtures, or ${SCRIPT_DIR}/../fixtures"
+FIXTURE_A="$(resolve_fixture profile-smoke-a.json)" || {
+    echo "ERROR: profile-smoke-a.json is missing or empty" >&2
     exit 1
-fi
+}
+FIXTURE_B="$(resolve_fixture profile-smoke-b.json)" || {
+    echo "ERROR: profile-smoke-b.json is missing or empty" >&2
+    exit 1
+}
+FIXTURE_INVALID="$(resolve_fixture profile-invalid.json)" || {
+    echo "ERROR: profile-invalid.json is missing or empty" >&2
+    exit 1
+}
 
-# Preflight mode for CI or artifact validation
-if [ "$1" = "--preflight" ] || [ "$1" = "--check-fixtures" ]; then
-    echo "  [PASS] Fixture A resolved: ${FIXTURE_A}"
-    echo "  [PASS] Fixture B resolved: ${FIXTURE_B}"
-    echo "  [PASS] Fixture Invalid resolved: ${FIXTURE_INV}"
-    echo "SMOKE_BUNDLE_PREFLIGHT_OK"
+if [ "${1:-}" = "--preflight" ]; then
+    for fixture in "${FIXTURE_A}" "${FIXTURE_B}" "${FIXTURE_INVALID}"; do
+        grep -q '"outbounds"' "${fixture}" || {
+            echo "ERROR: fixture is not a complete Xray JSON profile: ${fixture}" >&2
+            exit 1
+        }
+    done
+    grep -q '^echo "HARDWARE_PROFILE_MODE_SMOKE_OK"$' "$0" || {
+        echo "ERROR: hardware smoke success marker is missing" >&2
+        exit 1
+    }
+    echo "PROFILE_MODE_SMOKE_PREFLIGHT_OK"
     exit 0
 fi
 
-# 1. Verify platform and architecture
-ARCH="$(uname -m 2>/dev/null || true)"
-if [ "$1" != "--force" ]; then
-    if [ "${ARCH}" != "aarch64" ]; then
-        echo "::error::Non-aarch64 architecture detected (${ARCH}). Use --force if running in simulation."
+require_command() {
+    command -v "$1" >/dev/null 2>&1 || {
+        echo "ERROR: required command is missing: $1" >&2
         exit 1
-    fi
-fi
+    }
+}
 
-# 2. Verify Xray 26.7.28
-XRAY_BIN="${XRAY_BIN:-/opt/xray/current/xray}"
-if [ ! -x "${XRAY_BIN}" ]; then
-    echo "::error::Executable Xray binary missing at ${XRAY_BIN}"
+for command_name in awk cat find grep ip jsonfilter mktemp nft sed sha256sum sort stat timeout tr ubus uci; do
+    require_command "${command_name}"
+done
+
+[ -r /etc/openwrt_release ] || {
+    echo "ERROR: /etc/openwrt_release is unavailable" >&2
     exit 1
-fi
-XRAY_VER="$("${XRAY_BIN}" version 2>/dev/null | head -n 1 || true)"
-echo "Found Xray runtime: ${XRAY_VER}"
-if [ "$1" != "--force" ]; then
-    if ! echo "${XRAY_VER}" | grep -q "26.7.28"; then
-        echo "::error::Xray 26.7.28 required. Found: ${XRAY_VER}"
+}
+OPENWRT_RELEASE="$(sed -n "s/^DISTRIB_RELEASE=['\"]\([^'\"]*\)['\"]$/\1/p" /etc/openwrt_release)"
+[ "${OPENWRT_RELEASE}" = "25.12.5" ] || {
+    echo "ERROR: expected OpenWrt 25.12.5, found ${OPENWRT_RELEASE:-unknown}" >&2
+    exit 1
+}
+[ "$(uname -m)" = "aarch64" ] || {
+    echo "ERROR: expected aarch64, found $(uname -m)" >&2
+    exit 1
+}
+[ -x "${XRAY_BIN}" ] || {
+    echo "ERROR: Xray is not executable at ${XRAY_BIN}" >&2
+    exit 1
+}
+XRAY_VERSION_LINE="$(${XRAY_BIN} version 2>&1 | sed -n '1p')"
+case "${XRAY_VERSION_LINE}" in
+    "Xray 26.7.28"*) ;;
+    *)
+        echo "ERROR: expected Xray 26.7.28, found ${XRAY_VERSION_LINE:-unknown}" >&2
         exit 1
-    fi
-fi
-
-RPCD_BACKEND="/usr/libexec/rpcd/xray_profiles"
-if [ ! -x "${RPCD_BACKEND}" ]; then
-    echo "::error::Profile management backend missing or not executable at ${RPCD_BACKEND}"
+        ;;
+esac
+[ -x "${RPCD_BACKEND}" ] || {
+    echo "ERROR: rpcd backend is not executable: ${RPCD_BACKEND}" >&2
     exit 1
-fi
+}
+for service_script in /etc/init.d/xray_core /etc/init.d/xray_profiles; do
+    [ -x "${service_script}" ] || {
+        echo "ERROR: service script is not executable: ${service_script}" >&2
+        exit 1
+    }
+done
 
-# 3. Capture baseline environment state
-TMP_DIR="$(mktemp -d)"
-cleanup() {
-    echo "Cleaning up smoke test artifacts..."
-    "${RPCD_BACKEND}" call delete '{"id": "smoke_a"}' >/dev/null 2>&1 || true
-    "${RPCD_BACKEND}" call delete '{"id": "smoke_b"}' >/dev/null 2>&1 || true
-    /etc/init.d/xray_profiles stop >/dev/null 2>&1 || true
-    if [ -f "${TMP_DIR}/uci_backup.export" ]; then
-        uci import xray_core < "${TMP_DIR}/uci_backup.export" 2>/dev/null || true
-        uci commit xray_core 2>/dev/null || true
+TMP_DIR="$(mktemp -d /tmp/xray-r9-smoke.XXXXXX)"
+chmod 0700 "${TMP_DIR}"
+IMPORTED_A=0
+IMPORTED_B=0
+UCI_SAVED=0
+SERVICES_SAVED=0
+CLEANUP_DONE=0
+
+service_enabled() {
+    "/etc/init.d/$1" enabled >/dev/null 2>&1
+}
+
+service_running() {
+    "/etc/init.d/$1" status >/dev/null 2>&1
+}
+
+backend_call() {
+    method_name="$1"
+    method_payload="$2"
+    timeout 10 "${RPCD_BACKEND}" call "${method_name}" "${method_payload}" </dev/null
+}
+
+json_get() {
+    json_document="$1"
+    json_expression="$2"
+    printf '%s\n' "${json_document}" | jsonfilter -e "${json_expression}"
+}
+
+json_payload() {
+    payload_name="$1"
+    payload_filename="$2"
+    payload_path="$3"
+    payload_content="$(tr -d '\r\n' < "${payload_path}" | sed 's/\\/\\\\/g; s/"/\\"/g')"
+    printf '{"name":"%s","filename":"%s","content":"%s","autostart":false}\n' \
+        "${payload_name}" "${payload_filename}" "${payload_content}"
+}
+
+capture_network_state() {
+    state_prefix="$1"
+    ip rule show > "${state_prefix}.ipv4"
+    ip -6 rule show > "${state_prefix}.ipv6"
+    nft --stateless list ruleset > "${state_prefix}.nft"
+    : > "${state_prefix}.dnsmasq-xray"
+    for dns_root in /tmp/dnsmasq.d /etc/dnsmasq.d /var/etc; do
+        [ -d "${dns_root}" ] || continue
+        find "${dns_root}" -type f -name '*xray*' -exec sha256sum '{}' ';' >> "${state_prefix}.dnsmasq-xray"
+    done
+    sort -o "${state_prefix}.dnsmasq-xray" "${state_prefix}.dnsmasq-xray"
+}
+
+state_files_equal() {
+    left_hash="$(sha256sum "$1" | awk '{ print $1 }')"
+    right_hash="$(sha256sum "$2" | awk '{ print $1 }')"
+    [ "${left_hash}" = "${right_hash}" ]
+}
+
+assert_no_smoke_processes() {
+    for proc_cmdline in /proc/[0-9]*/cmdline; do
+        [ -r "${proc_cmdline}" ] || continue
+        if process_command="$(tr '\000' ' ' < "${proc_cmdline}" 2>/dev/null)"; then
+            case "${process_command}" in
+                *smoke-a.json*|*smoke-b.json*)
+                    echo "ERROR: smoke-test process remains: ${process_command}" >&2
+                    return 1
+                    ;;
+            esac
+        fi
+    done
+    return 0
+}
+
+stop_test_instances() {
+    if [ "${IMPORTED_A}" -eq 1 ]; then
+        backend_call stop '{"id":"smoke_a"}' >/dev/null 2>&1
+    fi
+    if [ "${IMPORTED_B}" -eq 1 ]; then
+        backend_call stop '{"id":"smoke_b"}' >/dev/null 2>&1
+    fi
+}
+
+purge_test_profiles() {
+    if [ "${IMPORTED_A}" -eq 1 ]; then
+        backend_call delete '{"id":"smoke_a","purge":true}' >/dev/null
+        IMPORTED_A=0
+    fi
+    if [ "${IMPORTED_B}" -eq 1 ]; then
+        backend_call delete '{"id":"smoke_b","purge":true}' >/dev/null
+        IMPORTED_B=0
+    fi
+}
+
+restore_uci() {
+    if [ "${UCI_SAVED}" -eq 1 ]; then
+        if uci -q revert xray_core; then
+            :
+        fi
+        uci import xray_core < "${TMP_DIR}/xray_core.uci"
+        uci commit xray_core
+    fi
+}
+
+restore_services() {
+    /etc/init.d/xray_core stop >/dev/null 2>&1
+    /etc/init.d/xray_profiles stop >/dev/null 2>&1
+    ! service_running xray_core && ! service_running xray_profiles || {
+        echo "ERROR: failed to stop Xray services while restoring smoke state" >&2
+        return 1
+    }
+
+    if [ "${FINAL_DISABLED}" = "1" ]; then
+        /etc/init.d/xray_core disable
+        /etc/init.d/xray_profiles disable
+        return 0
+    fi
+
+    if [ "$(cat "${TMP_DIR}/xray_core.enabled")" = "1" ]; then
+        /etc/init.d/xray_core enable
+    else
+        /etc/init.d/xray_core disable
+    fi
+    if [ "$(cat "${TMP_DIR}/xray_profiles.enabled")" = "1" ]; then
+        /etc/init.d/xray_profiles enable
+    else
+        /etc/init.d/xray_profiles disable
+    fi
+    if [ "$(cat "${TMP_DIR}/xray_core.running")" = "1" ]; then
+        /etc/init.d/xray_core start
+    fi
+    if [ "$(cat "${TMP_DIR}/xray_profiles.running")" = "1" ]; then
+        /etc/init.d/xray_profiles start
+    fi
+}
+
+failure_cleanup() {
+    primary_rc=$?
+    [ "${CLEANUP_DONE}" -eq 1 ] && return "${primary_rc}"
+    set +e
+    echo "Hardware smoke failed; restoring test state" >&2
+    stop_test_instances || :
+    purge_test_profiles || :
+    restore_uci || :
+    if [ "${SERVICES_SAVED}" -eq 1 ]; then
+        restore_services
     fi
     rm -rf "${TMP_DIR}"
+    return "${primary_rc}"
 }
-trap cleanup EXIT
+trap failure_cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-uci export xray_core > "${TMP_DIR}/uci_backup.export" 2>/dev/null || true
-ip rule show > "${TMP_DIR}/ip_rules_before.txt" 2>/dev/null || true
-ip -6 rule show > "${TMP_DIR}/ip6_rules_before.txt" 2>/dev/null || true
-nft list ruleset > "${TMP_DIR}/nftables_before.txt" 2>/dev/null || true
+capture_network_state "${TMP_DIR}/before"
+uci export xray_core > "${TMP_DIR}/xray_core.uci"
+UCI_SAVED=1
 
-# 4. Import Smoke Profiles
-echo "--- Importing Smoke Profiles via RPCD Backend ---"
-CONTENT_A="$(cat "${FIXTURE_A}")"
-CONTENT_B="$(cat "${FIXTURE_B}")"
-CONTENT_INV="$(cat "${FIXTURE_INV}")"
+if service_enabled xray_core; then echo 1; else echo 0; fi > "${TMP_DIR}/xray_core.enabled"
+if service_enabled xray_profiles; then echo 1; else echo 0; fi > "${TMP_DIR}/xray_profiles.enabled"
+if service_running xray_core; then echo 1; else echo 0; fi > "${TMP_DIR}/xray_core.running"
+if service_running xray_profiles; then echo 1; else echo 0; fi > "${TMP_DIR}/xray_profiles.running"
+SERVICES_SAVED=1
 
-RES_A="$("${RPCD_BACKEND}" call import "{\"name\":\"Smoke A\",\"filename\":\"smoke-a.json\",\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\",\"autostart\":false}")"
-echo "Import A Result: ${RES_A}"
-echo "${RES_A}" | grep -q '"ok":true' || { echo "::error::Failed to import smoke-a.json"; exit 1; }
+/etc/init.d/xray_core stop >/dev/null 2>&1
+/etc/init.d/xray_profiles stop >/dev/null 2>&1
+! service_running xray_core && ! service_running xray_profiles || {
+    echo "ERROR: both Xray services must be stopped before profile smoke" >&2
+    exit 1
+}
+capture_network_state "${TMP_DIR}/profile-baseline"
 
-RES_B="$("${RPCD_BACKEND}" call import "{\"name\":\"Smoke B\",\"filename\":\"smoke-b.json\",\"content\":\"$(echo "${CONTENT_B}" | tr -d '\n\r' | sed 's/"/\\"/g')\",\"autostart\":false}")"
-echo "Import B Result: ${RES_B}"
-echo "${RES_B}" | grep -q '"ok":true' || { echo "::error::Failed to import smoke-b.json"; exit 1; }
+INITIAL_LIST="$(backend_call list '{}')"
+for reserved_id in smoke_a smoke_b; do
+    if existing_id="$(json_get "${INITIAL_LIST}" "@.profiles[@.id=\"${reserved_id}\"].id" 2>/dev/null)"; then
+        :
+    else
+        existing_id=""
+    fi
+    [ -z "${existing_id}" ] || {
+        echo "ERROR: refusing to overwrite pre-existing profile ${reserved_id}" >&2
+        exit 1
+    }
+done
+[ ! -e "${PROFILES_DIR}/smoke-a.json" ] && [ ! -e "${PROFILES_DIR}/smoke-b.json" ] || {
+    echo "ERROR: refusing to overwrite pre-existing smoke profile files" >&2
+    exit 1
+}
 
-# 5. Verify Invalid Profile Rejection
-echo "--- Verifying Invalid Profile Rejection Policy ---"
-RES_INV="$("${RPCD_BACKEND}" call validate "{\"content\":\"$(echo "${CONTENT_INV}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}")"
-echo "Validation Invalid Result: ${RES_INV}"
-echo "${RES_INV}" | grep -q '"ok":false' || { echo "::error::Invalid profile was unexpectedly accepted"; exit 1; }
+XRAY_LOCATION_ASSET=/opt/xray/current "${XRAY_BIN}" run -test -config "${FIXTURE_A}"
+XRAY_LOCATION_ASSET=/opt/xray/current "${XRAY_BIN}" run -test -config "${FIXTURE_B}"
 
-# 6. Start Profile A and Profile B independently
-echo "--- Starting Profile A and Profile B ---"
-START_A="$("${RPCD_BACKEND}" call start '{"id": "smoke_a"}')"
-echo "Start A: ${START_A}"
-
-START_B="$("${RPCD_BACKEND}" call start '{"id": "smoke_b"}')"
-echo "Start B: ${START_B}"
-
-# 7. Check List & Record PIDs
-LIST_RES="$("${RPCD_BACKEND}" call list '{}')"
-echo "Profile List: ${LIST_RES}"
-
-PID_A="$(echo "${LIST_RES}" | grep -o '"id":"smoke_a"[^}]*' | grep -o '"pid":[0-9]*' | cut -d: -f2 || true)"
-PID_B="$(echo "${LIST_RES}" | grep -o '"id":"smoke_b"[^}]*' | grep -o '"pid":[0-9]*' | cut -d: -f2 || true)"
-
-if [ -z "${PID_A}" ] || [ "${PID_A}" = "null" ] || [ "${PID_A}" -le 0 ]; then
-    echo "::error::Profile A failed to start or has invalid PID: ${PID_A}"
+INVALID_PAYLOAD="$(json_payload Invalid profile-invalid.json "${FIXTURE_INVALID}")"
+if INVALID_RESULT="$(backend_call validate "${INVALID_PAYLOAD}")"; then
+    echo "ERROR: invalid inbound fixture passed Reverse profile policy" >&2
     exit 1
 fi
-if [ -z "${PID_B}" ] || [ "${PID_B}" = "null" ] || [ "${PID_B}" -le 0 ]; then
-    echo "::error::Profile B failed to start or has invalid PID: ${PID_B}"
+[ "$(json_get "${INVALID_RESULT}" '@.ok')" = "false" ] || {
+    echo "ERROR: invalid fixture did not return structured rejection" >&2
     exit 1
+}
+
+IMPORT_A_RESULT="$(backend_call import "$(json_payload 'Smoke A' smoke-a.json "${FIXTURE_A}")")"
+[ "$(json_get "${IMPORT_A_RESULT}" '@.ok')" = "true" ] || {
+    echo "ERROR: failed to import profile A" >&2
+    exit 1
+}
+IMPORTED_A=1
+
+IMPORT_B_RESULT="$(backend_call import "$(json_payload 'Smoke B' smoke-b.json "${FIXTURE_B}")")"
+[ "$(json_get "${IMPORT_B_RESULT}" '@.ok')" = "true" ] || {
+    echo "ERROR: failed to import profile B" >&2
+    exit 1
+}
+IMPORTED_B=1
+
+[ "$(stat -c '%a' "${PROFILES_DIR}")" = "700" ] || {
+    echo "ERROR: profile directory mode is not 0700" >&2
+    exit 1
+}
+for profile_file in "${PROFILES_DIR}/smoke-a.json" "${PROFILES_DIR}/smoke-b.json"; do
+    [ "$(stat -c '%a' "${profile_file}")" = "600" ] || {
+        echo "ERROR: profile file mode is not 0600: ${profile_file}" >&2
+        exit 1
+    }
+done
+
+backend_call start '{"id":"smoke_a"}' >/dev/null
+backend_call start '{"id":"smoke_b"}' >/dev/null
+RUNNING_LIST="$(backend_call list '{}')"
+PID_A="$(json_get "${RUNNING_LIST}" '@.profiles[@.id="smoke_a"].pid')"
+PID_B="$(json_get "${RUNNING_LIST}" '@.profiles[@.id="smoke_b"].pid')"
+case "${PID_A}" in ''|*[!0-9]*|0) echo "ERROR: invalid PID for profile A: ${PID_A}" >&2; exit 1;; esac
+case "${PID_B}" in ''|*[!0-9]*|0) echo "ERROR: invalid PID for profile B: ${PID_B}" >&2; exit 1;; esac
+[ "${PID_A}" != "${PID_B}" ] || {
+    echo "ERROR: profiles A and B share PID ${PID_A}" >&2
+    exit 1
+}
+
+capture_network_state "${TMP_DIR}/during"
+for state_kind in ipv4 ipv6 nft dnsmasq-xray; do
+    state_files_equal "${TMP_DIR}/profile-baseline.${state_kind}" "${TMP_DIR}/during.${state_kind}" || {
+        echo "ERROR: ${state_kind} state changed while profile instances were running" >&2
+        sha256sum "${TMP_DIR}/profile-baseline.${state_kind}" "${TMP_DIR}/during.${state_kind}" >&2
+        exit 1
+    }
+done
+
+backend_call stop '{"id":"smoke_a"}' >/dev/null
+AFTER_STOP_LIST="$(backend_call list '{}')"
+if PID_A_AFTER="$(json_get "${AFTER_STOP_LIST}" '@.profiles[@.id="smoke_a"].pid' 2>/dev/null)"; then
+    :
+else
+    PID_A_AFTER=""
+fi
+PID_B_AFTER="$(json_get "${AFTER_STOP_LIST}" '@.profiles[@.id="smoke_b"].pid')"
+[ -z "${PID_A_AFTER}" ] || [ "${PID_A_AFTER}" = "null" ] || {
+    echo "ERROR: profile A is still running after stop" >&2
+    exit 1
+}
+[ "${PID_B_AFTER}" = "${PID_B}" ] || {
+    echo "ERROR: stopping A changed B PID (${PID_B} -> ${PID_B_AFTER})" >&2
+    exit 1
+}
+
+backend_call restart '{"id":"smoke_b"}' >/dev/null
+AFTER_RESTART_LIST="$(backend_call list '{}')"
+PID_B_NEW="$(json_get "${AFTER_RESTART_LIST}" '@.profiles[@.id="smoke_b"].pid')"
+case "${PID_B_NEW}" in ''|*[!0-9]*|0) echo "ERROR: invalid restarted PID for B: ${PID_B_NEW}" >&2; exit 1;; esac
+[ "${PID_B_NEW}" != "${PID_B}" ] || {
+    echo "ERROR: restarting B preserved the old PID ${PID_B}" >&2
+    exit 1
+}
+
+stop_test_instances
+assert_no_smoke_processes
+purge_test_profiles
+restore_uci
+restore_services
+
+uci export xray_core > "${TMP_DIR}/xray_core.after.uci"
+state_files_equal "${TMP_DIR}/xray_core.uci" "${TMP_DIR}/xray_core.after.uci" || {
+    echo "ERROR: xray_core UCI state was not restored exactly" >&2
+    sha256sum "${TMP_DIR}/xray_core.uci" "${TMP_DIR}/xray_core.after.uci" >&2
+    exit 1
+}
+for restored_service in xray_core xray_profiles; do
+    if service_enabled "${restored_service}"; then restored_enabled=1; else restored_enabled=0; fi
+    if service_running "${restored_service}"; then restored_running=1; else restored_running=0; fi
+    [ "${restored_enabled}" = "$(cat "${TMP_DIR}/${restored_service}.enabled")" ] && \
+        [ "${restored_running}" = "$(cat "${TMP_DIR}/${restored_service}.running")" ] || {
+        echo "ERROR: ${restored_service} enablement/running state was not restored" >&2
+        exit 1
+    }
+done
+
+FINAL_LIST="$(backend_call list '{}')"
+for removed_id in smoke_a smoke_b; do
+    if final_id="$(json_get "${FINAL_LIST}" "@.profiles[@.id=\"${removed_id}\"].id" 2>/dev/null)"; then
+        :
+    else
+        final_id=""
+    fi
+    [ -z "${final_id}" ] || {
+        echo "ERROR: smoke profile remains after cleanup: ${removed_id}" >&2
+        exit 1
+    }
+done
+
+capture_network_state "${TMP_DIR}/after"
+for state_kind in ipv4 ipv6 nft dnsmasq-xray; do
+    state_files_equal "${TMP_DIR}/before.${state_kind}" "${TMP_DIR}/after.${state_kind}" || {
+        echo "ERROR: ${state_kind} state changed during profile-mode smoke" >&2
+        sha256sum "${TMP_DIR}/before.${state_kind}" "${TMP_DIR}/after.${state_kind}" >&2
+        exit 1
+    }
+done
+
+if [ "${FINAL_DISABLED}" = "1" ]; then
+    ! service_running xray_core && ! service_running xray_profiles || {
+        echo "ERROR: installer mode must leave both services stopped" >&2
+        exit 1
+    }
+    ! service_enabled xray_core && ! service_enabled xray_profiles || {
+        echo "ERROR: installer mode must leave both services disabled" >&2
+        exit 1
+    }
 fi
 
-echo "  [PASS] Profile A running (PID: ${PID_A})"
-echo "  [PASS] Profile B running (PID: ${PID_B})"
-
-# 8. Stop Profile A and prove Profile B PID is unchanged
-echo "--- Stopping Profile A ---"
-"${RPCD_BACKEND}" call stop '{"id": "smoke_a"}' >/dev/null 2>&1
-
-LIST_AFTER_STOP_A="$("${RPCD_BACKEND}" call list '{}')"
-PID_B_AFTER="$(echo "${LIST_AFTER_STOP_A}" | grep -o '"id":"smoke_b"[^}]*' | grep -o '"pid":[0-9]*' | cut -d: -f2 || true)"
-
-if [ "${PID_B}" != "${PID_B_AFTER}" ]; then
-    echo "::error::Process isolation violated: Stopping A altered PID of B (${PID_B} -> ${PID_B_AFTER})"
-    exit 1
-fi
-echo "  [PASS] Profile B PID strictly preserved (${PID_B} == ${PID_B_AFTER})"
-
-# 9. Restart Profile B and prove only B changes PID
-echo "--- Restarting Profile B ---"
-"${RPCD_BACKEND}" call restart '{"id": "smoke_b"}' >/dev/null 2>&1
-
-LIST_AFTER_RESTART_B="$("${RPCD_BACKEND}" call list '{}')"
-PID_B_NEW="$(echo "${LIST_AFTER_RESTART_B}" | grep -o '"id":"smoke_b"[^}]*' | grep -o '"pid":[0-9]*' | cut -d: -f2 || true)"
-
-if [ "${PID_B_NEW}" = "${PID_B}" ]; then
-    echo "::error::Restarting B failed to spawn new PID: ${PID_B_NEW}"
-    exit 1
-fi
-echo "  [PASS] Profile B restarted with new PID (${PID_B} -> ${PID_B_NEW})"
-
-# 10. Stop and delete profiles
-echo "--- Cleaning up Smoke Profiles ---"
-"${RPCD_BACKEND}" call delete '{"id": "smoke_a"}' >/dev/null 2>&1
-"${RPCD_BACKEND}" call delete '{"id": "smoke_b"}' >/dev/null 2>&1
-
-# 11. Verify absence of network or firewall side-effects
-ip rule show > "${TMP_DIR}/ip_rules_after.txt" 2>/dev/null || true
-if grep -E -q "fwmark (0xfb|251) lookup 251(\b|$)" "${TMP_DIR}/ip_rules_after.txt"; then
-    echo "::error::Unexpected fwmark table 251 found in ip rules"
-    exit 1
-fi
-
-ip -6 rule show > "${TMP_DIR}/ip6_rules_after.txt" 2>/dev/null || true
-if grep -E -q "fwmark (0xfb|251) lookup 251(\b|$)" "${TMP_DIR}/ip6_rules_after.txt"; then
-    echo "::error::Unexpected IPv6 fwmark table 251 found in ip6 rules"
-    exit 1
-fi
-
-if [ -f /tmp/dnsmasq.d/xray.conf ] || [ -f /etc/dnsmasq.d/xray.conf ]; then
-    echo "::error::Unexpected dnsmasq xray.conf artifact created"
-    exit 1
-fi
-
+CLEANUP_DONE=1
+trap - EXIT INT TERM
+rm -rf "${TMP_DIR}"
 echo "HARDWARE_PROFILE_MODE_SMOKE_OK"
-exit 0

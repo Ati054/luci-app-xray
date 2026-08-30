@@ -28,7 +28,7 @@ echo "Extracting ${XRAY_ZIP}..."
 unzip -q -o "${XRAY_ZIP}"
 chmod +x xray
 
-VERSION_OUTPUT=$("${DEST_DIR}/xray" version 2>&1 || true)
+VERSION_OUTPUT=$("${DEST_DIR}/xray" version 2>&1)
 FIRST_LINE=$(echo "${VERSION_OUTPUT}" | head -n 1)
 case "${FIRST_LINE}" in
     "Xray 26.7.28"*)

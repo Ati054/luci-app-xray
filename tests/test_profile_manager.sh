@@ -245,18 +245,33 @@ echo "\n--- Test Group: Locking, Concurrency & Stale Lock Recovery ---"
 LOCK_DIR="${PROFILES_DIR}/.lock.d"
 mkdir -p "${LOCK_DIR}"
 echo '{"pid": 999999, "ts": 1000000000}' > "${LOCK_DIR}/meta.json"
-RES_STALE_REC="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call rename "{\"id\":\"${PROFILE_A_ID}\",\"name\":\"Stale Recovered A\"}" 2>&1 || true)"
+REPLACE_A_PAYLOAD="{\"id\":\"${PROFILE_A_ID}\",\"content\":\"$(echo "${CONTENT_A}" | tr -d '\n\r' | sed 's/"/\\"/g')\"}"
+RES_STALE_REC="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call replace "${REPLACE_A_PAYLOAD}" 2>&1 || true)"
 assert_match '"ok":true' "${RES_STALE_REC}" "Test 17: Stale lock belonging to dead PID / old timestamp is transparently recovered"
 
-# 18. Secret Sanitization
+# 18. An old lock owned by a live process must not be stolen.
+mkdir -p "${LOCK_DIR}"
+printf '{"pid": %s, "ts": 1000000000}\n' "$$" > "${LOCK_DIR}/meta.json"
+set +e
+RES_LIVE_LOCK="$(timeout 5 "${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call replace "${REPLACE_A_PAYLOAD}" 2>&1)"
+LIVE_LOCK_RC=$?
+set -e
+assert_equal "1" "${LIVE_LOCK_RC}" "Test 18a: Live lock rejects the concurrent replacement"
+assert_match 'lock busy' "${RES_LIVE_LOCK}" "Test 18b: Live lock returns the explicit busy result"
+if [ -d "${LOCK_DIR}" ]; then LIVE_LOCK_PRESENT=1; else LIVE_LOCK_PRESENT=0; fi
+assert_equal "1" "${LIVE_LOCK_PRESENT}" "Test 18c: Live lock is not removed as stale"
+rm -f "${LOCK_DIR}/meta.json"
+rmdir "${LOCK_DIR}"
+
+# 19. Secret Sanitization
 echo "\n--- Test Group: Secret Sanitization & Trash Archiving ---"
 LIST_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
 HAS_LEAKED_UUID=$(echo "${LIST_JSON}" | grep -c "11111111-1111-1111-1111-111111111111" || true)
 HAS_LEAKED_ADDR=$(echo "${LIST_JSON}" | grep -c "192.0.2.10" || true)
-assert_equal "0" "${HAS_LEAKED_UUID}" "Test 18a: RPC list response does not leak profile UUIDs"
-assert_equal "0" "${HAS_LEAKED_ADDR}" "Test 18b: RPC list response does not leak profile addresses"
+assert_equal "0" "${HAS_LEAKED_UUID}" "Test 19a: RPC list response does not leak profile UUIDs"
+assert_equal "0" "${HAS_LEAKED_ADDR}" "Test 19b: RPC list response does not leak profile addresses"
 
-# 19. Missing profile start/stop returns ok:false
+# 20. Missing profile start/stop returns ok:false
 RES_START_NONEXIST="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call start '{"id":"nonexistent_profile"}' 2>&1 || true)"
 assert_match '"ok":false' "${RES_START_NONEXIST}" "Test 19a: Start on nonexistent profile returns ok:false"
 

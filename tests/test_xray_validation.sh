@@ -32,6 +32,10 @@ echo "Testing reference dual_reverse_fixture.json with ${XRAY_BIN}..."
 "${XRAY_BIN}" run -test -config "${FIXTURE_FILE}"
 echo "  [PASS] Reference dual_reverse_fixture.json passed Xray semantic test."
 
+echo "Testing empty/default reverse-only configuration with ${XRAY_BIN}..."
+"${XRAY_BIN}" run -test -config "${SCRIPT_DIR}/fixtures/empty-reverse.json"
+echo "  [PASS] Empty/default reverse-only configuration passed Xray semantic test."
+
 echo "Testing smoke fixtures with ${XRAY_BIN}..."
 "${XRAY_BIN}" run -test -config "${SCRIPT_DIR}/fixtures/profile-smoke-a.json"
 "${XRAY_BIN}" run -test -config "${SCRIPT_DIR}/fixtures/profile-smoke-b.json"

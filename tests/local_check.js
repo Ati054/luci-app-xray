@@ -48,14 +48,19 @@ try {
     const smokeAPath = path.join(__dirname, 'fixtures', 'profile-smoke-a.json');
     const smokeBPath = path.join(__dirname, 'fixtures', 'profile-smoke-b.json');
     const smokeInvPath = path.join(__dirname, 'fixtures', 'profile-invalid.json');
+    const emptyReversePath = path.join(__dirname, 'fixtures', 'empty-reverse.json');
 
     const smokeA = JSON.parse(fs.readFileSync(smokeAPath, 'utf8'));
     const smokeB = JSON.parse(fs.readFileSync(smokeBPath, 'utf8'));
     const smokeInv = JSON.parse(fs.readFileSync(smokeInvPath, 'utf8'));
+    const emptyReverse = JSON.parse(fs.readFileSync(emptyReversePath, 'utf8'));
 
     assert(smokeA.outbounds.some(o => o.settings && o.settings.reverse && o.settings.reverse.tag === 'reverse-smoke-a-in'), 'Smoke A has valid reverse tag');
     assert(smokeB.outbounds.some(o => o.settings && o.settings.reverse && o.settings.reverse.tag === 'reverse-smoke-b-in'), 'Smoke B has valid reverse tag');
+    assert(smokeB.outbounds.some(o => o.streamSettings && o.streamSettings.network === 'xhttp' && o.streamSettings.security === 'reality'), 'Smoke B is XHTTP + REALITY');
+    assert([smokeA, smokeB].every(c => c.outbounds.filter(o => o.streamSettings && o.streamSettings.security === 'reality').every(o => /^[A-Za-z0-9_-]{43}$/.test(o.streamSettings.realitySettings.publicKey))), 'REALITY fixtures use canonical X25519 public key encoding');
     assert(smokeInv.inbounds.length === 1 && smokeInv.inbounds[0].port === 1080, 'Smoke Invalid has listening inbound');
+    assert(Array.isArray(emptyReverse.routing.rules) && emptyReverse.routing.rules.length === 0, 'Empty reverse fixture omits ineffective routing rules');
 } catch (e) {
     assert(false, `Smoke Fixture check failed: ${e.message}`);
 }

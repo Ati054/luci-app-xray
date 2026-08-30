@@ -65,36 +65,41 @@ function ensure_dirs() {
 function run_process(cmd_str) {
     ensure_dirs();
     let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.run_XXXXXX`);
+    if (!tmp_dir) {
+        return { exit_code: -1, stdout: "", stderr: "Unable to create process capture directory" };
+    }
     let tmp_prefix = `${tmp_dir}/run`;
     let out_file = `${tmp_prefix}.out`;
     let err_file = `${tmp_prefix}.err`;
     let rc_file = `${tmp_prefix}.rc`;
 
-    let wrapped = `(${cmd_str}) > "${out_file}" 2> "${err_file}"; echo $? > "${rc_file}"`;
-    let p = popen(wrapped, "r");
-    if (p) {
-        p.read("all");
-        p.close();
-    }
-
     let rc = -1;
     let stdout_content = "";
     let stderr_content = "";
 
-    if (access(rc_file)) {
-        rc = int(trim(readfile(rc_file) || "-1"));
+    try {
+        let wrapped = `(${cmd_str}) > "${out_file}" 2> "${err_file}"; echo $? > "${rc_file}"`;
+        let p = popen(wrapped, "r");
+        if (p) {
+            p.read("all");
+            p.close();
+        }
+
+        if (access(rc_file)) {
+            rc = int(trim(readfile(rc_file) || "-1"));
+        }
+        if (access(out_file)) {
+            stdout_content = readfile(out_file) || "";
+        }
+        if (access(err_file)) {
+            stderr_content = readfile(err_file) || "";
+        }
+    } finally {
         unlink(rc_file);
-    }
-    if (access(out_file)) {
-        stdout_content = readfile(out_file) || "";
         unlink(out_file);
-    }
-    if (access(err_file)) {
-        stderr_content = readfile(err_file) || "";
         unlink(err_file);
+        rmdir(tmp_dir);
     }
-    
-    rmdir(tmp_dir);
 
     return {
         exit_code: rc,
@@ -115,17 +120,31 @@ function is_pid_alive(pid) {
     return st && st.type == "directory";
 }
 
+function current_pid() {
+    let proc_stat = readfile("/proc/self/stat");
+    if (!proc_stat) return 0;
+    let fields = split(trim(proc_stat), " ");
+    return int(fields[0] || "0");
+}
+
 // Mutex Locking with Stale-Lock Detection and Recovery
 function acquire_lock() {
     ensure_dirs();
     for (let attempt = 0; attempt < 30; attempt++) {
         if (mkdir(LOCK_DIR, 0700)) {
-            let meta = { pid: 0, ts: time() };
-            let fh = open(LOCK_META, "w", 0600);
-            if (fh) {
-                fh.write(sprintf("%.0J", meta));
-                fh.close();
+            let owner_pid = current_pid();
+            if (!owner_pid) {
+                rmdir(LOCK_DIR);
+                return false;
             }
+            let meta = { pid: owner_pid, ts: time() };
+            let fh = open(LOCK_META, "w", 0600);
+            if (!fh) {
+                rmdir(LOCK_DIR);
+                return false;
+            }
+            fh.write(sprintf("%.0J", meta));
+            fh.close();
             return true;
         }
 
@@ -258,6 +277,47 @@ function sanitize_id(str) {
     return clean;
 }
 
+function scan_geodata_requirements(value, requirements) {
+    let value_type = type(value);
+
+    if (value_type == "string") {
+        if (index(value, "geoip:") >= 0) requirements.requires_geoip = true;
+        if (index(value, "geosite:") >= 0) requirements.requires_geosite = true;
+    } else if (value_type == "array") {
+        for (let item in value) {
+            scan_geodata_requirements(item, requirements);
+        }
+    } else if (value_type == "object") {
+        for (let item in values(value)) {
+            scan_geodata_requirements(item, requirements);
+        }
+    }
+}
+
+function get_profile_geodata(filepath) {
+    let requirements = {
+        requires_geoip: false,
+        requires_geosite: false,
+        geoip_found: false,
+        geosite_found: false,
+        missing: []
+    };
+
+    if (access(filepath, "r")) {
+        try {
+            scan_geodata_requirements(json(readfile(filepath) || "{}"), requirements);
+        } catch (e) {}
+    }
+
+    requirements.geoip_found = access(`${ASSET_DIR}/geoip.dat`, "r") || access("/usr/share/xray/geoip.dat", "r") ? true : false;
+    requirements.geosite_found = access(`${ASSET_DIR}/geosite.dat`, "r") || access("/usr/share/xray/geosite.dat", "r") ? true : false;
+
+    if (requirements.requires_geoip && !requirements.geoip_found) push(requirements.missing, "geoip.dat");
+    if (requirements.requires_geosite && !requirements.geosite_found) push(requirements.missing, "geosite.dat");
+
+    return requirements;
+}
+
 // Reverse Profile Policy Check
 function validate_policy(json_obj) {
     if (!json_obj || type(json_obj) != "object") {
@@ -321,27 +381,36 @@ function validate_content_full(content_str) {
     }
 
     // Binary existence check - hard failure if missing or non-executable
-    if (!access(XRAY_BIN)) {
+    if (!access(XRAY_BIN, "x")) {
         return { ok: false, error: "Xray runtime binary missing or not executable" };
     }
 
     // Write to temporary file with mode 0600 created before writing
     ensure_dirs();
     let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.tmp_test_XXXXXX`);
+    if (!tmp_dir) {
+        return { ok: false, error: "Failed to create exclusive temporary directory for validation" };
+    }
     let tmp_path = `${tmp_dir}/config.json`;
     let fh = open(tmp_path, "w", 0600);
     if (!fh) {
         rmdir(tmp_dir);
         return { ok: false, error: "Failed to open temporary file with mode 0600 for validation" };
     }
-    fh.write(content_str);
-    fh.close();
-    chmod(tmp_path, 0600);
+    let run_res = null;
+    try {
+        fh.write(content_str);
+        fh.close();
+        fh = null;
+        chmod(tmp_path, 0600);
 
-    let test_cmd = `XRAY_LOCATION_ASSET="${ASSET_DIR}" "${XRAY_BIN}" run -test -config "${tmp_path}"`;
-    let run_res = run_process(test_cmd);
-    unlink(tmp_path);
-    rmdir(tmp_dir);
+        let test_cmd = `XRAY_LOCATION_ASSET="${ASSET_DIR}" "${XRAY_BIN}" run -test -config "${tmp_path}"`;
+        run_res = run_process(test_cmd);
+    } finally {
+        if (fh) fh.close();
+        unlink(tmp_path);
+        rmdir(tmp_dir);
+    }
 
     if (run_res.exit_code !== 0) {
         return { ok: false, error: `Xray configuration validation test failed (exit code ${run_res.exit_code})` };
@@ -388,21 +457,21 @@ function rpc_list() {
             mtime: mtime,
             running: is_running,
             pid: pid,
-            last_error: null
+            last_error: null,
+            geodata: get_profile_geodata(filepath)
         });
     });
 
     // Check system status
-    let bin_found = access(XRAY_BIN) ? true : false;
+    let bin_found = access(XRAY_BIN, "x") ? true : false;
     let bin_ver = "";
     if (bin_found) {
-        let v_out = run_cmd(`"${XRAY_BIN}" version 2>/dev/null`);
-        let lines = split(v_out, "\n");
-        bin_ver = lines[0] || "26.7.28";
+        let version_result = run_process(`"${XRAY_BIN}" version`);
+        if (version_result.exit_code === 0) {
+            let lines = split(version_result.stdout, "\n");
+            bin_ver = lines[0] || "";
+        }
     }
-
-    let geoip_found = (access(`${ASSET_DIR}/geoip.dat`) || access("/usr/share/xray/geoip.dat")) ? true : false;
-    let geosite_found = (access(`${ASSET_DIR}/geosite.dat`) || access("/usr/share/xray/geosite.dat")) ? true : false;
 
     let running_cnt = 0;
     let failed_cnt = 0;
@@ -436,7 +505,6 @@ function rpc_list() {
             binary_path: XRAY_BIN,
             binary_found: bin_found,
             binary_version: bin_ver,
-            assets_found: geoip_found && geosite_found,
             stored_count: length(profiles),
             running_count: running_cnt,
             failed_count: failed_cnt,
@@ -515,6 +583,10 @@ function rpc_import(params) {
 
         // Write to temporary file created with mode 0600 BEFORE content write
         let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.tmp_import_XXXXXX`);
+        if (!tmp_dir) {
+            release_lock();
+            return { ok: false, error: "Failed to create exclusive temporary directory for import" };
+        }
         let tmp_path = `${tmp_dir}/config.json`;
         let fh = open(tmp_path, "w", 0600);
         if (!fh) {
@@ -522,18 +594,28 @@ function rpc_import(params) {
             release_lock();
             return { ok: false, error: "Failed to open temporary file with mode 0600" };
         }
-        fh.write(content);
-        fh.close();
-        chmod(tmp_path, 0600);
+        let installed = false;
+        try {
+            fh.write(content);
+            fh.close();
+            fh = null;
+            chmod(tmp_path, 0600);
 
-        // Atomically rename into place
-        if (!rename(tmp_path, target_path)) {
+            // Atomically rename into place
+            if (!rename(tmp_path, target_path)) {
+                release_lock();
+                return { ok: false, error: "Failed to atomically install profile file" };
+            }
+            installed = true;
+        } finally {
+            if (fh) fh.close();
             unlink(tmp_path);
             rmdir(tmp_dir);
+        }
+        if (!installed) {
             release_lock();
             return { ok: false, error: "Failed to atomically install profile file" };
         }
-        rmdir(tmp_dir);
         chmod(target_path, 0600);
 
         // Add UCI metadata section
@@ -587,6 +669,10 @@ function rpc_replace(params) {
         let filename = profile_sec.filename || `${id}.json`;
         let target_path = `${BASE_PROFILES_DIR}/${filename}`;
         let tmp_dir = mkdtemp(`${BASE_PROFILES_DIR}/.tmp_replace_XXXXXX`);
+        if (!tmp_dir) {
+            release_lock();
+            return { ok: false, error: "Failed to create exclusive temporary directory for replacement" };
+        }
         let backup_path = `${tmp_dir}/backup.json`;
         let tmp_path = `${tmp_dir}/config.json`;
 
@@ -617,39 +703,42 @@ function rpc_replace(params) {
             release_lock();
             return { ok: false, error: "Failed to open temporary file with mode 0600" };
         }
-        fh.write(content);
-        fh.close();
-        chmod(tmp_path, 0600);
+        try {
+            fh.write(content);
+            fh.close();
+            fh = null;
+            chmod(tmp_path, 0600);
 
-        if (!rename(tmp_path, target_path)) {
-            if (access(backup_path)) rename(backup_path, target_path);
-            unlink(tmp_path);
-            rmdir(tmp_dir);
-            release_lock();
-            return { ok: false, error: "Failed to atomically replace profile file" };
-        }
-        chmod(target_path, 0600);
-
-        // If was running, restart instance with bounded verification
-        if (was_running && access(INIT_SCRIPT)) {
-            run_cmd(`"${INIT_SCRIPT}" restart "${id}" 2>&1`);
-            let poll = poll_instance_state(id, true, 3000);
-            if (!poll.ok || !poll.running) {
-                // Rollback on restart failure
+            if (!rename(tmp_path, target_path)) {
                 if (access(backup_path)) {
                     rename(backup_path, target_path);
-                    run_cmd(`"${INIT_SCRIPT}" restart "${id}" >/dev/null 2>&1`);
                 }
-                rmdir(tmp_dir);
                 release_lock();
-                return { ok: false, error: "Restart failed on replacement; rolled back to previous valid profile" };
+                return { ok: false, error: "Failed to atomically replace profile file" };
             }
-        }
+            chmod(target_path, 0600);
 
-        if (access(backup_path)) {
+            // If was running, restart instance with bounded verification
+            if (was_running && access(INIT_SCRIPT, "x")) {
+                run_cmd(`"${INIT_SCRIPT}" restart "${id}" 2>&1`);
+                let poll = poll_instance_state(id, true, 3000);
+                if (!poll.ok || !poll.running) {
+                    // Rollback on restart failure
+                    if (access(backup_path)) {
+                        unlink(target_path);
+                        rename(backup_path, target_path);
+                        run_cmd(`"${INIT_SCRIPT}" restart "${id}" >/dev/null 2>&1`);
+                    }
+                    release_lock();
+                    return { ok: false, error: "Restart failed on replacement; rolled back to previous valid profile" };
+                }
+            }
+        } finally {
+            if (fh) fh.close();
+            unlink(tmp_path);
             unlink(backup_path);
+            rmdir(tmp_dir);
         }
-        rmdir(tmp_dir);
 
         release_lock();
         return { ok: true };
@@ -661,6 +750,7 @@ function rpc_replace(params) {
 
 function rpc_delete(params) {
     let id = trim(params.id || "");
+    let purge = params.purge ? true : false;
     if (!is_valid_id(id)) return { ok: false, error: "Invalid profile ID" };
 
     if (!acquire_lock()) {
@@ -691,12 +781,19 @@ function rpc_delete(params) {
             if (target_lst.type == "link") {
                 unlink(target_path);
             } else if (access(target_path)) {
-                let trash_dest = `${TRASH_DIR}/${time()}_${filename}`;
-                if (!rename(target_path, trash_dest)) {
-                    release_lock();
-                    return { ok: false, error: "Failed to archive profile file into .trash/" };
+                if (purge) {
+                    if (!unlink(target_path)) {
+                        release_lock();
+                        return { ok: false, error: "Failed to remove profile file" };
+                    }
+                } else {
+                    let trash_dest = `${TRASH_DIR}/${time()}_${filename}`;
+                    if (!rename(target_path, trash_dest)) {
+                        release_lock();
+                        return { ok: false, error: "Failed to archive profile file into .trash/" };
+                    }
+                    chmod(trash_dest, 0600);
                 }
-                chmod(trash_dest, 0600);
             }
         }
 
@@ -896,7 +993,7 @@ if (cmd == "list") {
         validate: { content: "str" },
         import: { name: "str", filename: "str", content: "str", autostart: "bool" },
         replace: { id: "str", content: "str" },
-        delete: { id: "str" },
+        delete: { id: "str", purge: "bool" },
         start: { id: "str" },
         stop: { id: "str" },
         restart: { id: "str" },

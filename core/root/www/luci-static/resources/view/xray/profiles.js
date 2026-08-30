@@ -103,6 +103,7 @@ return view.extend({
     handleSave: null,
     handleSaveApply: null,
     handleReset: null,
+    refreshInFlight: null,
 
     load: function() {
         return callProfilesList().catch(function() {
@@ -143,9 +144,16 @@ return view.extend({
 
         // Poll actual process state every 5 seconds (non-overlapping)
         poll.add(function() {
-            return callProfilesList().then(function(newData) {
+            if (self.refreshInFlight)
+                return self.refreshInFlight;
+
+            self.refreshInFlight = callProfilesList().then(function(newData) {
                 self.updateView(newData, statusContainer, tableContainer);
-            }).catch(function() {});
+            }).catch(function() {}).finally(function() {
+                self.refreshInFlight = null;
+            });
+
+            return self.refreshInFlight;
         }, 5);
 
         return viewContainer;
@@ -179,7 +187,7 @@ return view.extend({
             E('span', { 'class': 'label success' }, summary.binary_version || _('Установлен')) :
             E('span', { 'class': 'label danger' }, _('Не найден'));
             
-        var binPathText = summary.binary_path || '/usr/bin/xray';
+        var binPathText = summary.binary_path || '/opt/xray/current/xray';
 
         var serviceStatusBadge = summary.service_enabled ?
             E('span', { 'class': 'label success' }, _('Включен в автозагрузку')) :
@@ -257,6 +265,16 @@ return view.extend({
         var statusBadge = p.running ?
             E('span', { 'class': 'label success' }, _('Работает (PID: %d)').format(p.pid || 0)) :
             E('span', { 'class': 'label' }, _('Остановлен'));
+
+        var geodata = p.geodata || {};
+        var missingGeodata = Array.isArray(geodata.missing) ? geodata.missing : [];
+        var statusContent = [ statusBadge ];
+        if (missingGeodata.length > 0) {
+            statusContent.push(E('div', {
+                'class': 'alert-message warning',
+                'style': 'margin-top: 6px; padding: 4px 6px; font-size: 85%;'
+            }, _('Профилю требуются отсутствующие файлы: %s').format(missingGeodata.join(', '))));
+        }
 
         var autostartBtn = E('button', {
             'class': 'btn cbi-button ' + (p.autostart ? 'cbi-button-positive' : 'cbi-button-neutral'),
@@ -371,7 +389,7 @@ return view.extend({
             E('td', { 'class': 'td' }, E('code', {}, p.filename)),
             E('td', { 'class': 'td' }, '%d B'.format(p.size)),
             E('td', { 'class': 'td' }, E('code', {}, p.sha256 || '-')),
-            E('td', { 'class': 'td' }, statusBadge),
+            E('td', { 'class': 'td' }, statusContent),
             E('td', { 'class': 'td' }, autostartBtn),
             E('td', { 'class': 'td right' }, actions)
         ]);

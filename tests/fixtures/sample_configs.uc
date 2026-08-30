@@ -27,7 +27,7 @@ export function get_dual_reverse_config() {
             "vless_tls": "reality",
             "vless_flow_reality": "xtls-rprx-vision",
             "vless_reality_server_name": "example.com",
-            "vless_reality_public_key": "k0A4GZ2z5c4q8w3v_6r5t7y8u9i0o1p2a3s4d5f6g7h",
+            "vless_reality_public_key": "67Crg1l33rjDO9A9mUkHQUIWyr1pBeFNNW93armtSEg",
             "vless_reality_short_id": "0123456789abcdef",
             "vless_reality_fingerprint": "chrome",
             "transport": "tcp"
