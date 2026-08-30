@@ -41,7 +41,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Install build and proof dependencies
         shell: bash
@@ -85,6 +85,14 @@ jobs:
             echo "CCACHE_DIR=$RUNNER_TEMP/ccache"
           } >> "$GITHUB_ENV"
 
+      - name: Restore compiler cache
+        uses: actions/cache@v6
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: openwrt-ccache-v1-${{ runner.os }}-${{ matrix.id }}-${{ matrix.target_arch }}-${{ github.run_id }}
+          restore-keys: |
+            openwrt-ccache-v1-${{ runner.os }}-${{ matrix.id }}-${{ matrix.target_arch }}-
+
       - name: Configure feeds and package source
         shell: bash
         run: |
@@ -124,10 +132,13 @@ jobs:
         run: |
           set -euo pipefail
           cd "$SDK_HOME"
+          ccache --max-size=1G
+          ccache --zero-stats
           make "package/$PACKAGE_NAME/core/clean" V=s
           make -j"$(nproc)" "package/$PACKAGE_NAME/core/compile" V=s
           make "package/$PACKAGE_NAME/status/clean" V=s
           make -j"$(nproc)" "package/$PACKAGE_NAME/status/compile" V=s
+          ccache --show-stats
 
       - name: Locate exact R9 package identities
         shell: bash
