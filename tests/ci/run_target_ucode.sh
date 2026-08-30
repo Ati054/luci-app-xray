@@ -38,7 +38,8 @@ trap 'exit 143' TERM
 
 ROOT="${TMP_DIR}/root"
 REPO="${TMP_DIR}/repo"
-mkdir -p "${ROOT}/etc/apk" "${ROOT}/lib/apk/db" "${ROOT}/var/cache/apk" "${ROOT}/tmp" "${REPO}"
+CORE_PAYLOAD="${TMP_DIR}/core-payload"
+mkdir -p "${ROOT}/etc/apk" "${ROOT}/lib/apk/db" "${ROOT}/var/cache/apk" "${ROOT}/tmp" "${REPO}" "${CORE_PAYLOAD}"
 printf 'aarch64_cortex-a53\nall\n' > "${ROOT}/etc/apk/arch"
 : > "${ROOT}/etc/apk/world"
 find "${BUNDLE_DIR}" -maxdepth 1 -type f -name '*.apk' -exec cp -p '{}' "${REPO}/" ';'
@@ -56,7 +57,8 @@ find "${BUNDLE_DIR}" -maxdepth 1 -type f -name '*.apk' -exec cp -p '{}' "${REPO}
     --repository "file://${REPO}/packages.adb" \
     add --initdb --no-cache --no-network --no-scripts ucode ucode-mod-fs ucode-mod-uci
 
-"${SDK_APK}" --allow-untrusted extract --no-chown --destination "${ROOT}" "${CORE_APK}"
+"${SDK_APK}" --allow-untrusted extract --no-chown --destination "${CORE_PAYLOAD}" "${CORE_APK}"
+cp -a "${CORE_PAYLOAD}/." "${ROOT}/"
 mkdir -p "${ROOT}/usr/bin" "${ROOT}/proc" "${ROOT}/dev" "${ROOT}/etc/config"
 cp -p "${QEMU_BIN}" "${ROOT}/usr/bin/qemu-aarch64-static"
 sudo mknod "${ROOT}/dev/null" c 1 3

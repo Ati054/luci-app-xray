@@ -121,6 +121,9 @@ def main() -> int:
             "add --initdb --no-cache --no-network" in target_ucode and
             target_ucode.count("--usermode") == 1,
             "target ucode proof initializes its non-root apk database in usermode")
+    require('--destination "${CORE_PAYLOAD}" "${CORE_APK}"' in target_ucode and
+            'cp -a "${CORE_PAYLOAD}/." "${ROOT}/"' in target_ucode,
+            "target ucode proof extracts the core payload before layering it onto the apk root")
     critical_paths = (
         ".github/workflows/build-release.yml",
         "scripts/build_r9_offline_bundle.sh",
