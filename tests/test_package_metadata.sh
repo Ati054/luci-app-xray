@@ -40,9 +40,9 @@ CORE_REL=$(grep "^PKG_RELEASE:=" "${CORE_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n
 STATUS_REL=$(grep "^PKG_RELEASE:=" "${STATUS_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 GEODATA_REL=$(grep "^PKG_RELEASE:=" "${GEODATA_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 
-assert_equal "5" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=5"
-assert_equal "5" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=5"
-assert_equal "5" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=5"
+assert_equal "8" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=8"
+assert_equal "8" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=8"
+assert_equal "8" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=8"
 
 # Test 3b: core/Makefile must contain +firewall4 and +dnsmasq in LUCI_DEPENDS
 LUCI_DEP_LINE=$(grep "^[[:space:]]*LUCI_DEPENDS:=" "${CORE_MAKEFILE}" || true)

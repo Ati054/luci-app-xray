@@ -81,5 +81,8 @@ fi
 echo "\n--- 6. Running Xray semantic validation ---"
 sh "${SCRIPT_DIR}/test_xray_validation.sh" "${XRAY_BIN:-xray}"
 
+echo "\n--- 7. Running R8 invariant tests ---"
+sh "${SCRIPT_DIR}/test_r8_invariants.sh"
+
 echo "\nAll test suites completed successfully."
 exit 0
