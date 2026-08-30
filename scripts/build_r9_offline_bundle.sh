@@ -126,7 +126,7 @@ grep -q -- '--network' "${ADD_HELP}" || {
     echo "ERROR: SDK apk add lacks the boolean --network capability" >&2
     exit 1
 }
-grep -q -- '--usermode' "${APK_HELP}" || {
+grep -q -- '--usermode' "${ADD_HELP}" || {
     echo "ERROR: SDK apk lacks non-root isolated database support" >&2
     exit 1
 }
