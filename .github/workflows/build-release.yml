@@ -37,7 +37,6 @@ jobs:
     env:
       SDK_URL_PATH: ${{ matrix.sdk_url_path }}
       SDK_NAME: ${{ matrix.sdk_name }}
-      CCACHE_DIR: ${{ runner.temp }}/ccache
       CONFIG_CCACHE: y
 
     steps:
@@ -83,6 +82,7 @@ jobs:
           {
             echo "SDK_HOME=$SDK_HOME"
             echo "APK_HOST=$SDK_HOME/staging_dir/host/bin/apk"
+            echo "CCACHE_DIR=$RUNNER_TEMP/ccache"
           } >> "$GITHUB_ENV"
 
       - name: Configure feeds and package source

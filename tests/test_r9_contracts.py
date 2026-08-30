@@ -55,8 +55,15 @@ def main() -> int:
     require(b"\r\n" not in workflow_bytes and not workflow_bytes.startswith(b"\xef\xbb\xbf"),
             "workflow is UTF-8 without BOM and LF-only")
     workflow = workflow_bytes.decode("utf-8")
-    yaml.safe_load(workflow)
+    workflow_document = yaml.safe_load(workflow)
     print("PASS: workflow YAML parses")
+    job_env_values = (
+        str(value)
+        for job in workflow_document.get("jobs", {}).values()
+        for value in job.get("env", {}).values()
+    )
+    require(all("${{ runner." not in value for value in job_env_values),
+            "job-level workflow env avoids the unavailable runner context")
 
     exact_repositories = [
         "https://downloads.openwrt.org/releases/25.12.5/targets/bcm27xx/bcm2710/packages/packages.adb",
