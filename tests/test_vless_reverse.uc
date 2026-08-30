@@ -90,6 +90,7 @@ print("=== Test Suite: VLESS Protocol Module & Reverse Validation ===\n");
     assert(res_raw.outbound.settings.reverse.tag != res_xhttp.outbound.settings.reverse.tag, "reverse tags must be distinct");
     assert(res_raw.outbound.settings.id != res_xhttp.outbound.settings.id, "UUIDs must be distinct");
     assert(res_raw.outbound.streamSettings.network == "tcp", "raw link network must be tcp");
+    assert(res_raw.outbound.streamSettings.tcpSettings == null, "raw TCP without disguise must omit tcpSettings");
     assert(res_xhttp.outbound.streamSettings.network == "splithttp", "xhttp link network must be splithttp");
 }
 

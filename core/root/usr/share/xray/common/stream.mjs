@@ -42,9 +42,14 @@ function stream_tcp_fake_http_response(server) {
 
 function stream_tcp(server) {
     if (server["transport"] === "tcp") {
+        const guise = server["tcp_guise"] || "none";
+        if (guise === "none") {
+            return null;
+        }
+
         return {
             header: {
-                type: server["tcp_guise"],
+                type: guise,
                 request: stream_tcp_fake_http_request(server),
                 response: stream_tcp_fake_http_response(server)
             }
