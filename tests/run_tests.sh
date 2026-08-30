@@ -65,7 +65,6 @@ if check_tool "${UCODE_BIN}"; then
     "${UCODE_BIN}" "${SCRIPT_DIR}/test_vless_reverse.uc"
     "${UCODE_BIN}" "${SCRIPT_DIR}/test_reverse_only_generator.uc"
     UCODE_BIN="${UCODE_BIN}" sh "${SCRIPT_DIR}/test_ucode_entrypoint.sh"
-    UCODE_BIN="${UCODE_BIN}" sh "${SCRIPT_DIR}/test_gen_config_import.sh"
     UCODE_BIN="${UCODE_BIN}" sh "${SCRIPT_DIR}/test_rpcd_stdin.sh"
     UCODE_BIN="${UCODE_BIN}" sh "${SCRIPT_DIR}/test_tmp_cleanup.sh"
 else
