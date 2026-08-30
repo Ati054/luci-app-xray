@@ -85,6 +85,10 @@ def main() -> int:
             "APK metadata uses apk-tools v3 adbdump rather than file-checksum manifest output")
     require("--no-network" in bundle_script and "OFFLINE-TRANSACTION.log" in bundle_script,
             "bundle builder records a network-disabled transaction")
+    require("capture_apk_help" in bundle_script and
+            "${help_rc} -eq 0 || ${help_rc} -eq 1" in bundle_script and
+            '[[ -s "${output}" ]]' in bundle_script,
+            "bundle builder validates apk-tools v3 help output despite status 1")
     require("strace" in bundle_script and "AF_INET" in bundle_script,
             "offline proof audits network syscalls")
     require("SHA256SUMS-R9.txt" in workflow and "sha256sum -c SHA256SUMS-R9.txt" in workflow,

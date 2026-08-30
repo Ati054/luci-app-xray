@@ -82,12 +82,32 @@ ADD_HELP="${TMP_ROOT}/add-help.txt"
 ADBDUMP_HELP="${TMP_ROOT}/adbdump-help.txt"
 MKNDX_HELP="${TMP_ROOT}/mkndx-help.txt"
 LIST_HELP="${TMP_ROOT}/list-help.txt"
-"${APK_HOST}" --help > "${APK_HELP}"
-"${APK_HOST}" fetch --help > "${FETCH_HELP}"
-"${APK_HOST}" add --help > "${ADD_HELP}"
-"${APK_HOST}" adbdump --help > "${ADBDUMP_HELP}"
-"${APK_HOST}" mkndx --help > "${MKNDX_HELP}"
-"${APK_HOST}" list --help > "${LIST_HELP}"
+
+capture_apk_help() {
+    local output="$1"
+    local help_rc
+    shift
+    if "${APK_HOST}" "$@" --help > "${output}" 2>&1; then
+        help_rc=0
+    else
+        help_rc=$?
+    fi
+    [[ ${help_rc} -eq 0 || ${help_rc} -eq 1 ]] || {
+        echo "ERROR: apk $* --help failed with unexpected status ${help_rc}" >&2
+        exit 1
+    }
+    [[ -s "${output}" ]] || {
+        echo "ERROR: apk $* --help returned no capability description" >&2
+        exit 1
+    }
+}
+
+capture_apk_help "${APK_HELP}"
+capture_apk_help "${FETCH_HELP}" fetch
+capture_apk_help "${ADD_HELP}" add
+capture_apk_help "${ADBDUMP_HELP}" adbdump
+capture_apk_help "${MKNDX_HELP}" mkndx
+capture_apk_help "${LIST_HELP}" list
 cat "${APK_HELP}" "${FETCH_HELP}" "${ADD_HELP}" "${ADBDUMP_HELP}" "${MKNDX_HELP}" "${LIST_HELP}"
 
 grep -q -- '--recursive' "${FETCH_HELP}" || grep -q -- '-R' "${FETCH_HELP}" || {
