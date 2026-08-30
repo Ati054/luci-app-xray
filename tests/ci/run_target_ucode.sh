@@ -48,6 +48,7 @@ find "${BUNDLE_DIR}" -maxdepth 1 -type f -name '*.apk' -exec cp -p '{}' "${REPO}
 )
 
 "${SDK_APK}" \
+    --usermode \
     --root "${ROOT}" \
     --arch aarch64_cortex-a53 \
     --allow-untrusted \

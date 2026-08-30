@@ -116,6 +116,11 @@ def main() -> int:
             'compile_source="${module}"' in ucode_sweep and
             "-cdynlink=ubus -o /dev/null" in ucode_sweep,
             "ucode sweep compiles executables directly and modules through imports")
+    target_ucode = read("tests/ci/run_target_ucode.sh")
+    require("--usermode \\\n    --root \"${ROOT}\"" in target_ucode and
+            "add --initdb --no-cache --no-network" in target_ucode and
+            target_ucode.count("--usermode") == 1,
+            "target ucode proof initializes its non-root apk database in usermode")
     critical_paths = (
         ".github/workflows/build-release.yml",
         "scripts/build_r9_offline_bundle.sh",
