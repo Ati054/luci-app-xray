@@ -50,7 +50,7 @@ export function get_dual_reverse_config() {
             "splithttp_path": "/xhttp-path"
         }
     };
-}
+};
 
 export function get_normal_vless_config() {
     return {
@@ -77,7 +77,7 @@ export function get_normal_vless_config() {
             "transport": "tcp"
         }
     };
-}
+};
 
 export function get_invalid_multi_port_reverse_config() {
     return {
@@ -99,7 +99,7 @@ export function get_invalid_multi_port_reverse_config() {
             "transport": "tcp"
         }
     };
-}
+};
 
 export function get_missing_port_reverse_config() {
     return {
@@ -113,7 +113,7 @@ export function get_missing_port_reverse_config() {
             "protocol": "vless"
         }
     };
-}
+};
 
 export function get_port_zero_reverse_config() {
     return {
@@ -128,7 +128,7 @@ export function get_port_zero_reverse_config() {
             "protocol": "vless"
         }
     };
-}
+};
 
 export function get_port_overflow_reverse_config() {
     return {
@@ -143,7 +143,7 @@ export function get_port_overflow_reverse_config() {
             "protocol": "vless"
         }
     };
-}
+};
 
 export function get_nonnumeric_port_reverse_config() {
     return {
@@ -158,7 +158,7 @@ export function get_nonnumeric_port_reverse_config() {
             "protocol": "vless"
         }
     };
-}
+};
 
 export function get_non_vless_reverse_config() {
     return {
@@ -173,7 +173,7 @@ export function get_non_vless_reverse_config() {
             "protocol": "vmess"
         }
     };
-}
+};
 
 export function get_empty_uuid_reverse_config() {
     return {
@@ -188,7 +188,7 @@ export function get_empty_uuid_reverse_config() {
             "protocol": "vless"
         }
     };
-}
+};
 
 export function get_duplicate_outbound_tags_config() {
     return {
@@ -216,7 +216,7 @@ export function get_duplicate_outbound_tags_config() {
             "protocol": "vless"
         }
     };
-}
+};
 
 export function get_duplicate_reverse_tags_config() {
     return {
@@ -244,7 +244,7 @@ export function get_duplicate_reverse_tags_config() {
             "protocol": "vless"
         }
     };
-}
+};
 
 export function get_normal_server_blank_reverse_tag_config() {
     return {
@@ -260,7 +260,7 @@ export function get_normal_server_blank_reverse_tag_config() {
             "reverse_tag": ""
         }
     };
-}
+};
 
 export function get_reverse_with_custom_mark_config() {
     return {
@@ -278,7 +278,7 @@ export function get_reverse_with_custom_mark_config() {
             "custom_config": "{\"streamSettings\":{\"sockopt\":{\"mark\":253}}}"
         }
     };
-}
+};
 
 export function get_reserved_tag_reverse_config() {
     return {
@@ -294,7 +294,7 @@ export function get_reserved_tag_reverse_config() {
             "protocol": "vless"
         }
     };
-}
+};
 
 export function get_reserved_reverse_tag_config() {
     return {
@@ -311,7 +311,7 @@ export function get_reserved_reverse_tag_config() {
             "protocol": "vless"
         }
     };
-}
+};
 
 export function get_alias_variant_configs() {
     return {
@@ -356,4 +356,4 @@ export function get_alias_variant_configs() {
             }
         }
     };
-}
+};
