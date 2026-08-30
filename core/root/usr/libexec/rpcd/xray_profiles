@@ -351,7 +351,7 @@ function validate_policy(json_obj) {
 
     // Inbounds policy: must be absent or empty array
     if (json_obj.inbounds) {
-        if (!is_array(json_obj.inbounds) || length(json_obj.inbounds) > 0) {
+        if (type(json_obj.inbounds) != "array" || length(json_obj.inbounds) > 0) {
             return { ok: false, error: "Policy violation: listening inbounds are prohibited in Reverse Profile mode" };
         }
     }
@@ -368,7 +368,7 @@ function validate_policy(json_obj) {
 
     // Check for modern VLESS settings.reverse.tag
     let has_modern_reverse = false;
-    if (is_array(json_obj.outbounds)) {
+    if (type(json_obj.outbounds) == "array") {
         for (let ob in json_obj.outbounds) {
             if (ob.protocol == "vless" && ob.settings && ob.settings.reverse && ob.settings.reverse.tag) {
                 if (length(trim(ob.settings.reverse.tag)) > 0) {

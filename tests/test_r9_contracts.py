@@ -148,7 +148,7 @@ def main() -> int:
     require("requires_geoip" in backend and "requires_geosite" in backend,
             "backend reports per-profile geodata requirements")
     require("assets_found" not in backend, "backend exposes no misleading global assets status")
-    require("finally" not in backend and "throw " not in backend,
+    require("finally" not in backend and "throw " not in backend and "is_array(" not in backend,
             "backend cleanup uses target-compatible ucode syntax")
 
     generator_entry = read("core/root/usr/share/xray/gen_config.uc")
