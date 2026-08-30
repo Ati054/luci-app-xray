@@ -91,6 +91,10 @@ def main() -> int:
             "bundle builder verifies complete R9 checksums")
     require("OFFLINE-PACKAGES-MANIFEST.txt" in bundle_script,
             "bundle builder emits the dependency manifest")
+    package_verifier = read("tests/ci/verify_package_contents.sh")
+    require("extract --help" not in package_verifier and
+            '"${SDK_APK}" --allow-untrusted extract' in package_verifier,
+            "APK verification relies on real extraction, not a nonzero help probe")
     setup_ucode = read("tests/ci/setup_ucode.sh")
     require("/opt/ucode-pinned/bin/ucode -v" not in setup_ucode and
             "ucode runtime loaded successfully" in setup_ucode,

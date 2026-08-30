@@ -37,8 +37,6 @@ case "${FORMAT}" in
             echo "ERROR: SDK apk is required for APK extraction" >&2
             exit 1
         }
-        "${SDK_APK}" --help
-        "${SDK_APK}" extract --help
         "${SDK_APK}" --allow-untrusted extract --no-chown --destination "${TMP_DIR}" "${PACKAGE}"
         ;;
     ipk)
