@@ -21,7 +21,20 @@ LUCI_DESCRIPTION:=LuCI client for Xray with modern VLESS Reverse support and opt
 LUCI_DEPENDS:=+ucode +ucode-mod-uci +ucode-mod-fs +coreutils-base64 +ca-bundle +ip-full +kmod-nft-tproxy +firewall4 +dnsmasq
 LUCI_PKGARCH:=all
 
-include $(TOPDIR)/feeds/luci/luci.mk
+include $(INCLUDE_DIR)/package.mk
+
+define Package/$(PKG_NAME)
+	SECTION:=luci
+	CATEGORY:=LuCI
+	SUBMENU:=3. Applications
+	TITLE:=$(LUCI_TITLE)
+	DEPENDS:=$(LUCI_DEPENDS)
+	PKGARCH:=$(LUCI_PKGARCH)
+endef
+
+define Package/$(PKG_NAME)/description
+	$(LUCI_DESCRIPTION)
+endef
 
 define Package/$(PKG_NAME)/config
 menu "Configuration"
@@ -161,3 +174,4 @@ endif
 endef
 
 # call BuildPackage - OpenWrt buildroot signature
+$(eval $(call BuildPackage,$(PKG_NAME)))

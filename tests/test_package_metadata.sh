@@ -44,6 +44,15 @@ assert_equal "9" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=9"
 assert_equal "9" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=9"
 assert_equal "9" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=9"
 
+# The OpenWrt 23.05 luci.mk helper drops PKG_RELEASE from the package VERSION.
+# Use package.mk directly so both legacy IPK and modern APK builders encode R9.
+HAS_NATIVE_PACKAGE_MK=$(grep -Fc 'include $(INCLUDE_DIR)/package.mk' "${CORE_MAKEFILE}" || true)
+HAS_LUCI_MK=$(grep -Fc 'feeds/luci/luci.mk' "${CORE_MAKEFILE}" || true)
+HAS_BUILD_PACKAGE=$(grep -Fc '$(eval $(call BuildPackage,$(PKG_NAME)))' "${CORE_MAKEFILE}" || true)
+assert_equal "1" "$((HAS_NATIVE_PACKAGE_MK > 0))" "core/Makefile uses package.mk so IPK preserves release 9"
+assert_equal "0" "${HAS_LUCI_MK}" "core/Makefile does not use luci.mk version override"
+assert_equal "1" "$((HAS_BUILD_PACKAGE > 0))" "core/Makefile evaluates its package definition"
+
 # Test 3b: core/Makefile must contain +firewall4 and +dnsmasq in LUCI_DEPENDS
 LUCI_DEP_LINE=$(grep "^[[:space:]]*LUCI_DEPENDS:=" "${CORE_MAKEFILE}" || true)
 HAS_FW4=$(echo "${LUCI_DEP_LINE}" | grep -c "+firewall4" || true)
