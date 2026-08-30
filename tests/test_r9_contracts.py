@@ -89,6 +89,9 @@ def main() -> int:
             "${help_rc} -eq 0 || ${help_rc} -eq 1" in bundle_script and
             '[[ -s "${output}" ]]' in bundle_script,
             "bundle builder validates apk-tools v3 help output despite status 1")
+    require("grep -q -- '--network'" in bundle_script and
+            bundle_script.count("--no-network") >= 3,
+            "bundle builder maps apk v3 boolean help to fail-closed no-network transactions")
     require("strace" in bundle_script and "AF_INET" in bundle_script,
             "offline proof audits network syscalls")
     require("SHA256SUMS-R9.txt" in workflow and "sha256sum -c SHA256SUMS-R9.txt" in workflow,

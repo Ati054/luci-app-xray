@@ -122,8 +122,8 @@ grep -q -- '--output' "${FETCH_HELP}" || {
     echo "ERROR: SDK apk fetch cannot write a dependency directory" >&2
     exit 1
 }
-grep -q -- '--no-network' "${ADD_HELP}" || {
-    echo "ERROR: SDK apk add lacks --no-network" >&2
+grep -q -- '--network' "${ADD_HELP}" || {
+    echo "ERROR: SDK apk add lacks the boolean --network capability" >&2
     exit 1
 }
 grep -q -- '--simulate' "${ADD_HELP}" || {
