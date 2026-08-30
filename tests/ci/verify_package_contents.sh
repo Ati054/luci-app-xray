@@ -40,20 +40,31 @@ case "${FORMAT}" in
         "${SDK_APK}" --allow-untrusted extract --no-chown --destination "${TMP_DIR}" "${PACKAGE}"
         ;;
     ipk)
-        command -v ar >/dev/null 2>&1 || {
-            echo "ERROR: ar is required for IPK extraction" >&2
+        OUTER_LIST="${TMP_DIR}/ipk-members.txt"
+        if command -v ar >/dev/null 2>&1 && ar t "${PACKAGE}" > "${OUTER_LIST}" 2>/dev/null; then
+            IPK_CONTAINER=ar
+        elif tar -tf "${PACKAGE}" > "${OUTER_LIST}" 2>/dev/null; then
+            IPK_CONTAINER=tar
+        else
+            echo "ERROR: IPK is neither an ar nor tar container: ${PACKAGE}" >&2
             exit 1
-        }
-        ar t "${PACKAGE}" | grep -Eq '^data\.tar\.(gz|zst|xz)$' || {
+        fi
+
+        DATA_MEMBER="$(awk '/^(\.\/)?data\.tar\.(gz|zst|xz)$/ { print; exit }' "${OUTER_LIST}")"
+        [ -n "${DATA_MEMBER}" ] || {
             echo "ERROR: IPK has no supported data archive: ${PACKAGE}" >&2
             exit 1
         }
-        DATA_MEMBER="$(ar t "${PACKAGE}" | sed -n '/^data\.tar\./p' | head -n 1)"
-        ar p "${PACKAGE}" "${DATA_MEMBER}" > "${TMP_DIR}/${DATA_MEMBER}"
-        case "${DATA_MEMBER}" in
-            *.gz) tar -C "${TMP_DIR}" -xzf "${TMP_DIR}/${DATA_MEMBER}" ;;
-            *.zst) tar -C "${TMP_DIR}" --zstd -xf "${TMP_DIR}/${DATA_MEMBER}" ;;
-            *.xz) tar -C "${TMP_DIR}" -xJf "${TMP_DIR}/${DATA_MEMBER}" ;;
+        DATA_ARCHIVE="${TMP_DIR}/$(basename "${DATA_MEMBER}")"
+        if [ "${IPK_CONTAINER}" = "ar" ]; then
+            ar p "${PACKAGE}" "${DATA_MEMBER}" > "${DATA_ARCHIVE}"
+        else
+            tar -xOf "${PACKAGE}" "${DATA_MEMBER}" > "${DATA_ARCHIVE}"
+        fi
+        case "${DATA_ARCHIVE}" in
+            *.gz) tar -C "${TMP_DIR}" -xzf "${DATA_ARCHIVE}" ;;
+            *.zst) tar -C "${TMP_DIR}" --zstd -xf "${DATA_ARCHIVE}" ;;
+            *.xz) tar -C "${TMP_DIR}" -xJf "${DATA_ARCHIVE}" ;;
         esac
         ;;
     *)
