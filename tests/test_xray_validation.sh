@@ -43,7 +43,9 @@ echo "  [PASS] Reference smoke fixtures passed Xray semantic test."
 
 if command -v ucode >/dev/null 2>&1; then
     echo "Generating dynamic reverse-only config from ucode..."
-    TMP_JSON="$(mktemp)"
+    TMP_DYNAMIC_DIR="$(mktemp -d)"
+    TMP_JSON="${TMP_DYNAMIC_DIR}/config.json"
+    trap 'rm -rf "${TMP_DYNAMIC_DIR}"' EXIT INT TERM
     ucode -e '
         import { gen_config_from_data } from "'"${SCRIPT_DIR}"'/../core/root/usr/share/xray/gen_config.mjs";
         import { get_dual_reverse_config } from "'"${SCRIPT_DIR}"'/fixtures/sample_configs.uc";
@@ -52,7 +54,8 @@ if command -v ucode >/dev/null 2>&1; then
 
     echo "Testing dynamically generated reverse config with ${XRAY_BIN}..."
     "${XRAY_BIN}" run -test -config "${TMP_JSON}"
-    rm -f "${TMP_JSON}"
+    rm -rf "${TMP_DYNAMIC_DIR}"
+    trap - EXIT INT TERM
     echo "  [PASS] Dynamically generated reverse-only config passed Xray semantic test."
 else
     if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
