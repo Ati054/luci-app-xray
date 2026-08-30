@@ -86,7 +86,7 @@ jobs:
           } >> "$GITHUB_ENV"
 
       - name: Restore compiler cache
-        uses: actions/cache@v6
+        uses: actions/cache/restore@v6
         with:
           path: ${{ runner.temp }}/ccache
           key: openwrt-ccache-v1-${{ runner.os }}-${{ matrix.id }}-${{ matrix.target_arch }}-${{ github.run_id }}
@@ -139,6 +139,12 @@ jobs:
           make "package/$PACKAGE_NAME/status/clean" V=s
           make -j"$(nproc)" "package/$PACKAGE_NAME/status/compile" V=s
           ccache --show-stats
+
+      - name: Save compiler cache
+        uses: actions/cache/save@v6
+        with:
+          path: ${{ runner.temp }}/ccache
+          key: openwrt-ccache-v1-${{ runner.os }}-${{ matrix.id }}-${{ matrix.target_arch }}-${{ github.run_id }}
 
       - name: Locate exact R9 package identities
         shell: bash
