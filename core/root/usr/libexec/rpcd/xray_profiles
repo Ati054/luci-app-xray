@@ -102,7 +102,9 @@ function run_process(cmd_str) {
     unlink(out_file);
     unlink(err_file);
     rmdir(tmp_dir);
-    if (process_error) throw process_error;
+    if (process_error) {
+        die(process_error);
+    }
 
     return {
         exit_code: rc,
@@ -416,7 +418,9 @@ function validate_content_full(content_str) {
     if (fh) fh.close();
     unlink(tmp_path);
     rmdir(tmp_dir);
-    if (validation_error) throw validation_error;
+    if (validation_error) {
+        die(validation_error);
+    }
 
     if (run_res.exit_code !== 0) {
         return { ok: false, error: `Xray configuration validation test failed (exit code ${run_res.exit_code})` };
@@ -616,7 +620,9 @@ function rpc_import(params) {
         if (fh) fh.close();
         unlink(tmp_path);
         rmdir(tmp_dir);
-        if (install_error) throw install_error;
+        if (install_error) {
+            die(install_error);
+        }
         if (!installed) {
             release_lock();
             return { ok: false, error: "Failed to atomically install profile file" };
@@ -746,7 +752,9 @@ function rpc_replace(params) {
         unlink(tmp_path);
         unlink(backup_path);
         rmdir(tmp_dir);
-        if (replacement_exception) throw replacement_exception;
+        if (replacement_exception) {
+            die(replacement_exception);
+        }
         if (replacement_error) {
             release_lock();
             return { ok: false, error: replacement_error };
