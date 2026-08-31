@@ -59,6 +59,7 @@ PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" "${SCRIPT_DIR}/test_r9_manifest.py"
 PYTHONDONTWRITEBYTECODE=1 "${PYTHON_BIN}" "${SCRIPT_DIR}/test_workflow_shell.py"
 sh "${SCRIPT_DIR}/test_installer_r9.sh"
 sh "${SCRIPT_DIR}/test_apk_help_compatibility.sh"
+sh "${SCRIPT_DIR}/test_installer_ucode_compatibility.sh"
 sh "${SCRIPT_DIR}/test_target_portability.sh"
 sh "${SCRIPT_DIR}/test_setup_ucode_discovery.sh"
 

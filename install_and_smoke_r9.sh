@@ -105,6 +105,34 @@ r9_capture_apk_help() {
 }
 # END R9_APK_HELP_COMPATIBILITY_HELPERS
 
+# BEGIN R9_UCODE_MODULE_COMPATIBILITY_HELPERS
+r9_compile_ucode_source() {
+    r9_ucode_bin="$1"
+    r9_module_path="$2"
+    r9_import_wrapper="$3"
+    r9_compile_stderr="$4"
+    r9_compile_source="${r9_module_path}"
+
+    case "${r9_module_path}" in
+        *.mjs)
+            r9_escaped_module="$(printf '%s' "${r9_module_path}" | sed 's/[\\"]/\\&/g')"
+            printf 'import * as module_under_test from "%s";\n' \
+                "${r9_escaped_module}" > "${r9_import_wrapper}"
+            r9_compile_source="${r9_import_wrapper}"
+            ;;
+    esac
+
+    : > "${r9_compile_stderr}"
+    if "${r9_ucode_bin}" -cdynlink=ubus -o /dev/null "${r9_compile_source}" \
+        > /dev/null 2> "${r9_compile_stderr}"; then
+        r9_compile_rc=0
+    else
+        r9_compile_rc=$?
+    fi
+    return "${r9_compile_rc}"
+}
+# END R9_UCODE_MODULE_COMPATIBILITY_HELPERS
+
 manifest_source_allowed() {
     case "$1" in
         https://downloads.openwrt.org/releases/25.12.5/targets/bcm27xx/bcm2710/packages/packages.adb|\
@@ -532,12 +560,34 @@ UCODE_BIN="$(command -v ucode)" || {
     echo "ERROR: installed ucode is unavailable" >&2
     exit 1
 }
-: > "${BACKUP_DIR}/ucode-parse.stderr"
-find /usr/share/xray -type f \( -name '*.uc' -o -name '*.mjs' \) -print | sort | while IFS= read -r module_path; do
-    "${UCODE_BIN}" -c "${module_path}" 2>> "${BACKUP_DIR}/ucode-parse.stderr"
-done
-[ ! -s "${BACKUP_DIR}/ucode-parse.stderr" ] || {
-    echo "ERROR: installed ucode modules produced parse errors" >&2
+UCODE_MODULE_LIST="${BACKUP_DIR}/ucode-modules.list"
+UCODE_IMPORT_WRAPPER="${BACKUP_DIR}/ucode-import-wrapper.uc"
+UCODE_COMPILE_STDERR="${BACKUP_DIR}/ucode-current.stderr"
+UCODE_PARSE_STDERR="${BACKUP_DIR}/ucode-parse.stderr"
+: > "${UCODE_PARSE_STDERR}"
+find /usr/share/xray -type f \( -name '*.uc' -o -name '*.mjs' \) -print | sort > "${UCODE_MODULE_LIST}"
+while IFS= read -r module_path; do
+    if ! r9_compile_ucode_source "${UCODE_BIN}" "${module_path}" \
+        "${UCODE_IMPORT_WRAPPER}" "${UCODE_COMPILE_STDERR}"; then
+        {
+            echo "ERROR: installed ucode source did not compile: ${module_path}"
+            cat "${UCODE_COMPILE_STDERR}"
+        } >> "${UCODE_PARSE_STDERR}"
+        cat "${UCODE_PARSE_STDERR}" >&2
+        exit 1
+    fi
+    if [ -s "${UCODE_COMPILE_STDERR}" ]; then
+        {
+            echo "ERROR: installed ucode source wrote to stderr: ${module_path}"
+            cat "${UCODE_COMPILE_STDERR}"
+        } >> "${UCODE_PARSE_STDERR}"
+        cat "${UCODE_PARSE_STDERR}" >&2
+        exit 1
+    fi
+done < "${UCODE_MODULE_LIST}"
+rm -f "${UCODE_IMPORT_WRAPPER}" "${UCODE_COMPILE_STDERR}"
+[ ! -s "${UCODE_PARSE_STDERR}" ] || {
+    echo "ERROR: installed ucode sources produced compile errors" >&2
     exit 1
 }
 
