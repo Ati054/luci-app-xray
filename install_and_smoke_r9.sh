@@ -250,6 +250,7 @@ APK_INFO_HELP_PATH="${BACKUP_DIR}.apk-info-help"
 APK_ADD_HELP_PATH="${BACKUP_DIR}.apk-add-help"
 APK_ADBDUMP_HELP_PATH="${BACKUP_DIR}.apk-adbdump-help"
 APK_LIST_HELP_PATH="${BACKUP_DIR}.apk-list-help"
+APK_NO_NETWORK_PROBE_PATH="${BACKUP_DIR}.apk-no-network-probe"
 
 apk --version
 r9_capture_apk_help "${APK_GLOBAL_HELP_PATH}" apk
@@ -272,8 +273,29 @@ grep -q -- '--simulate' "${APK_ADD_HELP_PATH}" || {
     echo "ERROR: target apk does not support --simulate" >&2
     exit 1
 }
-grep -q -- '--no-network' "${APK_ADD_HELP_PATH}" || {
+if grep -q -- '--no-network' "${APK_ADD_HELP_PATH}"; then
+    :
+elif grep -Fq -- '--network[=BOOL]' "${APK_ADD_HELP_PATH}"; then
+    :
+else
     echo "ERROR: target apk does not support --no-network" >&2
+    exit 1
+fi
+if apk --no-network --version > "${APK_NO_NETWORK_PROBE_PATH}" 2>&1; then
+    APK_NO_NETWORK_PROBE_RC=0
+else
+    APK_NO_NETWORK_PROBE_RC=$?
+fi
+[ "${APK_NO_NETWORK_PROBE_RC}" -eq 0 ] || {
+    echo "ERROR: target apk --no-network probe failed with exit ${APK_NO_NETWORK_PROBE_RC}" >&2
+    exit 1
+}
+[ -s "${APK_NO_NETWORK_PROBE_PATH}" ] || {
+    echo "ERROR: target apk --no-network probe produced no output" >&2
+    exit 1
+}
+grep -q '^apk-tools ' "${APK_NO_NETWORK_PROBE_PATH}" || {
+    echo "ERROR: target apk --no-network probe output is invalid" >&2
     exit 1
 }
 grep -q -- '--format' "${APK_ADBDUMP_HELP_PATH}" || {
@@ -285,7 +307,7 @@ grep -q -- '--installed' "${APK_LIST_HELP_PATH}" || {
     exit 1
 }
 rm -f "${APK_GLOBAL_HELP_PATH}" "${APK_INFO_HELP_PATH}" "${APK_ADD_HELP_PATH}" \
-    "${APK_ADBDUMP_HELP_PATH}" "${APK_LIST_HELP_PATH}"
+    "${APK_ADBDUMP_HELP_PATH}" "${APK_LIST_HELP_PATH}" "${APK_NO_NETWORK_PROBE_PATH}"
 # END R9_APK_HELP_COMPATIBILITY_PREFLIGHT
 
 for required_package in kmod-nf-tproxy kmod-nft-tproxy firewall4 luci-base dnsmasq ca-bundle; do

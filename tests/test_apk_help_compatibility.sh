@@ -36,6 +36,12 @@ case "$*" in
         printf '%s\n' 'apk-tools 3.0.5, compiled for aarch64.'
         exit 0
         ;;
+    "--no-network --version")
+        if [ "${R9_FAKE_EMPTY_NO_NETWORK_PROBE:-0}" -ne 1 ]; then
+            printf '%s\n' "${R9_FAKE_NO_NETWORK_PROBE_OUTPUT:-apk-tools 3.0.5, compiled for aarch64.}"
+        fi
+        exit "${R9_FAKE_NO_NETWORK_PROBE_RC:-0}"
+        ;;
     --help)
         command_name="global"
         help_rc="${R9_FAKE_GLOBAL_HELP_RC:-0}"
@@ -79,7 +85,13 @@ if [ "${R9_FAKE_EMPTY_HELP:-}" != "${command_name}" ]; then
         add)
             printf '%s\n' 'Usage: apk add [<OPTIONS>]'
             [ "${R9_FAKE_MISSING_CAPABILITY:-}" = "simulate" ] || printf '%s\n' '  --simulate'
-            [ "${R9_FAKE_MISSING_CAPABILITY:-}" = "no-network" ] || printf '%s\n' '  --no-network'
+            if [ "${R9_FAKE_MISSING_CAPABILITY:-}" != "no-network" ]; then
+                case "${R9_FAKE_NETWORK_HELP_STYLE:-explicit}" in
+                    explicit) printf '%s\n' '  --no-network' ;;
+                    boolean) printf '%s\n' '  --network[=BOOL]' ;;
+                    *) echo "invalid fake network help style" >&2; exit 97 ;;
+                esac
+            fi
             ;;
         adbdump)
             printf '%s\n' 'Usage: apk adbdump [<OPTIONS>]'
@@ -218,6 +230,22 @@ run_case subcommand_status_1 0 APK_HELP_PREFLIGHT_REACHED_END \
     R9_FAKE_ADBDUMP_HELP_RC=1 R9_FAKE_LIST_HELP_RC=1
 echo "PASS: valid subcommand help status 1 is accepted."
 
+run_case network_boolean_help 0 APK_HELP_PREFLIGHT_REACHED_END \
+    R9_FAKE_NETWORK_HELP_STYLE=boolean
+echo "PASS: target apk --network[=BOOL] help is accepted when --no-network parses successfully."
+
+run_case no_network_probe_failure 1 'ERROR: target apk --no-network probe failed with exit 2' \
+    R9_FAKE_NETWORK_HELP_STYLE=boolean R9_FAKE_NO_NETWORK_PROBE_RC=2
+echo "PASS: an unexpected --no-network parsing failure is rejected explicitly."
+
+run_case empty_no_network_probe 1 'ERROR: target apk --no-network probe produced no output' \
+    R9_FAKE_NETWORK_HELP_STYLE=boolean R9_FAKE_EMPTY_NO_NETWORK_PROBE=1
+echo "PASS: empty --no-network probe output is rejected."
+
+run_case invalid_no_network_probe 1 'ERROR: target apk --no-network probe output is invalid' \
+    R9_FAKE_NETWORK_HELP_STYLE=boolean R9_FAKE_NO_NETWORK_PROBE_OUTPUT='unexpected output'
+echo "PASS: invalid --no-network probe output is rejected."
+
 run_case unexpected_status_2 1 'ERROR: apk help command failed with exit 2: apk' \
     R9_FAKE_GLOBAL_HELP_RC=2
 echo "PASS: unexpected help status 2 is rejected with an explicit diagnostic."
@@ -247,4 +275,5 @@ run_case missing_installed 1 'ERROR: target apk list lacks --installed' \
 echo "PASS: missing apk list --installed is rejected."
 
 echo "PASS: no package add, fix, upgrade, or install operation ran during any preflight case."
+echo "R9_APK_NETWORK_BOOLEAN_HELP_OK"
 echo "R9_APK_HELP_COMPATIBILITY_OK"
