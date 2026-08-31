@@ -75,6 +75,36 @@ r9_verify_exact_file_size() {
 }
 # END R9_TARGET_PORTABILITY_HELPERS
 
+# BEGIN R9_APK_HELP_COMPATIBILITY_HELPERS
+r9_capture_apk_help() {
+    r9_help_output_path="$1"
+    shift
+    [ "$#" -gt 0 ] || {
+        echo "ERROR: apk help command is missing" >&2
+        return 1
+    }
+
+    if "$@" --help > "${r9_help_output_path}" 2>&1; then
+        r9_help_rc=0
+    else
+        r9_help_rc=$?
+    fi
+
+    case "${r9_help_rc}" in
+        0|1) ;;
+        *)
+            echo "ERROR: apk help command failed with exit ${r9_help_rc}: $*" >&2
+            return 1
+            ;;
+    esac
+
+    [ -s "${r9_help_output_path}" ] || {
+        echo "ERROR: apk help command produced no output: $*" >&2
+        return 1
+    }
+}
+# END R9_APK_HELP_COMPATIBILITY_HELPERS
+
 manifest_source_allowed() {
     case "$1" in
         https://downloads.openwrt.org/releases/25.12.5/targets/bcm27xx/bcm2710/packages/packages.adb|\
@@ -213,33 +243,50 @@ for required_command in awk find grep jsonfilter pidof sed sha256sum sort wc; do
         exit 1
     }
 done
+
+# BEGIN R9_APK_HELP_COMPATIBILITY_PREFLIGHT
+APK_GLOBAL_HELP_PATH="${BACKUP_DIR}.apk-global-help"
+APK_INFO_HELP_PATH="${BACKUP_DIR}.apk-info-help"
+APK_ADD_HELP_PATH="${BACKUP_DIR}.apk-add-help"
+APK_ADBDUMP_HELP_PATH="${BACKUP_DIR}.apk-adbdump-help"
+APK_LIST_HELP_PATH="${BACKUP_DIR}.apk-list-help"
+
 apk --version
-apk --help
-APK_INFO_HELP="$(apk info --help 2>&1)"
-APK_ADD_HELP="$(apk add --help 2>&1)"
-APK_ADBDUMP_HELP="$(apk adbdump --help 2>&1)"
-APK_LIST_HELP="$(apk list --help 2>&1)"
-printf '%s\n' "${APK_INFO_HELP}" "${APK_ADD_HELP}" "${APK_ADBDUMP_HELP}" "${APK_LIST_HELP}"
-printf '%s\n' "${APK_INFO_HELP}" | grep -q -- '--exists' || {
+r9_capture_apk_help "${APK_GLOBAL_HELP_PATH}" apk
+r9_capture_apk_help "${APK_INFO_HELP_PATH}" apk info
+r9_capture_apk_help "${APK_ADD_HELP_PATH}" apk add
+r9_capture_apk_help "${APK_ADBDUMP_HELP_PATH}" apk adbdump
+r9_capture_apk_help "${APK_LIST_HELP_PATH}" apk list
+cat "${APK_GLOBAL_HELP_PATH}" "${APK_INFO_HELP_PATH}" "${APK_ADD_HELP_PATH}" \
+    "${APK_ADBDUMP_HELP_PATH}" "${APK_LIST_HELP_PATH}"
+
+grep -q 'Usage: apk' "${APK_GLOBAL_HELP_PATH}" || {
+    echo "ERROR: target apk global help output is invalid" >&2
+    exit 1
+}
+grep -q -- '--exists' "${APK_INFO_HELP_PATH}" || {
     echo "ERROR: target apk does not support apk info --exists" >&2
     exit 1
 }
-printf '%s\n' "${APK_ADD_HELP}" | grep -q -- '--simulate' || {
+grep -q -- '--simulate' "${APK_ADD_HELP_PATH}" || {
     echo "ERROR: target apk does not support --simulate" >&2
     exit 1
 }
-printf '%s\n' "${APK_ADD_HELP}" | grep -q -- '--no-network' || {
+grep -q -- '--no-network' "${APK_ADD_HELP_PATH}" || {
     echo "ERROR: target apk does not support --no-network" >&2
     exit 1
 }
-printf '%s\n' "${APK_ADBDUMP_HELP}" | grep -q -- '--format' || {
+grep -q -- '--format' "${APK_ADBDUMP_HELP_PATH}" || {
     echo "ERROR: target apk adbdump lacks JSON format support" >&2
     exit 1
 }
-printf '%s\n' "${APK_LIST_HELP}" | grep -q -- '--installed' || {
+grep -q -- '--installed' "${APK_LIST_HELP_PATH}" || {
     echo "ERROR: target apk list lacks --installed" >&2
     exit 1
 }
+rm -f "${APK_GLOBAL_HELP_PATH}" "${APK_INFO_HELP_PATH}" "${APK_ADD_HELP_PATH}" \
+    "${APK_ADBDUMP_HELP_PATH}" "${APK_LIST_HELP_PATH}"
+# END R9_APK_HELP_COMPATIBILITY_PREFLIGHT
 
 for required_package in kmod-nf-tproxy kmod-nft-tproxy firewall4 luci-base dnsmasq ca-bundle; do
     apk info --exists "${required_package}" >/dev/null 2>&1 || {
