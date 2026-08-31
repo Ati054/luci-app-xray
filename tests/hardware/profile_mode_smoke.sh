@@ -58,7 +58,30 @@ require_command() {
     }
 }
 
-for command_name in awk cat find grep ip jsonfilter mktemp nft sed sha256sum sort stat timeout tr ubus uci; do
+# BEGIN R9_TARGET_PORTABILITY_HELPERS
+r9_permission_field() {
+    r9_mode_listing="$(LC_ALL=C ls -ld "$1")" || return 1
+    r9_mode_field="${r9_mode_listing%% *}"
+    [ -n "${r9_mode_field}" ] || return 1
+    printf '%s\n' "${r9_mode_field}"
+}
+
+r9_exact_private_directory() {
+    r9_mode_path="$1"
+    [ -d "${r9_mode_path}" ] && [ ! -L "${r9_mode_path}" ] || return 1
+    r9_verified_mode="$(r9_permission_field "${r9_mode_path}")" || return 1
+    [ -d "${r9_mode_path}" ] && [ ! -L "${r9_mode_path}" ] && [ "${r9_verified_mode}" = "drwx------" ]
+}
+
+r9_exact_private_regular_file() {
+    r9_mode_path="$1"
+    [ -f "${r9_mode_path}" ] && [ ! -L "${r9_mode_path}" ] || return 1
+    r9_verified_mode="$(r9_permission_field "${r9_mode_path}")" || return 1
+    [ -f "${r9_mode_path}" ] && [ ! -L "${r9_mode_path}" ] && [ "${r9_verified_mode}" = "-rw-------" ]
+}
+# END R9_TARGET_PORTABILITY_HELPERS
+
+for command_name in awk cat find grep ip jsonfilter ls mktemp nft sed sha256sum sort timeout tr ubus uci; do
     require_command "${command_name}"
 done
 
@@ -311,12 +334,12 @@ IMPORT_B_RESULT="$(backend_call import "$(json_payload 'Smoke B' smoke-b.json "$
 }
 IMPORTED_B=1
 
-[ "$(stat -c '%a' "${PROFILES_DIR}")" = "700" ] || {
+r9_exact_private_directory "${PROFILES_DIR}" || {
     echo "ERROR: profile directory mode is not 0700" >&2
     exit 1
 }
 for profile_file in "${PROFILES_DIR}/smoke-a.json" "${PROFILES_DIR}/smoke-b.json"; do
-    [ "$(stat -c '%a' "${profile_file}")" = "600" ] || {
+    r9_exact_private_regular_file "${profile_file}" || {
         echo "ERROR: profile file mode is not 0600: ${profile_file}" >&2
         exit 1
     }

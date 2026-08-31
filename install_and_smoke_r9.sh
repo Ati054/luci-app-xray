@@ -53,6 +53,28 @@ disable_service_strict() {
     }
 }
 
+# BEGIN R9_TARGET_PORTABILITY_HELPERS
+r9_file_size_bytes() {
+    r9_size_path="$1"
+    [ -f "${r9_size_path}" ] && [ ! -L "${r9_size_path}" ] && [ -r "${r9_size_path}" ] || return 1
+    r9_size_value="$(LC_ALL=C wc -c < "${r9_size_path}")" || return 1
+    case "${r9_size_value}" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    [ -f "${r9_size_path}" ] && [ ! -L "${r9_size_path}" ] && [ -r "${r9_size_path}" ] || return 1
+    printf '%s\n' "${r9_size_value}"
+}
+
+r9_verify_exact_file_size() {
+    r9_expected_bytes="$2"
+    case "${r9_expected_bytes}" in
+        ''|*[!0-9]*) return 1 ;;
+    esac
+    r9_actual_bytes="$(r9_file_size_bytes "$1")" || return 1
+    [ "${r9_actual_bytes}" = "${r9_expected_bytes}" ]
+}
+# END R9_TARGET_PORTABILITY_HELPERS
+
 manifest_source_allowed() {
     case "$1" in
         https://downloads.openwrt.org/releases/25.12.5/targets/bcm27xx/bcm2710/packages/packages.adb|\
@@ -185,7 +207,7 @@ command -v apk >/dev/null 2>&1 || {
     echo "ERROR: OpenWrt apk is unavailable" >&2
     exit 1
 }
-for required_command in awk find grep jsonfilter pidof sed sha256sum sort stat; do
+for required_command in awk find grep jsonfilter pidof sed sha256sum sort wc; do
     command -v "${required_command}" >/dev/null 2>&1 || {
         echo "ERROR: required target command is unavailable: ${required_command}" >&2
         exit 1
@@ -333,7 +355,7 @@ for apk_file in "$@"; do
             [ "${manifest_package}" = "${apk_package}" ] && \
                 [ "${manifest_full_version}" = "${apk_version}" ] && \
                 [ "${manifest_arch}" = "${apk_arch}" ] && \
-                [ "${manifest_bytes}" = "$(stat -c '%s' "${apk_file}")" ] && \
+                r9_verify_exact_file_size "${apk_file}" "${manifest_bytes}" && \
                 [ "${manifest_sha256}" = "$(sha256sum "${apk_file}" | awk '{ print $1 }')" ] || {
                 echo "ERROR: manifest metadata does not match ${dependency_filename}" >&2
                 exit 1
