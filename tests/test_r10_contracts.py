@@ -191,6 +191,15 @@ def main() -> int:
             "hardware smoke verifies per-profile traffic metrics and process uptime")
     require("xray_core.after.uci" in hardware and "enablement/running state was not restored" in hardware,
             "hardware smoke verifies exact UCI and service-state restoration")
+    restore_services_body = hardware.split("restore_services() {", 1)[1].split("\n}", 1)[0]
+    restored_state_check = hardware.index("for restored_service in xray_core xray_profiles")
+    final_disabled_check = hardware.index(
+        'if [ "${FINAL_DISABLED}" = "1" ]; then', restored_state_check
+    )
+    require("FINAL_DISABLED" not in restore_services_body and
+            hardware.index("\nrestore_services\n") < restored_state_check < final_disabled_check and
+            "leave_services_disabled" in hardware[final_disabled_check:],
+            "installer smoke restores and verifies saved services before applying its final-disabled state")
     require("grep -o '\"id\"" not in hardware, "hardware smoke does not parse formatted JSON with grep")
 
     backend = read("core/root/usr/libexec/rpcd/xray_profiles")

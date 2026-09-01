@@ -222,20 +222,23 @@ restore_uci() {
     fi
 }
 
-restore_services() {
+stop_services() {
     /etc/init.d/xray_core stop >/dev/null 2>&1
     /etc/init.d/xray_profiles stop >/dev/null 2>&1
     ! service_running xray_core && ! service_running xray_profiles || {
-        echo "ERROR: failed to stop Xray services while restoring smoke state" >&2
+        echo "ERROR: failed to stop Xray services while changing smoke state" >&2
         return 1
     }
+}
 
-    if [ "${FINAL_DISABLED}" = "1" ]; then
-        /etc/init.d/xray_core disable
-        /etc/init.d/xray_profiles disable
-        return 0
-    fi
+leave_services_disabled() {
+    stop_services
+    /etc/init.d/xray_core disable
+    /etc/init.d/xray_profiles disable
+}
 
+restore_services() {
+    stop_services
     if [ "$(cat "${TMP_DIR}/xray_core.enabled")" = "1" ]; then
         /etc/init.d/xray_core enable
     else
@@ -263,7 +266,11 @@ failure_cleanup() {
     purge_test_profiles || :
     restore_uci || :
     if [ "${SERVICES_SAVED}" -eq 1 ]; then
-        restore_services
+        if [ "${FINAL_DISABLED}" = "1" ]; then
+            leave_services_disabled
+        else
+            restore_services
+        fi
     fi
     rm -rf "${TMP_DIR}"
     return "${primary_rc}"
@@ -447,6 +454,7 @@ for state_kind in ipv4 ipv6 nft dnsmasq-xray; do
 done
 
 if [ "${FINAL_DISABLED}" = "1" ]; then
+    leave_services_disabled
     ! service_running xray_core && ! service_running xray_profiles || {
         echo "ERROR: installer mode must leave both services stopped" >&2
         exit 1
