@@ -3,7 +3,7 @@ include $(TOPDIR)/rules.mk
 PKG_NAME:=luci-app-xray
 PKG_VERSION:=3.7.1
 PKG_RELEASE:=10
-PKGARCH:=all
+PKGARCH:=$(ARCH_PACKAGES)
 
 PKG_LICENSE:=MPL-2.0
 PKG_MAINTAINER:=yichya <mail@yichya.dev>
@@ -19,7 +19,7 @@ PKG_CONFIG_DEPENDS:= \
 LUCI_TITLE:=LuCI Xray client with modern VLESS Reverse
 LUCI_DESCRIPTION:=LuCI client for Xray with modern VLESS Reverse support and optional transparent proxy features.
 LUCI_DEPENDS:=+ucode +ucode-mod-uci +ucode-mod-fs +coreutils-base64 +ca-bundle +ip-full +ss +kmod-nft-tproxy +firewall4 +dnsmasq
-LUCI_PKGARCH:=all
+LUCI_PKGARCH:=$(ARCH_PACKAGES)
 
 include $(INCLUDE_DIR)/package.mk
 
@@ -70,7 +70,15 @@ endchoice
 endmenu
 endef
 
+define Build/Prepare
+	mkdir -p $(PKG_BUILD_DIR)
+	$(CP) ./src/xray-sockstats.c $(PKG_BUILD_DIR)/
+endef
+
 define Build/Compile
+	$(TARGET_CC) $(TARGET_CPPFLAGS) $(TARGET_CFLAGS) -std=c11 -Wall -Wextra -Werror \
+		-o $(PKG_BUILD_DIR)/xray-sockstats $(PKG_BUILD_DIR)/xray-sockstats.c \
+		$(TARGET_LDFLAGS)
 endef
 
 define Package/$(PKG_NAME)/postinst
@@ -123,6 +131,7 @@ endif
 	$(INSTALL_DIR) $(1)/usr/libexec/rpcd
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/xray $(1)/usr/libexec/rpcd/xray
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/xray_profiles $(1)/usr/libexec/rpcd/xray_profiles
+	$(INSTALL_BIN) $(PKG_BUILD_DIR)/xray-sockstats $(1)/usr/libexec/xray-sockstats
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
 	$(INSTALL_DATA) ./root/usr/share/luci/menu.d/luci-app-xray.json $(1)/usr/share/luci/menu.d/luci-app-xray.json
 	$(INSTALL_DIR) $(1)/usr/share/nftables.d/table-pre

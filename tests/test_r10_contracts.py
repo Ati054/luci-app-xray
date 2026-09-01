@@ -33,7 +33,11 @@ def main() -> int:
         content = read(makefile)
         require("PKG_VERSION:=3.7.1" in content, f"{makefile} keeps version 3.7.1")
         require("PKG_RELEASE:=10" in content, f"{makefile} declares release 10")
-        require("PKGARCH:=all" in content, f"{makefile} declares architecture all")
+        if makefile == "core/Makefile":
+            require("PKGARCH:=$(ARCH_PACKAGES)" in content,
+                    "core/Makefile declares the native target architecture")
+        else:
+            require("PKGARCH:=all" in content, f"{makefile} declares architecture all")
 
     tracked = subprocess.check_output(
         ["git", "ls-files"], cwd=ROOT, text=True, encoding="utf-8"
@@ -61,7 +65,7 @@ def main() -> int:
     require(workflow_branches == ["codex/r10-profile-metrics"],
             "workflow is restricted to the dedicated R10 branch")
     for package_name in (
-        "luci-app-xray_3.7.1-10_all.ipk",
+        "luci-app-xray_3.7.1-10_x86_64.ipk",
         "luci-app-xray-status_3.7.1-10_all.ipk",
         "luci-app-xray-3.7.1-r10.apk",
         "luci-app-xray-status-3.7.1-r10.apk",
@@ -69,6 +73,8 @@ def main() -> int:
         require(package_name in workflow, f"workflow pins exact R10 artifact {package_name}")
     require("package_release=10" in workflow,
             "workflow records release 10 in build metadata")
+    require("package_architecture=${{ matrix.target_arch }}" in workflow,
+            "workflow records the compiled core target architecture")
     job_env_values = (
         str(value)
         for job in workflow_document.get("jobs", {}).values()
@@ -113,6 +119,9 @@ def main() -> int:
             "offline proof audits network syscalls")
     require("SHA256SUMS-R10.txt" in workflow and "sha256sum -c SHA256SUMS-R10.txt" in workflow,
             "bundle builder verifies complete R10 checksums")
+    require("xray-sockstats-aarch64" in workflow and
+            '"$APK_HOST" --allow-untrusted extract --no-chown' in workflow,
+            "artifact carries the exact extracted aarch64 collector for pre-transaction probing")
     require("OFFLINE-PACKAGES-MANIFEST.txt" in bundle_script,
             "bundle builder emits the dependency manifest")
     require("kmod-netlink-diag" in bundle_script and
@@ -175,20 +184,27 @@ def main() -> int:
             "installer verifies dependency APK metadata and approved source provenance")
     require("timeout 5" in installer and "call list '{}'" in installer and "</dev/null" in installer,
             "installer bounds explicit-empty-object backend invocation with closed stdin")
-    require("command -v ss" in installer and "installed traffic metrics dependency kmod-netlink-diag" in installer,
-            "installer verifies the traffic metrics runtime after the offline transaction")
+    require("command -v ss" in installer and "installed traffic metrics dependency kmod-netlink-diag" in installer and
+            "/usr/libexec/xray-sockstats" in installer,
+            "installer verifies the native and fallback traffic metrics runtime after the offline transaction")
     require("rm -rf /opt/xray/profiles" not in installer,
             "installer never deletes the complete production profile directory")
     require("mktemp -d /opt/" not in installer and "[ -d /opt ] && [ -w /opt ]" in installer,
             "installer performs no temporary diagnostic writes outside /tmp")
+    require("COLLECTOR_PROBE_AVAILABLE" in installer and
+            "Native TCP_INFO collector preflight passed before backup" in installer and
+            installer.index("COLLECTOR_PROBE_AVAILABLE") < installer.index("BACKUP_READY=1"),
+            "installer proves pidfd/TCP_INFO compatibility before backup and package mutation")
 
     hardware = read("tests/hardware/profile_mode_smoke.sh")
     require("HARDWARE_PROFILE_MODE_SMOKE_OK" in hardware, "hardware smoke has the exact success marker")
     require("jsonfilter" in hardware, "hardware smoke uses target-native structured JSON parsing")
     require("ip -6 rule" in hardware and "list ruleset" in hardware and "dnsmasq" in hardware,
             "hardware smoke compares IPv6, nftables, and dnsmasq state")
-    require("TCP_INFO traffic metrics are unavailable" in hardware and "traffic.uptime_seconds" in hardware,
-            "hardware smoke verifies per-profile traffic metrics and process uptime")
+    require("native TCP_INFO traffic metrics are unavailable" in hardware and
+            "traffic.bytes_available" in hardware and "traffic.uptime_seconds" in hardware and
+            "protocol_stack" in hardware,
+            "hardware smoke verifies native per-profile metrics, protocol labels, and process uptime")
     require("xray_core.after.uci" in hardware and "enablement/running state was not restored" in hardware,
             "hardware smoke verifies exact UCI and service-state restoration")
     restore_services_body = hardware.split("restore_services() {", 1)[1].split("\n}", 1)[0]
@@ -212,6 +228,18 @@ def main() -> int:
             "backend reports per-profile geodata requirements")
     require('"${SS_BIN}" -tinpH' in backend and "get_process_uptime" in backend,
             "backend reads per-process TCP_INFO and uptime without an Xray listener")
+    require("SOCKSTATS_BIN" in backend and 'source = "pidfd_tcp_info"' in backend and
+            "tcp_info_fields_unavailable" in backend,
+            "backend prefers direct socket TCP_INFO and degrades without fabricated zeroes")
+    require("protocol_stack: get_profile_stack(filepath)" in backend and
+            'push(parts, "gRPC")' in backend and 'push(parts, "XHTTP")' in backend,
+            "backend derives safe protocol-stack labels from stored profile JSON")
+    sockstats = read("core/src/xray-sockstats.c")
+    require("SYS_pidfd_open" in sockstats and "SYS_pidfd_getfd" in sockstats and
+            "getsockopt(duplicate_fd, IPPROTO_TCP, TCP_INFO" in sockstats,
+            "native collector reads TCP_INFO from existing process sockets")
+    require(not any(call in sockstats for call in ("bind(", "listen(", "connect(", "send(", "recv(")),
+            "native collector cannot open listeners or generate probe traffic")
     require("sha256:" not in backend and "size: size" not in backend,
             "backend polling omits retired profile size and SHA metadata")
     require("assets_found" not in backend, "backend exposes no misleading global assets status")
@@ -242,6 +270,9 @@ def main() -> int:
             "display.rxBps" in profiles_view and "display.txBps" in profiles_view and
             "traffic.rtt_ms" in profiles_view and "traffic.uptime_seconds" in profiles_view,
             "profile table renders live RX, TX, RTT, and uptime metrics")
+    require("xray-action-btn" in profiles_view and "xray-traffic-separator" in profiles_view and
+            "p.protocol_stack" in profiles_view,
+            "profile table uses compact actions, inline counters, and protocol-stack labels")
 
     active_release_files = (
         ".github/workflows/build-release.yml",

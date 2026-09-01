@@ -154,7 +154,7 @@ return view.extend({
         var traffic = p.traffic || {};
         var display = { traffic: traffic, rxBps: null, txBps: null };
 
-        if (!p.running || !traffic.available) {
+        if (!p.running || !traffic.available || !traffic.bytes_available) {
             delete this.trafficSnapshots[p.id];
             return display;
         }
@@ -186,7 +186,9 @@ return view.extend({
     trafficUnavailableText: function(reason) {
         if (reason === 'stopped') return _('Профиль остановлен.');
         if (reason === 'ss_failed') return _('Не удалось прочитать TCP_INFO через ss.');
-        return _('TCP-метрики недоступны: утилита ss не установлена или не исполняется.');
+        if (reason === 'tcp_info_fields_unavailable')
+            return _('Соединения найдены, но эта сборка ядра не предоставляет счётчики TCP_INFO. Ноль не подставляется.');
+        return _('TCP-метрики недоступны на этом устройстве.');
     },
 
     renderTrafficCell: function(p, display, direction) {
@@ -197,10 +199,11 @@ return view.extend({
         var directionName = isRx ? _('Принято') : _('Отправлено');
         var title;
 
-        if (!p.running || !traffic.available) {
+        if (!p.running || !traffic.available || !traffic.bytes_available) {
             title = this.trafficUnavailableText(traffic.reason || (p.running ? 'ss_unavailable' : 'stopped'));
             return E('td', { 'class': 'td xray-traffic-cell', 'title': title }, [
                 E('span', { 'class': 'xray-traffic-rate' }, '—'),
+                E('span', { 'class': 'xray-traffic-separator', 'aria-hidden': 'true' }, '·'),
                 E('span', { 'class': 'xray-traffic-total' }, _('всего —'))
             ]);
         }
@@ -209,6 +212,7 @@ return view.extend({
             .format(directionName, this.formatBitRate(rate), this.formatBytes(bytes));
         return E('td', { 'class': 'td xray-traffic-cell', 'title': title }, [
             E('span', { 'class': 'xray-traffic-rate' }, this.formatBitRate(rate)),
+            E('span', { 'class': 'xray-traffic-separator', 'aria-hidden': 'true' }, '·'),
             E('span', { 'class': 'xray-traffic-total' }, _('всего %s').format(this.formatBytes(bytes)))
         ]);
     },
@@ -224,19 +228,23 @@ return view.extend({
         var viewContainer = E('div', { 'class': 'cbi-map' });
 
         viewContainer.appendChild(E('style', {}, `
-            .xray-profile-name { cursor: help; text-decoration: underline dotted; text-underline-offset: .2em; }
+            .xray-profile-cell { min-width: 10.5rem; }
+            .xray-profile-name { display: block; cursor: help; text-decoration: underline dotted; text-underline-offset: .2em; }
+            .xray-profile-stack { display: block; margin-top: .2rem; max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 80%; font-weight: 400; opacity: .72; }
             .xray-profile-name:focus-visible, .xray-process-indicator:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
             .xray-status-cell { width: 3.5rem; text-align: center; }
             .xray-process-indicator { display: inline-flex; min-width: 1.65rem; min-height: 1.65rem; align-items: center; justify-content: center; cursor: help; font-size: 1rem; }
-            .xray-traffic-cell { min-width: 7.25rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
-            .xray-traffic-rate { display: block; font-weight: 600; }
-            .xray-traffic-total { display: block; margin-top: .15rem; font-size: 85%; opacity: .72; }
+            .xray-traffic-cell { min-width: 10rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+            .xray-traffic-rate { display: inline; font-weight: 600; }
+            .xray-traffic-separator { margin: 0 .35rem; opacity: .45; }
+            .xray-traffic-total { display: inline; font-size: 85%; opacity: .72; }
             .xray-link-cell { min-width: 8rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
             .xray-link-cell > span { display: block; }
             .xray-link-uptime { margin-top: .15rem; font-size: 85%; opacity: .72; }
             .xray-autostart-toggle { min-width: 3.6rem; padding: 2px 7px !important; font-size: 85% !important; }
-            .xray-profile-actions { display: flex; justify-content: flex-end; gap: 4px; flex-wrap: wrap; }
+            .xray-profile-actions { display: flex; justify-content: flex-end; gap: 3px; flex-wrap: nowrap; }
             .xray-profile-actions .btn { margin: 0 !important; }
+            .xray-action-btn { box-sizing: border-box; min-width: 2rem; padding: 2px 6px !important; font-size: 1rem !important; line-height: 1.35 !important; text-align: center; }
             .xray-table-scroll { overflow-x: auto; }
         `));
 
@@ -436,111 +444,95 @@ return view.extend({
             ))
         ]);
 
+        var actionButton = function(extraClass, symbol, label, handler) {
+            return E('button', {
+                'type': 'button',
+                'class': 'btn cbi-button xray-action-btn ' + (extraClass || ''),
+                'title': label,
+                'aria-label': label,
+                'click': handler
+            }, symbol);
+        };
+
         var actions = E('div', { 'class': 'right xray-profile-actions' }, [
             p.running ?
-                E('button', {
-                    'class': 'btn cbi-button cbi-button-reset',
-                    'style': 'margin-right: 4px;',
-                    'click': function() {
-                        callProfilesStop(p.id).then(function() {
-                            ui.addNotification(null, E('p', {}, _('Профиль «%s» остановлен.').format(p.name)), 'info');
-                        });
-                    }
-                }, _('Остановить')) :
-                E('button', {
-                    'class': 'btn cbi-button cbi-button-action',
-                    'style': 'margin-right: 4px;',
-                    'click': function() {
-                        callProfilesStart(p.id).then(function(res) {
-                            if (res && res.ok) {
-                                ui.addNotification(null, E('p', {}, _('Профиль «%s» запущен.').format(p.name)), 'info');
-                            } else {
-                                ui.addNotification(null, E('p', {}, _('Ошибка запуска: %s').format(res.error || 'не удалось запустить процесс')), 'error');
-                            }
-                        });
-                    }
-                }, _('Запустить')),
-
-            E('button', {
-                'class': 'btn cbi-button',
-                'style': 'margin-right: 4px;',
-                'click': function() {
-                    callProfilesRestart(p.id).then(function(res) {
+                actionButton('cbi-button-reset', '■', _('Остановить профиль'), function() {
+                    callProfilesStop(p.id).then(function() {
+                        ui.addNotification(null, E('p', {}, _('Профиль «%s» остановлен.').format(p.name)), 'info');
+                    });
+                }) :
+                actionButton('cbi-button-action', '▶', _('Запустить профиль'), function() {
+                    callProfilesStart(p.id).then(function(res) {
                         if (res && res.ok) {
-                            ui.addNotification(null, E('p', {}, _('Профиль «%s» перезапущен.').format(p.name)), 'info');
+                            ui.addNotification(null, E('p', {}, _('Профиль «%s» запущен.').format(p.name)), 'info');
                         } else {
-                            ui.addNotification(null, E('p', {}, _('Ошибка перезапуска: %s').format(res.error || 'не удалось перезапустить')), 'error');
+                            ui.addNotification(null, E('p', {}, _('Ошибка запуска: %s').format(res.error || 'не удалось запустить процесс')), 'error');
                         }
                     });
-                }
-            }, _('Перезапуск')),
+                }),
 
-            E('button', {
-                'class': 'btn cbi-button',
-                'style': 'margin-right: 4px;',
-                'title': _('Переименовать профиль'),
-                'click': function() {
-                    self.handleRenameModal(p);
-                }
-            }, _('Имя')),
+            actionButton('', '↻', _('Перезапустить профиль'), function() {
+                callProfilesRestart(p.id).then(function(res) {
+                    if (res && res.ok) {
+                        ui.addNotification(null, E('p', {}, _('Профиль «%s» перезапущен.').format(p.name)), 'info');
+                    } else {
+                        ui.addNotification(null, E('p', {}, _('Ошибка перезапуска: %s').format(res.error || 'не удалось перезапустить')), 'error');
+                    }
+                });
+            }),
 
-            E('button', {
-                'class': 'btn cbi-button',
-                'style': 'margin-right: 4px;',
-                'title': _('Переместить вверх'),
-                'click': function() {
-                    callProfilesReorder(p.id, 'up');
-                }
-            }, '▲'),
+            actionButton('', '✎', _('Переименовать профиль'), function() {
+                self.handleRenameModal(p);
+            }),
 
-            E('button', {
-                'class': 'btn cbi-button',
-                'style': 'margin-right: 4px;',
-                'title': _('Переместить вниз'),
-                'click': function() {
-                    callProfilesReorder(p.id, 'down');
-                }
-            }, '▼'),
+            actionButton('', '▲', _('Переместить вверх'), function() {
+                callProfilesReorder(p.id, 'up');
+            }),
 
-            E('button', {
-                'class': 'btn cbi-button',
-                'style': 'margin-right: 4px;',
-                'click': function() {
-                    self.handleReplaceModal(p);
-                }
-            }, _('Заменить')),
+            actionButton('', '▼', _('Переместить вниз'), function() {
+                callProfilesReorder(p.id, 'down');
+            }),
 
-            E('button', {
-                'class': 'btn cbi-button cbi-button-negative',
-                'click': function() {
-                    ui.showModal(_('Удаление профиля'), [
-                        E('p', {}, _('Вы действительно хотите удалить профиль «%s» (%s)?').format(p.name, p.filename)),
-                        E('p', { 'class': 'cbi-map-descr' }, _('Файл профиля будет безопасно перемещен в архив .trash/.')),
-                        E('div', { 'class': 'right' }, [
-                            E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Отмена')),
-                            ' ',
-                            E('button', {
-                                'class': 'btn cbi-button-negative',
-                                'click': function() {
-                                    callProfilesDelete(p.id).then(function() {
-                                        ui.hideModal();
-                                        ui.addNotification(null, E('p', {}, _('Профиль «%s» удален.').format(p.name)), 'info');
-                                    });
-                                }
-                            }, _('Удалить'))
-                        ])
-                    ]);
-                }
-            }, _('Удалить'))
+            actionButton('', '⇄', _('Заменить JSON-профиль'), function() {
+                self.handleReplaceModal(p);
+            }),
+
+            actionButton('cbi-button-negative', '×', _('Удалить профиль'), function() {
+                ui.showModal(_('Удаление профиля'), [
+                    E('p', {}, _('Вы действительно хотите удалить профиль «%s» (%s)?').format(p.name, p.filename)),
+                    E('p', { 'class': 'cbi-map-descr' }, _('Файл профиля будет безопасно перемещен в архив .trash/.')),
+                    E('div', { 'class': 'right' }, [
+                        E('button', { 'class': 'btn', 'click': ui.hideModal }, _('Отмена')),
+                        ' ',
+                        E('button', {
+                            'class': 'btn cbi-button-negative',
+                            'click': function() {
+                                callProfilesDelete(p.id).then(function() {
+                                    ui.hideModal();
+                                    ui.addNotification(null, E('p', {}, _('Профиль «%s» удален.').format(p.name)), 'info');
+                                });
+                            }
+                        }, _('Удалить'))
+                    ])
+                ]);
+            })
         ]);
 
+        var nameContent = [ E('strong', {
+            'class': 'xray-profile-name',
+            'tabindex': '0',
+            'title': _('Имя файла JSON: %s').format(p.filename),
+            'aria-label': _('%s. Имя файла JSON: %s').format(p.name, p.filename)
+        }, p.name) ];
+        if (p.protocol_stack) {
+            nameContent.push(E('span', {
+                'class': 'xray-profile-stack',
+                'title': p.protocol_stack
+            }, p.protocol_stack));
+        }
+
         return E('tr', { 'class': 'tr cbi-rowstyle-1' }, [
-            E('td', { 'class': 'td' }, E('strong', {
-                'class': 'xray-profile-name',
-                'tabindex': '0',
-                'title': _('Имя файла JSON: %s').format(p.filename),
-                'aria-label': _('%s. Имя файла JSON: %s').format(p.name, p.filename)
-            }, p.name)),
+            E('td', { 'class': 'td xray-profile-cell' }, nameContent),
             E('td', { 'class': 'td xray-status-cell' }, statusIcon),
             this.renderTrafficCell(p, trafficDisplay, 'rx'),
             this.renderTrafficCell(p, trafficDisplay, 'tx'),

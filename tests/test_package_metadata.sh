@@ -67,11 +67,15 @@ HAS_PROFILES_INIT=$(grep -c "init.d/xray_profiles" "${CORE_MAKEFILE}" || true)
 HAS_PROFILES_RPCD=$(grep -c "rpcd/xray_profiles" "${CORE_MAKEFILE}" || true)
 HAS_PROFILES_VIEW=$(grep -c "view/xray/profiles.js" "${CORE_MAKEFILE}" || true)
 HAS_GEN_MJS=$(grep -c "gen_config.mjs" "${CORE_MAKEFILE}" || true)
+HAS_SOCKSTATS=$(grep -c "usr/libexec/xray-sockstats" "${CORE_MAKEFILE}" || true)
+HAS_TARGET_ARCH=$(grep -Fc 'PKGARCH:=$(ARCH_PACKAGES)' "${CORE_MAKEFILE}" || true)
 
 assert_equal "1" "$((HAS_PROFILES_INIT > 0))" "core/Makefile installs init.d/xray_profiles"
 assert_equal "1" "$((HAS_PROFILES_RPCD > 0))" "core/Makefile installs rpcd/xray_profiles"
 assert_equal "1" "$((HAS_PROFILES_VIEW > 0))" "core/Makefile installs view/xray/profiles.js"
 assert_equal "1" "$((HAS_GEN_MJS > 0))" "core/Makefile installs gen_config.mjs"
+assert_equal "1" "$((HAS_SOCKSTATS > 0))" "core/Makefile installs the native read-only socket collector"
+assert_equal "1" "$((HAS_TARGET_ARCH > 0))" "core package is architecture-specific because it contains a native collector"
 
 # Test 5: core/Makefile installs all 7 protocol modules
 for proto in http hysteria shadowsocks socks trojan vless vmess; do

@@ -87,15 +87,18 @@ const summary = {
 const firstProfiles = [
     {
         id: 'plain', name: 'Plain', filename: 'plain.json', running: false,
+        protocol_stack: 'VLESS + REALITY + Vision',
         autostart: false, geodata: { requires_geoip: false, requires_geosite: false, missing: [] },
         traffic: { available: false, reason: 'stopped', rx_bytes: 0, tx_bytes: 0 }
     },
     {
         id: 'geo', name: 'Geo', filename: 'geo.json', running: true, pid: 4242,
+        protocol_stack: 'VLESS + gRPC + REALITY',
         respawn_count: 1, autostart: true,
         geodata: { requires_geoip: true, requires_geosite: false, missing: ['geoip.dat'] },
         traffic: {
-            available: true, sample_time: 100, connections: 2,
+            available: true, bytes_available: true, rtt_available: true,
+            sample_time: 100, connections: 2,
             rx_bytes: 1000, tx_bytes: 2000, rtt_ms: 17, uptime_seconds: 3661
         }
     }
@@ -122,6 +125,10 @@ assert(!renderedText.includes('plain.json') && !renderedText.includes('geo.json'
 const profileNames = renderedNodes.filter(value => hasClass(value, 'xray-profile-name'));
 assert(profileNames.length === 2 && profileNames.some(value => String(value.attrs.title).includes('geo.json')),
     'profile name exposes its JSON filename through a focusable tooltip');
+const protocolStacks = renderedNodes.filter(value => hasClass(value, 'xray-profile-stack'));
+assert(protocolStacks.length === 2 && renderedText.includes('VLESS + REALITY + Vision') &&
+    renderedText.includes('VLESS + gRPC + REALITY'),
+    'profile rows expose the parsed transport and security stack below the name');
 const statusIndicators = renderedNodes.filter(value => hasClass(value, 'xray-process-indicator'));
 assert(statusIndicators.length === 2 && statusIndicators.some(value => String(value.attrs.title).includes('geoip.dat')),
     'compact process icon tooltip retains profile-specific geodata warnings');
@@ -130,6 +137,13 @@ assert(statusIndicators.some(value => String(value.attrs.title).includes('PID: 4
 const autostartButtons = renderedNodes.filter(value => hasClass(value, 'xray-autostart-toggle'));
 assert(autostartButtons.length === 2 && autostartButtons.some(value => value.attrs['aria-pressed'] === 'true'),
     'autostart is a compact accessible toggle button');
+const actionButtons = renderedNodes.filter(value => hasClass(value, 'xray-action-btn'));
+assert(actionButtons.length === 14 && actionButtons.every(value => value.attrs.title && value.attrs['aria-label']),
+    'row actions use compact accessible icon buttons');
+const trafficCells = renderedNodes.filter(value => hasClass(value, 'xray-traffic-cell'));
+assert(trafficCells.length === 4 && trafficCells.every(value =>
+    descendants(value).some(child => hasClass(child, 'xray-traffic-separator'))),
+    'each traffic metric renders rate and total in one inline row');
 assert(renderedText.includes('RTT 17 ms') && renderedText.includes('uptime 1 ч 1 мин'),
     'connection cell renders TCP RTT and process uptime');
 

@@ -357,18 +357,26 @@ backend_call start '{"id":"smoke_b"}' >/dev/null
 RUNNING_LIST="$(backend_call list '{}')"
 PID_A="$(json_get "${RUNNING_LIST}" '@.profiles[@.id="smoke_a"].pid')"
 PID_B="$(json_get "${RUNNING_LIST}" '@.profiles[@.id="smoke_b"].pid')"
+STACK_A="$(json_get "${RUNNING_LIST}" '@.profiles[@.id="smoke_a"].protocol_stack')"
+STACK_B="$(json_get "${RUNNING_LIST}" '@.profiles[@.id="smoke_b"].protocol_stack')"
 case "${PID_A}" in ''|*[!0-9]*|0) echo "ERROR: invalid PID for profile A: ${PID_A}" >&2; exit 1;; esac
 case "${PID_B}" in ''|*[!0-9]*|0) echo "ERROR: invalid PID for profile B: ${PID_B}" >&2; exit 1;; esac
 [ "${PID_A}" != "${PID_B}" ] || {
     echo "ERROR: profiles A and B share PID ${PID_A}" >&2
     exit 1
 }
+[ "${STACK_A}" = "VLESS + REALITY + Vision" ] && [ "${STACK_B}" = "VLESS + XHTTP + REALITY" ] || {
+    echo "ERROR: protocol stack labels are incorrect: A=${STACK_A}; B=${STACK_B}" >&2
+    exit 1
+}
 for profile_id in smoke_a smoke_b; do
     TRAFFIC_AVAILABLE="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.available")"
+    TRAFFIC_BYTES_AVAILABLE="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.bytes_available")"
     TRAFFIC_SOURCE="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.source")"
     TRAFFIC_UPTIME="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.uptime_seconds")"
-    [ "${TRAFFIC_AVAILABLE}" = "true" ] && [ "${TRAFFIC_SOURCE}" = "tcp_info" ] || {
-        echo "ERROR: TCP_INFO traffic metrics are unavailable for ${profile_id}" >&2
+    [ "${TRAFFIC_AVAILABLE}" = "true" ] && [ "${TRAFFIC_BYTES_AVAILABLE}" = "true" ] && \
+        [ "${TRAFFIC_SOURCE}" = "pidfd_tcp_info" ] || {
+        echo "ERROR: native TCP_INFO traffic metrics are unavailable for ${profile_id}" >&2
         exit 1
     }
     case "${TRAFFIC_UPTIME}" in ''|*[!0-9]*) echo "ERROR: invalid uptime for ${profile_id}: ${TRAFFIC_UPTIME}" >&2; exit 1;; esac

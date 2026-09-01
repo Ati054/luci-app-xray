@@ -306,26 +306,38 @@ assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*1048576' "${LIST_JSON}" "Test 1
 assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*524288' "${LIST_JSON}" "Test 19e: RPC list reports exact per-profile transmitted bytes"
 assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*17' "${LIST_JSON}" "Test 19f: RPC list reports TCP_INFO RTT"
 assert_match '"uptime_seconds"[[:space:]]*:[[:space:]]*3661' "${LIST_JSON}" "Test 19g: RPC list reports process uptime"
+assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS + REALITY + Vision"' "${LIST_JSON}" "Test 19h: RPC list derives the safe protocol stack from profile JSON"
 HAS_OBSOLETE_FILE_METADATA=$(echo "${LIST_JSON}" | grep -E -c '"(size|sha256)"[[:space:]]*:' || true)
-assert_equal "0" "${HAS_OBSOLETE_FILE_METADATA}" "Test 19h: RPC list omits removed size and SHA metadata"
+assert_equal "0" "${HAS_OBSOLETE_FILE_METADATA}" "Test 19i: RPC list omits removed size and SHA metadata"
 rm -f "${MOCK_ROOT}/traffic.json"
 mkdir -p "${MOCK_ROOT}/usr/sbin"
 cat > "${MOCK_ROOT}/usr/sbin/ss" <<'EOF'
 #!/bin/sh
 cat <<'OUTPUT'
-ESTAB 0 0 192.0.2.2:443 192.0.2.10:30443 users:(("xray",pid=4242,fd=7))
-	 cubic wscale:7,7 rto:220 rtt:12.7/2.1 bytes_sent:123456 bytes_acked:123000 bytes_received:654321
-ESTAB 0 0 192.0.2.2:444 192.0.2.11:30443 users:(("other",pid=9999,fd=8))
-	 cubic wscale:7,7 rto:240 rtt:40.1/5.0 bytes_sent:999999 bytes_received:888888
+ESTAB 0 0 192.0.2.2:443 192.0.2.10:30443 users:(("xray",pid=4242,fd=7)) cubic wscale:7,7 rto:220 rtt:12.7/2.1 bytes_sent:123456 bytes_acked:123000 bytes_received:654321
+ESTAB 0 0 192.0.2.2:444 192.0.2.11:30443 users:(("other",pid=9999,fd=8)) cubic wscale:7,7 rto:240 rtt:40.1/5.0 bytes_sent:999999 bytes_received:888888
 OUTPUT
 EOF
 chmod 0755 "${MOCK_ROOT}/usr/sbin/ss"
 LIST_SS_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
-assert_match '"connections"[[:space:]]*:[[:space:]]*1' "${LIST_SS_JSON}" "Test 19i: ss parser selects only sockets owned by the exact profile PID"
-assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*654321' "${LIST_SS_JSON}" "Test 19j: ss parser reads bytes_received from TCP_INFO"
-assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*123456' "${LIST_SS_JSON}" "Test 19k: ss parser reads bytes_sent from TCP_INFO"
-assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*12' "${LIST_SS_JSON}" "Test 19l: ss parser reports integer TCP RTT milliseconds"
-rm -f "${MOCK_ROOT}/instances.json" "${MOCK_ROOT}/usr/sbin/ss"
+assert_match '"connections"[[:space:]]*:[[:space:]]*1' "${LIST_SS_JSON}" "Test 19j: one-line ss parser selects only sockets owned by the exact profile PID"
+assert_match '"bytes_available"[[:space:]]*:[[:space:]]*true' "${LIST_SS_JSON}" "Test 19k: ss parser reports explicit byte-counter capability"
+assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*654321' "${LIST_SS_JSON}" "Test 19l: one-line ss parser reads bytes_received from TCP_INFO"
+assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*123456' "${LIST_SS_JSON}" "Test 19m: one-line ss parser reads bytes_sent from TCP_INFO"
+assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*12' "${LIST_SS_JSON}" "Test 19n: one-line ss parser reports integer TCP RTT milliseconds"
+
+mkdir -p "${MOCK_ROOT}/usr/libexec"
+cat > "${MOCK_ROOT}/usr/libexec/xray-sockstats" <<'EOF'
+#!/bin/sh
+printf '%s\n' '{"4242":{"available":true,"reason":null,"connections":3,"bytes_available":true,"rx_bytes":700000,"tx_bytes":800000,"rtt_available":true,"rtt_ms":9}}'
+EOF
+chmod 0755 "${MOCK_ROOT}/usr/libexec/xray-sockstats"
+LIST_HELPER_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
+assert_match '"source"[[:space:]]*:[[:space:]]*"pidfd_tcp_info"' "${LIST_HELPER_JSON}" "Test 19o: backend prefers the native read-only TCP_INFO collector"
+assert_match '"connections"[[:space:]]*:[[:space:]]*3' "${LIST_HELPER_JSON}" "Test 19p: native collector metrics are mapped to the exact profile PID"
+assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*700000' "${LIST_HELPER_JSON}" "Test 19q: native collector receive bytes reach RPC output"
+assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*800000' "${LIST_HELPER_JSON}" "Test 19r: native collector transmit bytes reach RPC output"
+rm -f "${MOCK_ROOT}/instances.json" "${MOCK_ROOT}/usr/sbin/ss" "${MOCK_ROOT}/usr/libexec/xray-sockstats"
 
 # 20. Missing profile start/stop returns ok:false
 RES_START_NONEXIST="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call start '{"id":"nonexistent_profile"}' 2>&1 || true)"

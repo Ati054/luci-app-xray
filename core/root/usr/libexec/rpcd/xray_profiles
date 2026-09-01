@@ -64,6 +64,7 @@ const INIT_SCRIPT = mock_dir ? `${mock_dir}/etc/init.d/xray_profiles` : "/etc/in
 const LEGACY_INIT = mock_dir ? `${mock_dir}/etc/init.d/xray_core` : "/etc/init.d/xray_core";
 const UCI_DIR = mock_dir ? `${mock_dir}/etc/config` : null;
 const SS_BIN = mock_dir ? `${mock_dir}/usr/sbin/ss` : "/usr/sbin/ss";
+const SOCKSTATS_BIN = mock_dir ? `${mock_dir}/usr/libexec/xray-sockstats` : "/usr/libexec/xray-sockstats";
 const LINUX_USER_HZ = 100;
 
 // Helpers
@@ -272,13 +273,15 @@ function get_process_uptime(pid) {
 function empty_traffic_metrics(pid, reason) {
     return {
         available: false,
+        bytes_available: false,
+        rtt_available: false,
         reason: reason || "unavailable",
-        source: "tcp_info",
+        source: "none",
         sample_time: time(),
         pid: pid || null,
         connections: 0,
-        rx_bytes: 0,
-        tx_bytes: 0,
+        rx_bytes: null,
+        tx_bytes: null,
         rtt_ms: null,
         uptime_seconds: pid ? get_process_uptime(pid) : null
     };
@@ -318,16 +321,53 @@ function get_profile_traffic(profiles) {
                     if (!supplied) continue;
                     let metric = metrics[profile.id];
                     metric.available = supplied.available === false ? false : true;
+                    metric.bytes_available = supplied.bytes_available === false ? false : metric.available;
+                    metric.rtt_available = supplied.rtt_available === false ? false : supplied.rtt_ms != null;
                     metric.reason = supplied.reason || null;
+                    metric.source = supplied.source || "mock_tcp_info";
                     metric.connections = int(supplied.connections || 0);
-                    metric.rx_bytes = int(supplied.rx_bytes || 0);
-                    metric.tx_bytes = int(supplied.tx_bytes || 0);
+                    metric.rx_bytes = metric.bytes_available ? int(supplied.rx_bytes || 0) : null;
+                    metric.tx_bytes = metric.bytes_available ? int(supplied.tx_bytes || 0) : null;
                     metric.rtt_ms = supplied.rtt_ms == null ? null : int(supplied.rtt_ms);
                     metric.uptime_seconds = supplied.uptime_seconds == null ? null : int(supplied.uptime_seconds);
                     metric.sample_time = int(supplied.sample_time || time());
                 }
             } catch (e) {}
             return metrics;
+        }
+    }
+
+    // Prefer direct getsockopt(TCP_INFO) reads from duplicated process FDs.
+    // This avoids relying on optional fields in iproute2's text output while
+    // keeping observability read-only and free of Xray API/listeners.
+    if (access(SOCKSTATS_BIN, "x")) {
+        let helper_args = [];
+        for (let profile in running_profiles) push(helper_args, sprintf("%d", profile.pid));
+        let helper_result = run_process(`"${SOCKSTATS_BIN}" ${join(" ", helper_args)}`, 262144);
+        if (helper_result.exit_code === 0) {
+            try {
+                let helper_metrics = json(helper_result.stdout || "{}") || {};
+                let complete = true;
+                for (let profile in running_profiles) {
+                    let supplied = helper_metrics[`${profile.pid}`];
+                    if (!supplied || supplied.available !== true) {
+                        complete = false;
+                        break;
+                    }
+
+                    let metric = metrics[profile.id];
+                    metric.available = true;
+                    metric.bytes_available = supplied.bytes_available === true;
+                    metric.rtt_available = supplied.rtt_available === true;
+                    metric.reason = metric.bytes_available ? null : "tcp_info_fields_unavailable";
+                    metric.source = "pidfd_tcp_info";
+                    metric.connections = int(supplied.connections || 0);
+                    metric.rx_bytes = metric.bytes_available ? int(supplied.rx_bytes || 0) : null;
+                    metric.tx_bytes = metric.bytes_available ? int(supplied.tx_bytes || 0) : null;
+                    metric.rtt_ms = metric.rtt_available && supplied.rtt_ms != null ? int(supplied.rtt_ms) : null;
+                }
+                if (complete) return metrics;
+            } catch (e) {}
         }
     }
 
@@ -343,12 +383,14 @@ function get_profile_traffic(profiles) {
 
     for (let profile in running_profiles) {
         metrics[profile.id].available = true;
-        metrics[profile.id].reason = null;
+        metrics[profile.id].source = "ss_tcp_info";
+        metrics[profile.id].reason = "tcp_info_fields_unavailable";
     }
 
     let selected_profile = null;
     let rtt_sum = {};
     let rtt_count = {};
+    let counter_count = {};
 
     for (let line in split(ss_result.stdout, "\n")) {
         if (!line || length(line) == 0) continue;
@@ -362,15 +404,17 @@ function get_profile_traffic(profiles) {
                     break;
                 }
             }
-            continue;
         }
 
         if (!selected_profile) continue;
         let rx_bytes = parse_ss_counter(line, "bytes_received:");
         let tx_bytes = parse_ss_counter(line, "bytes_sent:");
         let rtt_ms = parse_ss_counter(line, "rtt:");
-        if (rx_bytes != null) metrics[selected_profile].rx_bytes += rx_bytes;
-        if (tx_bytes != null) metrics[selected_profile].tx_bytes += tx_bytes;
+        if (rx_bytes != null || tx_bytes != null) {
+            metrics[selected_profile].rx_bytes = int(metrics[selected_profile].rx_bytes || 0) + int(rx_bytes || 0);
+            metrics[selected_profile].tx_bytes = int(metrics[selected_profile].tx_bytes || 0) + int(tx_bytes || 0);
+            counter_count[selected_profile] = (counter_count[selected_profile] || 0) + 1;
+        }
         if (rtt_ms != null) {
             rtt_sum[selected_profile] = (rtt_sum[selected_profile] || 0) + rtt_ms;
             rtt_count[selected_profile] = (rtt_count[selected_profile] || 0) + 1;
@@ -379,10 +423,66 @@ function get_profile_traffic(profiles) {
 
     for (let profile in running_profiles) {
         let count = rtt_count[profile.id] || 0;
-        if (count > 0) metrics[profile.id].rtt_ms = int(rtt_sum[profile.id] / count);
+        let metric = metrics[profile.id];
+        if (count > 0) {
+            metric.rtt_available = true;
+            metric.rtt_ms = int(rtt_sum[profile.id] / count);
+        }
+        if ((counter_count[profile.id] || 0) > 0 || metric.connections == 0) {
+            metric.bytes_available = true;
+            metric.rx_bytes = int(metric.rx_bytes || 0);
+            metric.tx_bytes = int(metric.tx_bytes || 0);
+            metric.reason = null;
+        }
     }
 
     return metrics;
+}
+
+function get_profile_stack(filepath) {
+    let content = readfile(filepath);
+    if (!content) return null;
+
+    let parsed = null;
+    try {
+        parsed = json(content);
+    } catch (e) {
+        return null;
+    }
+
+    if (!parsed || type(parsed.outbounds) != "array") return null;
+
+    let descriptions = [];
+    for (let outbound in parsed.outbounds) {
+        if (!outbound || outbound.protocol != "vless" || !outbound.settings ||
+            !outbound.settings.reverse || !outbound.settings.reverse.tag) continue;
+
+        let parts = [ "VLESS" ];
+        let stream = outbound.streamSettings || {};
+        let network = stream.network || "";
+        let security = stream.security || "";
+        let flow = outbound.settings.flow || "";
+
+        if (network == "grpc") push(parts, "gRPC");
+        else if (network == "xhttp" || network == "splithttp") push(parts, "XHTTP");
+        else if (network == "ws") push(parts, "WebSocket");
+        else if (network == "http" || network == "h2") push(parts, "HTTP/2");
+        else if (network == "httpupgrade") push(parts, "HTTP Upgrade");
+        else if (network == "quic") push(parts, "QUIC");
+        else if (network == "kcp" || network == "mkcp") push(parts, "mKCP");
+        else if (network && network != "tcp" && network != "raw") push(parts, network);
+
+        if (security == "reality") push(parts, "REALITY");
+        else if (security == "tls") push(parts, "TLS");
+        else if (security && security != "none") push(parts, security);
+
+        if (flow == "xtls-rprx-vision") push(parts, "Vision");
+        else if (flow) push(parts, flow);
+
+        push(descriptions, join(" + ", parts));
+    }
+
+    return length(descriptions) > 0 ? join(" / ", descriptions) : null;
 }
 
 // Bounded polling state machine for process lifecycle
@@ -623,7 +723,8 @@ function rpc_list() {
             pid: pid,
             respawn_count: int(inst.respawn_count || 0),
             last_error: null,
-            geodata: get_profile_geodata(filepath)
+            geodata: get_profile_geodata(filepath),
+            protocol_stack: get_profile_stack(filepath)
         });
     });
 

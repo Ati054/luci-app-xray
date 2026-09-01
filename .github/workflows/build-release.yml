@@ -24,7 +24,7 @@ jobs:
             sdk_url_path: https://downloads.openwrt.org/releases/23.05.5/targets/x86/64
             sdk_name: -sdk-23.05.5-x86-64_
             package_format: ipk
-            core_filename: luci-app-xray_3.7.1-10_all.ipk
+            core_filename: luci-app-xray_3.7.1-10_x86_64.ipk
             status_filename: luci-app-xray-status_3.7.1-10_all.ipk
           - id: 25.12.5
             target_arch: aarch64_cortex-a53
@@ -184,6 +184,13 @@ jobs:
           mkdir -p "$DIST_DIR"
 
           if [ "${{ matrix.id }}" = "25.12.5" ]; then
+            COLLECTOR_PAYLOAD="$RUNNER_TEMP/r10-collector-payload"
+            mkdir -p "$COLLECTOR_PAYLOAD"
+            "$APK_HOST" --allow-untrusted extract --no-chown \
+              --destination "$COLLECTOR_PAYLOAD" "$CORE_PACKAGE"
+            install -m 0755 \
+              "$COLLECTOR_PAYLOAD/usr/libexec/xray-sockstats" \
+              "$DIST_DIR/xray-sockstats-aarch64"
             bash "$GITHUB_WORKSPACE/scripts/build_r10_offline_bundle.sh" \
               "$APK_HOST" "$DIST_DIR" "$CORE_PACKAGE" "$STATUS_PACKAGE" "$GITHUB_WORKSPACE"
             cp -p \
@@ -205,7 +212,7 @@ jobs:
             echo "package_release=10"
             echo "openwrt_release=${{ matrix.id }}"
             echo "package_format=${{ matrix.package_format }}"
-            echo "package_architecture=all"
+            echo "package_architecture=${{ matrix.target_arch }}"
             echo "sdk_target_architecture=${{ matrix.target_arch }}"
             echo "git_commit=$GITHUB_SHA"
             echo "workflow_run_id=$GITHUB_RUN_ID"

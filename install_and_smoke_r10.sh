@@ -365,6 +365,7 @@ for required_bundle_file in \
     OFFLINE-PACKAGES-MANIFEST.txt \
     OFFLINE-TRANSACTION.log \
     BUILD-INFO-openwrt-25.12.5-all.txt \
+    xray-sockstats-aarch64 \
     ROLLBACK-R10.txt; do
     [ -s "${required_bundle_file}" ] || {
         echo "ERROR: required bundle file is missing or empty: ${required_bundle_file}" >&2
@@ -499,6 +500,22 @@ done
 
 sha256sum -c SHA256SUMS-R10.txt
 
+# Prove the exact artifact binary and pidfd/TCP_INFO syscall path before any
+# backup, service stop, or package transaction. The probe reads only the
+# installer's existing file descriptors and writes nothing outside /tmp logs.
+chmod 0700 ./xray-sockstats-aarch64
+COLLECTOR_PROBE_JSON="$(./xray-sockstats-aarch64 $$)" || {
+    echo "ERROR: native TCP_INFO collector preflight failed" >&2
+    exit 1
+}
+COLLECTOR_PROBE_AVAILABLE="$(printf '%s\n' "${COLLECTOR_PROBE_JSON}" | jsonfilter -e '@.*.available')"
+COLLECTOR_PROBE_BYTES="$(printf '%s\n' "${COLLECTOR_PROBE_JSON}" | jsonfilter -e '@.*.bytes_available')"
+[ "${COLLECTOR_PROBE_AVAILABLE}" = "true" ] && [ "${COLLECTOR_PROBE_BYTES}" = "true" ] || {
+    echo "ERROR: native TCP_INFO collector is incompatible with the target kernel or permissions" >&2
+    exit 1
+}
+console "Native TCP_INFO collector preflight passed before backup"
+
 mkdir -p "${BACKUP_DIR}"
 chmod 0700 "${BACKUP_DIR}"
 if [ -f /etc/config/xray_core ]; then
@@ -560,6 +577,7 @@ for executable_path in \
     /etc/init.d/xray_profiles \
     /usr/libexec/rpcd/xray \
     /usr/libexec/rpcd/xray_profiles \
+    /usr/libexec/xray-sockstats \
     /usr/share/xray/gen_config.uc \
     /usr/share/xray/default_gateway.uc \
     /usr/share/xray/dnsmasq_include.ut \
