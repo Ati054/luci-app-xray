@@ -31,6 +31,12 @@ service_running() {
     service_exists "$1" && "/etc/init.d/$1" status >/dev/null 2>&1
 }
 
+profile_backend_call() {
+    profile_method="$1"
+    profile_payload="$2"
+    timeout 10 /usr/libexec/rpcd/xray_profiles call "${profile_method}" "${profile_payload}" </dev/null
+}
+
 stop_service_strict() {
     service_name="$1"
     service_exists "${service_name}" || return 0
@@ -177,10 +183,62 @@ restore_pretransaction_services() {
         else
             "/etc/init.d/${service_name}" disable
         fi
-        if [ "$(cat "${BACKUP_DIR}/${service_name}.running")" = "1" ]; then
-            "/etc/init.d/${service_name}" start
-        fi
     done
+
+    if [ "$(cat "${BACKUP_DIR}/xray_core.running")" = "1" ]; then
+        /etc/init.d/xray_core start
+    fi
+
+    if [ "$(cat "${BACKUP_DIR}/xray_profiles.running")" = "1" ]; then
+        [ -s "${BACKUP_DIR}/running-profile-ids.txt" ] || {
+            echo "ERROR: saved xray_profiles state is running but contains no running profile IDs" >&2
+            return 1
+        }
+        while IFS= read -r profile_id; do
+            [ -n "${profile_id}" ] || continue
+            profile_start_result="$(profile_backend_call start "{\"id\":\"${profile_id}\"}")" || return 1
+            [ "$(printf '%s\n' "${profile_start_result}" | jsonfilter -e '@.ok')" = "true" ] || {
+                echo "ERROR: failed to restore running profile ${profile_id}" >&2
+                return 1
+            }
+        done < "${BACKUP_DIR}/running-profile-ids.txt"
+    fi
+}
+
+verify_pretransaction_services_restored() {
+    for service_name in xray_core xray_profiles; do
+        if service_enabled "${service_name}"; then restored_enabled=1; else restored_enabled=0; fi
+        if service_running "${service_name}"; then restored_running=1; else restored_running=0; fi
+        [ "${restored_enabled}" = "$(cat "${BACKUP_DIR}/${service_name}.enabled")" ] && \
+            [ "${restored_running}" = "$(cat "${BACKUP_DIR}/${service_name}.running")" ] || {
+            echo "ERROR: ${service_name} enablement/running state was not restored" >&2
+            return 1
+        }
+    done
+
+    restored_list="$(profile_backend_call list '{}')" || return 1
+    expected_running_count="$(awk 'NF { count++ } END { print count + 0 }' "${BACKUP_DIR}/running-profile-ids.txt")"
+    restored_running_count="$(printf '%s\n' "${restored_list}" | jsonfilter -e '@.summary.running_count')"
+    [ "${restored_running_count}" = "${expected_running_count}" ] || {
+        echo "ERROR: restored running profile count is ${restored_running_count}, expected ${expected_running_count}" >&2
+        return 1
+    }
+
+    while IFS= read -r profile_id; do
+        [ -n "${profile_id}" ] || continue
+        restored_profile_running="$(printf '%s\n' "${restored_list}" | jsonfilter -e "@.profiles[@.id=\"${profile_id}\"].running")"
+        restored_profile_pid="$(printf '%s\n' "${restored_list}" | jsonfilter -e "@.profiles[@.id=\"${profile_id}\"].pid")"
+        [ "${restored_profile_running}" = "true" ] || {
+            echo "ERROR: profile ${profile_id} was active before update but is not running after restore" >&2
+            return 1
+        }
+        case "${restored_profile_pid}" in
+            ''|*[!0-9]*|0)
+                echo "ERROR: profile ${profile_id} has invalid restored PID ${restored_profile_pid}" >&2
+                return 1
+                ;;
+        esac
+    done < "${BACKUP_DIR}/running-profile-ids.txt"
 }
 
 failure_handler() {
@@ -536,6 +594,34 @@ for service_name in xray_core xray_profiles; do
     if service_enabled "${service_name}"; then echo 1; else echo 0; fi > "${BACKUP_DIR}/${service_name}.enabled"
     if service_running "${service_name}"; then echo 1; else echo 0; fi > "${BACKUP_DIR}/${service_name}.running"
 done
+
+profile_backend_call list '{}' > "${BACKUP_DIR}/profiles-before.json" 2> "${BACKUP_DIR}/profiles-before.stderr"
+[ ! -s "${BACKUP_DIR}/profiles-before.stderr" ] || {
+    echo "ERROR: pre-update profile-state snapshot wrote to stderr" >&2
+    exit 1
+}
+[ "$(jsonfilter -i "${BACKUP_DIR}/profiles-before.json" -e '@.ok')" = "true" ] || {
+    echo "ERROR: pre-update profile-state snapshot did not return ok=true" >&2
+    exit 1
+}
+jsonfilter -i "${BACKUP_DIR}/profiles-before.json" -e '@.profiles[@.running=true].id' > "${BACKUP_DIR}/running-profile-ids.txt"
+while IFS= read -r profile_id; do
+    [ -n "${profile_id}" ] || continue
+    case "${profile_id}" in
+        *[!a-zA-Z0-9_-]*)
+            echo "ERROR: unsafe running profile ID in pre-update snapshot: ${profile_id}" >&2
+            exit 1
+            ;;
+    esac
+done < "${BACKUP_DIR}/running-profile-ids.txt"
+if [ "$(cat "${BACKUP_DIR}/xray_profiles.running")" = "1" ] && [ ! -s "${BACKUP_DIR}/running-profile-ids.txt" ]; then
+    echo "ERROR: xray_profiles is running but no active profile IDs were captured" >&2
+    exit 1
+fi
+if [ "$(cat "${BACKUP_DIR}/xray_profiles.running")" = "0" ] && [ -s "${BACKUP_DIR}/running-profile-ids.txt" ]; then
+    echo "ERROR: active profile IDs were captured while xray_profiles is not running" >&2
+    exit 1
+fi
 BACKUP_READY=1
 console "R10 target backup completed: ${BACKUP_DIR}"
 
@@ -650,18 +736,12 @@ UCI_CONFIG_DIR="${BACKUP_DIR}/uci" "${UCODE_BIN}" /usr/share/xray/gen_config.uc 
 }
 XRAY_LOCATION_ASSET=/opt/xray/current "${XRAY_BIN}" run -test -config "${BACKUP_DIR}/generated-empty.json"
 
-R10_INSTALLER_FINAL_DISABLED=1 sh "${SCRIPT_DIR}/profile_mode_smoke.sh"
+sh "${SCRIPT_DIR}/profile_mode_smoke.sh"
 
-stop_service_strict xray_core
-stop_service_strict xray_profiles
-disable_service_strict xray_core
-disable_service_strict xray_profiles
-
-if pidof xray >/dev/null 2>&1; then
-    echo "ERROR: an Xray process remains after installation smoke" >&2
-    pidof xray >&2
-    exit 1
-fi
+restore_data_backup
+restore_pretransaction_services
+verify_pretransaction_services_restored
+console "Pre-update Xray service and active-profile state restored"
 
 SUCCESS=1
 trap - EXIT INT TERM

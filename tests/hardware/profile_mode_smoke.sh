@@ -7,7 +7,6 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 XRAY_BIN="/opt/xray/current/xray"
 RPCD_BACKEND="/usr/libexec/rpcd/xray_profiles"
 PROFILES_DIR="/opt/xray/profiles"
-FINAL_DISABLED="${R10_INSTALLER_FINAL_DISABLED:-0}"
 
 resolve_fixture() {
     fixture_name="$1"
@@ -231,12 +230,6 @@ stop_services() {
     }
 }
 
-leave_services_disabled() {
-    stop_services
-    /etc/init.d/xray_core disable
-    /etc/init.d/xray_profiles disable
-}
-
 restore_services() {
     stop_services
     if [ "$(cat "${TMP_DIR}/xray_core.enabled")" = "1" ]; then
@@ -265,13 +258,7 @@ failure_cleanup() {
     stop_test_instances || :
     purge_test_profiles || :
     restore_uci || :
-    if [ "${SERVICES_SAVED}" -eq 1 ]; then
-        if [ "${FINAL_DISABLED}" = "1" ]; then
-            leave_services_disabled
-        else
-            restore_services
-        fi
-    fi
+    if [ "${SERVICES_SAVED}" -eq 1 ]; then restore_services; fi
     rm -rf "${TMP_DIR}"
     return "${primary_rc}"
 }
@@ -460,18 +447,6 @@ for state_kind in ipv4 ipv6 nft dnsmasq-xray; do
         exit 1
     }
 done
-
-if [ "${FINAL_DISABLED}" = "1" ]; then
-    leave_services_disabled
-    ! service_running xray_core && ! service_running xray_profiles || {
-        echo "ERROR: installer mode must leave both services stopped" >&2
-        exit 1
-    }
-    ! service_enabled xray_core && ! service_enabled xray_profiles || {
-        echo "ERROR: installer mode must leave both services disabled" >&2
-        exit 1
-    }
-fi
 
 CLEANUP_DONE=1
 trap - EXIT INT TERM

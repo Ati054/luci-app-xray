@@ -195,6 +195,19 @@ def main() -> int:
             "Native TCP_INFO collector preflight passed before backup" in installer and
             installer.index("COLLECTOR_PROBE_AVAILABLE") < installer.index("BACKUP_READY=1"),
             "installer proves pidfd/TCP_INFO compatibility before backup and package mutation")
+    require("profiles-before.json" in installer and "running-profile-ids.txt" in installer and
+            "unsafe running profile ID" in installer and
+            installer.index("profiles-before.json") < installer.index("BACKUP_READY=1"),
+            "installer captures and validates the exact active-profile set before mutation")
+    smoke_call = installer.index('sh "${SCRIPT_DIR}/profile_mode_smoke.sh"')
+    data_restore = installer.index("\nrestore_data_backup\n", smoke_call)
+    service_restore = installer.index("\nrestore_pretransaction_services\n", data_restore)
+    restored_verify = installer.index("\nverify_pretransaction_services_restored\n", service_restore)
+    success_marker = installer.index('console "R10_INSTALL_AND_HARDWARE_SMOKE_OK"', restored_verify)
+    require(smoke_call < data_restore < service_restore < restored_verify < success_marker and
+            "restored running profile count" in installer and
+            "has invalid restored PID" in installer,
+            "successful install restores data and the exact active-profile state before success")
 
     hardware = read("tests/hardware/profile_mode_smoke.sh")
     require("HARDWARE_PROFILE_MODE_SMOKE_OK" in hardware, "hardware smoke has the exact success marker")
@@ -209,13 +222,10 @@ def main() -> int:
             "hardware smoke verifies exact UCI and service-state restoration")
     restore_services_body = hardware.split("restore_services() {", 1)[1].split("\n}", 1)[0]
     restored_state_check = hardware.index("for restored_service in xray_core xray_profiles")
-    final_disabled_check = hardware.index(
-        'if [ "${FINAL_DISABLED}" = "1" ]; then', restored_state_check
-    )
-    require("FINAL_DISABLED" not in restore_services_body and
-            hardware.index("\nrestore_services\n") < restored_state_check < final_disabled_check and
-            "leave_services_disabled" in hardware[final_disabled_check:],
-            "installer smoke restores and verifies saved services before applying its final-disabled state")
+    require("FINAL_DISABLED" not in hardware and "leave_services_disabled" not in hardware and
+            hardware.rindex("\nrestore_services\n", 0, restored_state_check) < restored_state_check and
+            restored_state_check < hardware.rindex('echo "HARDWARE_PROFILE_MODE_SMOKE_OK"'),
+            "hardware smoke restores and verifies its saved service state before success")
     require("grep -o '\"id\"" not in hardware, "hardware smoke does not parse formatted JSON with grep")
 
     backend = read("core/root/usr/libexec/rpcd/xray_profiles")

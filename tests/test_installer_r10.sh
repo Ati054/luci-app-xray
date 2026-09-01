@@ -74,4 +74,23 @@ grep -q 'BLOCKED: POST_TRANSACTION_HARDWARE_FAILURE' "${INSTALLER}" || {
     exit 1
 }
 
-echo "PASS: installer rejects non-root execution and orders checksum, simulation, and install fail-closed."
+SNAPSHOT_LINE="$(grep -n 'profiles-before.json' "${INSTALLER}" | head -n 1 | cut -d: -f1)"
+BACKUP_READY_LINE="$(grep -n '^BACKUP_READY=1$' "${INSTALLER}" | cut -d: -f1)"
+SMOKE_LINE="$(grep -n '^sh "${SCRIPT_DIR}/profile_mode_smoke.sh"$' "${INSTALLER}" | cut -d: -f1)"
+RESTORE_LINE="$(grep -n '^restore_pretransaction_services$' "${INSTALLER}" | tail -n 1 | cut -d: -f1)"
+VERIFY_RESTORE_LINE="$(grep -n '^verify_pretransaction_services_restored$' "${INSTALLER}" | cut -d: -f1)"
+SUCCESS_LINE="$(grep -n '^console "R10_INSTALL_AND_HARDWARE_SMOKE_OK"$' "${INSTALLER}" | cut -d: -f1)"
+[ -n "${SNAPSHOT_LINE}" ] && [ -n "${BACKUP_READY_LINE}" ] && [ -n "${SMOKE_LINE}" ] && \
+[ -n "${RESTORE_LINE}" ] && [ -n "${VERIFY_RESTORE_LINE}" ] && [ -n "${SUCCESS_LINE}" ] && \
+[ "${SNAPSHOT_LINE}" -lt "${BACKUP_READY_LINE}" ] && [ "${SMOKE_LINE}" -lt "${RESTORE_LINE}" ] && \
+[ "${RESTORE_LINE}" -lt "${VERIFY_RESTORE_LINE}" ] && [ "${VERIFY_RESTORE_LINE}" -lt "${SUCCESS_LINE}" ] || {
+    echo "FAIL: active-profile snapshot/restore/verification order is unsafe" >&2
+    exit 1
+}
+grep -q 'running-profile-ids.txt' "${INSTALLER}" && \
+    grep -q 'has invalid restored PID' "${INSTALLER}" || {
+    echo "FAIL: installer does not verify exact active profiles after update" >&2
+    exit 1
+}
+
+echo "PASS: installer is fail-closed and restores verified active profiles before success."
