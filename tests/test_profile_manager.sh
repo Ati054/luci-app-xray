@@ -306,7 +306,7 @@ assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*1048576' "${LIST_JSON}" "Test 1
 assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*524288' "${LIST_JSON}" "Test 19e: RPC list reports exact per-profile transmitted bytes"
 assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*17' "${LIST_JSON}" "Test 19f: RPC list reports TCP_INFO RTT"
 assert_match '"uptime_seconds"[[:space:]]*:[[:space:]]*3661' "${LIST_JSON}" "Test 19g: RPC list reports process uptime"
-assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS + REALITY + Vision"' "${LIST_JSON}" "Test 19h: RPC list derives the safe protocol stack from profile JSON"
+assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS \+ REALITY \+ Vision"' "${LIST_JSON}" "Test 19h: RPC list derives the safe protocol stack from profile JSON"
 HAS_OBSOLETE_FILE_METADATA=$(echo "${LIST_JSON}" | grep -E -c '"(size|sha256)"[[:space:]]*:' || true)
 assert_equal "0" "${HAS_OBSOLETE_FILE_METADATA}" "Test 19i: RPC list omits removed size and SHA metadata"
 rm -f "${MOCK_ROOT}/traffic.json"
