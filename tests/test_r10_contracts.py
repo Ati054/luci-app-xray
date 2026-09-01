@@ -122,6 +122,10 @@ def main() -> int:
     require("xray-sockstats-aarch64" in workflow and
             '"$APK_HOST" --allow-untrusted extract --no-chown' in workflow,
             "artifact carries the exact extracted aarch64 collector for pre-transaction probing")
+    bundle_call = workflow.index('bash "$GITHUB_WORKSPACE/scripts/build_r10_offline_bundle.sh"')
+    collector_copy = workflow.index('"$DIST_DIR/xray-sockstats-aarch64"')
+    require(bundle_call < collector_copy,
+            "offline bundle receives an empty output directory before the collector is added")
     require("OFFLINE-PACKAGES-MANIFEST.txt" in bundle_script,
             "bundle builder emits the dependency manifest")
     require("kmod-netlink-diag" in bundle_script and
