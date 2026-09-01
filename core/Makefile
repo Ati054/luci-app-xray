@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-xray
 PKG_VERSION:=3.7.1
-PKG_RELEASE:=9
+PKG_RELEASE:=10
 PKGARCH:=all
 
 PKG_LICENSE:=MPL-2.0
@@ -18,7 +18,7 @@ PKG_CONFIG_DEPENDS:= \
 
 LUCI_TITLE:=LuCI Xray client with modern VLESS Reverse
 LUCI_DESCRIPTION:=LuCI client for Xray with modern VLESS Reverse support and optional transparent proxy features.
-LUCI_DEPENDS:=+ucode +ucode-mod-uci +ucode-mod-fs +coreutils-base64 +ca-bundle +ip-full +kmod-nft-tproxy +firewall4 +dnsmasq
+LUCI_DEPENDS:=+ucode +ucode-mod-uci +ucode-mod-fs +coreutils-base64 +ca-bundle +ip-full +ss +kmod-nft-tproxy +firewall4 +dnsmasq
 LUCI_PKGARCH:=all
 
 include $(INCLUDE_DIR)/package.mk

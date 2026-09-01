@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
 
-echo "=== R9 installer ucode module compatibility ==="
+echo "=== R10 installer ucode module compatibility ==="
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
-INSTALLER="${ROOT_DIR}/install_and_smoke_r9.sh"
+INSTALLER="${ROOT_DIR}/install_and_smoke_r10.sh"
 MASTER_RUNNER="${ROOT_DIR}/tests/run_tests.sh"
 TMP_DIR="$(mktemp -d)"
 
@@ -20,13 +20,13 @@ grep -Fq 'sh "${SCRIPT_DIR}/test_installer_ucode_compatibility.sh"' "${MASTER_RU
 }
 
 HELPERS="${TMP_DIR}/ucode-helpers.sh"
-sed -n '/^# BEGIN R9_UCODE_MODULE_COMPATIBILITY_HELPERS$/,/^# END R9_UCODE_MODULE_COMPATIBILITY_HELPERS$/p' \
+sed -n '/^# BEGIN R10_UCODE_MODULE_COMPATIBILITY_HELPERS$/,/^# END R10_UCODE_MODULE_COMPATIBILITY_HELPERS$/p' \
     "${INSTALLER}" > "${HELPERS}"
-grep -q '^r9_compile_ucode_source()' "${HELPERS}" || {
+grep -q '^r10_compile_ucode_source()' "${HELPERS}" || {
     echo "FAIL: installer has no module-aware ucode compile helper" >&2
     exit 1
 }
-grep -Fq 'r9_compile_ucode_source "${UCODE_BIN}" "${module_path}"' "${INSTALLER}" || {
+grep -Fq 'r10_compile_ucode_source "${UCODE_BIN}" "${module_path}"' "${INSTALLER}" || {
     echo "FAIL: installed-source sweep does not use the module-aware compile helper" >&2
     exit 1
 }
@@ -39,7 +39,7 @@ BIN_DIR="${TMP_DIR}/bin"
 mkdir -p "${BIN_DIR}"
 cat > "${BIN_DIR}/ucode" <<'EOF'
 #!/bin/sh
-printf '%s\n' "$*" >> "${R9_FAKE_UCODE_LOG}"
+printf '%s\n' "$*" >> "${R10_FAKE_UCODE_LOG}"
 [ "$#" -eq 4 ] && [ "$1" = "-cdynlink=ubus" ] && \
     [ "$2" = "-o" ] && [ "$3" = "/dev/null" ] || {
     echo "unexpected compile arguments: $*" >&2
@@ -77,28 +77,28 @@ HARNESS="${TMP_DIR}/harness.sh"
 cat > "${HARNESS}" <<'EOF'
 #!/bin/sh
 set -eu
-. "${R9_HELPERS}"
+. "${R10_HELPERS}"
 
-r9_compile_ucode_source "${R9_UCODE_BIN}" "${R9_ENTRYPOINT}" \
-    "${R9_IMPORT_WRAPPER}" "${R9_COMPILE_STDERR}"
-[ ! -s "${R9_COMPILE_STDERR}" ] || {
+r10_compile_ucode_source "${R10_UCODE_BIN}" "${R10_ENTRYPOINT}" \
+    "${R10_IMPORT_WRAPPER}" "${R10_COMPILE_STDERR}"
+[ ! -s "${R10_COMPILE_STDERR}" ] || {
     echo "FAIL: direct .uc compile wrote to stderr" >&2
     exit 1
 }
 
-r9_compile_ucode_source "${R9_UCODE_BIN}" "${R9_MODULE}" \
-    "${R9_IMPORT_WRAPPER}" "${R9_COMPILE_STDERR}"
-[ ! -s "${R9_COMPILE_STDERR}" ] || {
+r10_compile_ucode_source "${R10_UCODE_BIN}" "${R10_MODULE}" \
+    "${R10_IMPORT_WRAPPER}" "${R10_COMPILE_STDERR}"
+[ ! -s "${R10_COMPILE_STDERR}" ] || {
     echo "FAIL: imported .mjs compile wrote to stderr" >&2
     exit 1
 }
-grep -Fq "import * as module_under_test from \"${R9_MODULE}\";" "${R9_IMPORT_WRAPPER}" || {
+grep -Fq "import * as module_under_test from \"${R10_MODULE}\";" "${R10_IMPORT_WRAPPER}" || {
     echo "FAIL: .mjs source was not compiled through an import wrapper" >&2
     exit 1
 }
 
-if r9_compile_ucode_source "${R9_UCODE_BIN}" "${R9_BROKEN_MODULE}" \
-    "${R9_IMPORT_WRAPPER}" "${R9_COMPILE_STDERR}"; then
+if r10_compile_ucode_source "${R10_UCODE_BIN}" "${R10_BROKEN_MODULE}" \
+    "${R10_IMPORT_WRAPPER}" "${R10_COMPILE_STDERR}"; then
     echo "FAIL: broken imported module was accepted" >&2
     exit 1
 else
@@ -108,21 +108,21 @@ fi
     echo "FAIL: broken module exit ${compile_rc}, expected 255" >&2
     exit 1
 }
-grep -Fq 'synthetic module parse failure' "${R9_COMPILE_STDERR}" || {
+grep -Fq 'synthetic module parse failure' "${R10_COMPILE_STDERR}" || {
     echo "FAIL: broken module diagnostic was not preserved" >&2
     exit 1
 }
 EOF
 chmod 0755 "${HARNESS}"
 
-R9_HELPERS="${HELPERS}" \
-R9_UCODE_BIN="${BIN_DIR}/ucode" \
-R9_ENTRYPOINT="${ENTRYPOINT}" \
-R9_MODULE="${MODULE}" \
-R9_BROKEN_MODULE="${BROKEN_MODULE}" \
-R9_IMPORT_WRAPPER="${IMPORT_WRAPPER}" \
-R9_COMPILE_STDERR="${COMPILE_STDERR}" \
-R9_FAKE_UCODE_LOG="${UCODE_LOG}" \
+R10_HELPERS="${HELPERS}" \
+R10_UCODE_BIN="${BIN_DIR}/ucode" \
+R10_ENTRYPOINT="${ENTRYPOINT}" \
+R10_MODULE="${MODULE}" \
+R10_BROKEN_MODULE="${BROKEN_MODULE}" \
+R10_IMPORT_WRAPPER="${IMPORT_WRAPPER}" \
+R10_COMPILE_STDERR="${COMPILE_STDERR}" \
+R10_FAKE_UCODE_LOG="${UCODE_LOG}" \
 /bin/sh "${HARNESS}"
 
 grep -Fq -- "-cdynlink=ubus -o /dev/null ${ENTRYPOINT}" "${UCODE_LOG}" || {
@@ -136,4 +136,4 @@ fi
 
 echo "PASS: installer compiles .uc entrypoints directly and .mjs modules through imports."
 echo "PASS: imported module failures preserve the target exit code and diagnostic."
-echo "R9_UCODE_MODULE_IMPORT_SWEEP_OK"
+echo "R10_UCODE_MODULE_IMPORT_SWEEP_OK"

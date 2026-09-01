@@ -7,7 +7,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 XRAY_BIN="/opt/xray/current/xray"
 RPCD_BACKEND="/usr/libexec/rpcd/xray_profiles"
 PROFILES_DIR="/opt/xray/profiles"
-FINAL_DISABLED="${R9_INSTALLER_FINAL_DISABLED:-0}"
+FINAL_DISABLED="${R10_INSTALLER_FINAL_DISABLED:-0}"
 
 resolve_fixture() {
     fixture_name="$1"
@@ -58,30 +58,30 @@ require_command() {
     }
 }
 
-# BEGIN R9_TARGET_PORTABILITY_HELPERS
-r9_permission_field() {
-    r9_mode_listing="$(LC_ALL=C ls -ld "$1")" || return 1
-    r9_mode_field="${r9_mode_listing%% *}"
-    [ -n "${r9_mode_field}" ] || return 1
-    printf '%s\n' "${r9_mode_field}"
+# BEGIN R10_TARGET_PORTABILITY_HELPERS
+r10_permission_field() {
+    r10_mode_listing="$(LC_ALL=C ls -ld "$1")" || return 1
+    r10_mode_field="${r10_mode_listing%% *}"
+    [ -n "${r10_mode_field}" ] || return 1
+    printf '%s\n' "${r10_mode_field}"
 }
 
-r9_exact_private_directory() {
-    r9_mode_path="$1"
-    [ -d "${r9_mode_path}" ] && [ ! -L "${r9_mode_path}" ] || return 1
-    r9_verified_mode="$(r9_permission_field "${r9_mode_path}")" || return 1
-    [ -d "${r9_mode_path}" ] && [ ! -L "${r9_mode_path}" ] && [ "${r9_verified_mode}" = "drwx------" ]
+r10_exact_private_directory() {
+    r10_mode_path="$1"
+    [ -d "${r10_mode_path}" ] && [ ! -L "${r10_mode_path}" ] || return 1
+    r10_verified_mode="$(r10_permission_field "${r10_mode_path}")" || return 1
+    [ -d "${r10_mode_path}" ] && [ ! -L "${r10_mode_path}" ] && [ "${r10_verified_mode}" = "drwx------" ]
 }
 
-r9_exact_private_regular_file() {
-    r9_mode_path="$1"
-    [ -f "${r9_mode_path}" ] && [ ! -L "${r9_mode_path}" ] || return 1
-    r9_verified_mode="$(r9_permission_field "${r9_mode_path}")" || return 1
-    [ -f "${r9_mode_path}" ] && [ ! -L "${r9_mode_path}" ] && [ "${r9_verified_mode}" = "-rw-------" ]
+r10_exact_private_regular_file() {
+    r10_mode_path="$1"
+    [ -f "${r10_mode_path}" ] && [ ! -L "${r10_mode_path}" ] || return 1
+    r10_verified_mode="$(r10_permission_field "${r10_mode_path}")" || return 1
+    [ -f "${r10_mode_path}" ] && [ ! -L "${r10_mode_path}" ] && [ "${r10_verified_mode}" = "-rw-------" ]
 }
-# END R9_TARGET_PORTABILITY_HELPERS
+# END R10_TARGET_PORTABILITY_HELPERS
 
-for command_name in awk cat find grep ip jsonfilter ls mktemp nft sed sha256sum sort timeout tr ubus uci; do
+for command_name in awk cat find grep ip jsonfilter ls mktemp nft sed sha256sum sort ss timeout tr ubus uci; do
     require_command "${command_name}"
 done
 
@@ -121,7 +121,7 @@ for service_script in /etc/init.d/xray_core /etc/init.d/xray_profiles; do
     }
 done
 
-TMP_DIR="$(mktemp -d /tmp/xray-r9-smoke.XXXXXX)"
+TMP_DIR="$(mktemp -d /tmp/xray-r10-smoke.XXXXXX)"
 chmod 0700 "${TMP_DIR}"
 IMPORTED_A=0
 IMPORTED_B=0
@@ -334,12 +334,12 @@ IMPORT_B_RESULT="$(backend_call import "$(json_payload 'Smoke B' smoke-b.json "$
 }
 IMPORTED_B=1
 
-r9_exact_private_directory "${PROFILES_DIR}" || {
+r10_exact_private_directory "${PROFILES_DIR}" || {
     echo "ERROR: profile directory mode is not 0700" >&2
     exit 1
 }
 for profile_file in "${PROFILES_DIR}/smoke-a.json" "${PROFILES_DIR}/smoke-b.json"; do
-    r9_exact_private_regular_file "${profile_file}" || {
+    r10_exact_private_regular_file "${profile_file}" || {
         echo "ERROR: profile file mode is not 0600: ${profile_file}" >&2
         exit 1
     }
@@ -356,6 +356,16 @@ case "${PID_B}" in ''|*[!0-9]*|0) echo "ERROR: invalid PID for profile B: ${PID_
     echo "ERROR: profiles A and B share PID ${PID_A}" >&2
     exit 1
 }
+for profile_id in smoke_a smoke_b; do
+    TRAFFIC_AVAILABLE="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.available")"
+    TRAFFIC_SOURCE="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.source")"
+    TRAFFIC_UPTIME="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.uptime_seconds")"
+    [ "${TRAFFIC_AVAILABLE}" = "true" ] && [ "${TRAFFIC_SOURCE}" = "tcp_info" ] || {
+        echo "ERROR: TCP_INFO traffic metrics are unavailable for ${profile_id}" >&2
+        exit 1
+    }
+    case "${TRAFFIC_UPTIME}" in ''|*[!0-9]*) echo "ERROR: invalid uptime for ${profile_id}: ${TRAFFIC_UPTIME}" >&2; exit 1;; esac
+done
 
 capture_network_state "${TMP_DIR}/during"
 for state_kind in ipv4 ipv6 nft dnsmasq-xray; do

@@ -63,6 +63,8 @@ const ASSET_DIR = mock_dir ? `${mock_dir}/opt/xray/current` : (getenv("XRAY_LOCA
 const INIT_SCRIPT = mock_dir ? `${mock_dir}/etc/init.d/xray_profiles` : "/etc/init.d/xray_profiles";
 const LEGACY_INIT = mock_dir ? `${mock_dir}/etc/init.d/xray_core` : "/etc/init.d/xray_core";
 const UCI_DIR = mock_dir ? `${mock_dir}/etc/config` : null;
+const SS_BIN = mock_dir ? `${mock_dir}/usr/sbin/ss` : "/usr/sbin/ss";
+const LINUX_USER_HZ = 100;
 
 // Helpers
 function ensure_dirs() {
@@ -101,7 +103,7 @@ function make_temp_dir(prefix) {
 }
 
 // Process runner capturing exact exit code, stdout and stderr
-function run_process(cmd_str) {
+function run_process(cmd_str, max_output_bytes) {
     let tmp_dir = make_temp_dir(".run");
     if (!tmp_dir) {
         return { exit_code: -1, stdout: "", stderr: "Unable to create process capture directory" };
@@ -144,9 +146,10 @@ function run_process(cmd_str) {
         die(process_error);
     }
 
+    let capture_limit = max_output_bytes || 8192;
     return {
         exit_code: rc,
-        stdout: substr(stdout_content, 0, 8192),
+        stdout: substr(stdout_content, 0, capture_limit),
         stderr: substr(stderr_content, 0, 8192)
     };
 }
@@ -220,13 +223,6 @@ function release_lock() {
     rmdir(LOCK_DIR);
 }
 
-function get_sha256(content_or_file, is_file) {
-    let cmd_str = is_file ? `sha256sum "${content_or_file}" 2>/dev/null` : `printf '%s' "${content_or_file}" | sha256sum 2>/dev/null`;
-    let out = run_cmd(cmd_str);
-    let parts = split(trim(out), " ");
-    return parts[0] || "";
-}
-
 function get_uci() {
     let uci_ctx = cursor(UCI_DIR);
     return uci_ctx;
@@ -253,6 +249,140 @@ function get_procd_instances() {
         }
     } catch (e) {}
     return instances;
+}
+
+function get_process_uptime(pid) {
+    if (!pid || pid <= 0) return null;
+
+    let proc_stat = readfile(`/proc/${pid}/stat`);
+    let proc_uptime = readfile("/proc/uptime");
+    if (!proc_stat || !proc_uptime) return null;
+
+    // Xray's comm field is `(xray)`, so field 22 is stable at array index 21.
+    let fields = split(trim(proc_stat), " ");
+    let uptime_fields = split(trim(proc_uptime), " ");
+    let start_ticks = int(fields[21] || "0");
+    let system_uptime = int(uptime_fields[0] || "0");
+    if (start_ticks <= 0 || system_uptime < 0) return null;
+
+    let process_uptime = system_uptime - int(start_ticks / LINUX_USER_HZ);
+    return process_uptime >= 0 ? process_uptime : null;
+}
+
+function empty_traffic_metrics(pid, reason) {
+    return {
+        available: false,
+        reason: reason || "unavailable",
+        source: "tcp_info",
+        sample_time: time(),
+        pid: pid || null,
+        connections: 0,
+        rx_bytes: 0,
+        tx_bytes: 0,
+        rtt_ms: null,
+        uptime_seconds: pid ? get_process_uptime(pid) : null
+    };
+}
+
+function parse_ss_counter(line, prefix) {
+    for (let token in split(trim(line), " ")) {
+        if (index(token, prefix) == 0) {
+            let raw = substr(token, length(prefix));
+            if (prefix == "rtt:") raw = split(raw, "/")[0] || "";
+            return int(raw || "0");
+        }
+    }
+    return null;
+}
+
+function get_profile_traffic(profiles) {
+    let metrics = {};
+    let running_profiles = [];
+
+    for (let profile in profiles) {
+        let metric = empty_traffic_metrics(profile.pid, profile.running ? "ss_unavailable" : "stopped");
+        metrics[profile.id] = metric;
+        if (profile.running && profile.pid > 0) push(running_profiles, profile);
+    }
+
+    if (length(running_profiles) == 0) return metrics;
+
+    // Tests can provide deterministic TCP_INFO snapshots without touching /proc.
+    if (mock_dir) {
+        let mock_file = `${mock_dir}/traffic.json`;
+        if (access(mock_file, "r")) {
+            try {
+                let mock_metrics = json(readfile(mock_file) || "{}") || {};
+                for (let profile in running_profiles) {
+                    let supplied = mock_metrics[profile.id];
+                    if (!supplied) continue;
+                    let metric = metrics[profile.id];
+                    metric.available = supplied.available === false ? false : true;
+                    metric.reason = supplied.reason || null;
+                    metric.connections = int(supplied.connections || 0);
+                    metric.rx_bytes = int(supplied.rx_bytes || 0);
+                    metric.tx_bytes = int(supplied.tx_bytes || 0);
+                    metric.rtt_ms = supplied.rtt_ms == null ? null : int(supplied.rtt_ms);
+                    metric.uptime_seconds = supplied.uptime_seconds == null ? null : int(supplied.uptime_seconds);
+                    metric.sample_time = int(supplied.sample_time || time());
+                }
+            } catch (e) {}
+            return metrics;
+        }
+    }
+
+    if (!access(SS_BIN, "x")) return metrics;
+
+    // One bounded snapshot serves every profile. TCP_INFO requires no Xray API,
+    // listener, profile mutation, probe packet, or external host access.
+    let ss_result = run_process(`"${SS_BIN}" -tinpH`, 262144);
+    if (ss_result.exit_code !== 0) {
+        for (let profile in running_profiles) metrics[profile.id].reason = "ss_failed";
+        return metrics;
+    }
+
+    for (let profile in running_profiles) {
+        metrics[profile.id].available = true;
+        metrics[profile.id].reason = null;
+    }
+
+    let selected_profile = null;
+    let rtt_sum = {};
+    let rtt_count = {};
+
+    for (let line in split(ss_result.stdout, "\n")) {
+        if (!line || length(line) == 0) continue;
+
+        if (!match(line, /^[ \t]/)) {
+            selected_profile = null;
+            for (let profile in running_profiles) {
+                if (index(line, `pid=${profile.pid},`) >= 0) {
+                    selected_profile = profile.id;
+                    metrics[selected_profile].connections++;
+                    break;
+                }
+            }
+            continue;
+        }
+
+        if (!selected_profile) continue;
+        let rx_bytes = parse_ss_counter(line, "bytes_received:");
+        let tx_bytes = parse_ss_counter(line, "bytes_sent:");
+        let rtt_ms = parse_ss_counter(line, "rtt:");
+        if (rx_bytes != null) metrics[selected_profile].rx_bytes += rx_bytes;
+        if (tx_bytes != null) metrics[selected_profile].tx_bytes += tx_bytes;
+        if (rtt_ms != null) {
+            rtt_sum[selected_profile] = (rtt_sum[selected_profile] || 0) + rtt_ms;
+            rtt_count[selected_profile] = (rtt_count[selected_profile] || 0) + 1;
+        }
+    }
+
+    for (let profile in running_profiles) {
+        let count = rtt_count[profile.id] || 0;
+        if (count > 0) metrics[profile.id].rtt_ms = int(rtt_sum[profile.id] / count);
+    }
+
+    return metrics;
 }
 
 // Bounded polling state machine for process lifecycle
@@ -477,10 +607,6 @@ function rpc_list() {
         let filepath = `${BASE_PROFILES_DIR}/${filename}`;
         let st = stat(filepath);
         let exists = st ? true : false;
-        let size = st ? st.size : 0;
-        let mtime = st ? st.mtime : 0;
-        let hash = exists ? get_sha256(filepath, true) : "";
-
         let instance_key = `profile_${id}`;
         let inst = instances[instance_key] || {};
         let is_running = (inst.running && inst.pid > 0) ? true : false;
@@ -493,15 +619,16 @@ function rpc_list() {
             order: int(s.order) || 0,
             autostart: s.autostart == "1",
             exists: exists,
-            size: size,
-            sha256: hash ? substr(hash, 0, 12) : "",
-            mtime: mtime,
             running: is_running,
             pid: pid,
+            respawn_count: int(inst.respawn_count || 0),
             last_error: null,
             geodata: get_profile_geodata(filepath)
         });
     });
+
+    let traffic = get_profile_traffic(profiles);
+    for (let profile in profiles) profile.traffic = traffic[profile.id];
 
     // Check system status
     let bin_found = access(XRAY_BIN, "x") ? true : false;

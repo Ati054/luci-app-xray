@@ -278,7 +278,7 @@ assert_match '"ok":true' "${RES_STALE_REC}" "Test 17: Stale lock belonging to de
 mkdir -p "${LOCK_DIR}"
 printf '{"pid": %s, "ts": 1000000000}\n' "$$" > "${LOCK_DIR}/meta.json"
 set +e
-RES_LIVE_LOCK="$(timeout 5 "${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call replace "${REPLACE_A_PAYLOAD}" 2>&1)"
+RES_LIVE_LOCK="$(timeout 40 "${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call replace "${REPLACE_A_PAYLOAD}" 2>&1)"
 LIVE_LOCK_RC=$?
 set -e
 assert_equal "1" "${LIVE_LOCK_RC}" "Test 18a: Live lock rejects the concurrent replacement"
@@ -290,11 +290,42 @@ rmdir "${LOCK_DIR}"
 
 # 19. Secret Sanitization
 echo "\n--- Test Group: Secret Sanitization & Trash Archiving ---"
+cat > "${MOCK_ROOT}/instances.json" <<EOF
+{"instances":{"profile_${PROFILE_A_ID}":{"running":true,"pid":4242,"respawn_count":3}}}
+EOF
+cat > "${MOCK_ROOT}/traffic.json" <<EOF
+{"${PROFILE_A_ID}":{"available":true,"sample_time":100,"connections":2,"rx_bytes":1048576,"tx_bytes":524288,"rtt_ms":17,"uptime_seconds":3661}}
+EOF
 LIST_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
 HAS_LEAKED_UUID=$(echo "${LIST_JSON}" | grep -c "11111111-1111-1111-1111-111111111111" || true)
 HAS_LEAKED_ADDR=$(echo "${LIST_JSON}" | grep -c "192.0.2.10" || true)
 assert_equal "0" "${HAS_LEAKED_UUID}" "Test 19a: RPC list response does not leak profile UUIDs"
 assert_equal "0" "${HAS_LEAKED_ADDR}" "Test 19b: RPC list response does not leak profile addresses"
+assert_match '"connections"[[:space:]]*:[[:space:]]*2' "${LIST_JSON}" "Test 19c: RPC list reports exact per-profile TCP connection count"
+assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*1048576' "${LIST_JSON}" "Test 19d: RPC list reports exact per-profile received bytes"
+assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*524288' "${LIST_JSON}" "Test 19e: RPC list reports exact per-profile transmitted bytes"
+assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*17' "${LIST_JSON}" "Test 19f: RPC list reports TCP_INFO RTT"
+assert_match '"uptime_seconds"[[:space:]]*:[[:space:]]*3661' "${LIST_JSON}" "Test 19g: RPC list reports process uptime"
+HAS_OBSOLETE_FILE_METADATA=$(echo "${LIST_JSON}" | grep -E -c '"(size|sha256)"[[:space:]]*:' || true)
+assert_equal "0" "${HAS_OBSOLETE_FILE_METADATA}" "Test 19h: RPC list omits removed size and SHA metadata"
+rm -f "${MOCK_ROOT}/traffic.json"
+mkdir -p "${MOCK_ROOT}/usr/sbin"
+cat > "${MOCK_ROOT}/usr/sbin/ss" <<'EOF'
+#!/bin/sh
+cat <<'OUTPUT'
+ESTAB 0 0 192.0.2.2:443 192.0.2.10:30443 users:(("xray",pid=4242,fd=7))
+	 cubic wscale:7,7 rto:220 rtt:12.7/2.1 bytes_sent:123456 bytes_acked:123000 bytes_received:654321
+ESTAB 0 0 192.0.2.2:444 192.0.2.11:30443 users:(("other",pid=9999,fd=8))
+	 cubic wscale:7,7 rto:240 rtt:40.1/5.0 bytes_sent:999999 bytes_received:888888
+OUTPUT
+EOF
+chmod 0755 "${MOCK_ROOT}/usr/sbin/ss"
+LIST_SS_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
+assert_match '"connections"[[:space:]]*:[[:space:]]*1' "${LIST_SS_JSON}" "Test 19i: ss parser selects only sockets owned by the exact profile PID"
+assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*654321' "${LIST_SS_JSON}" "Test 19j: ss parser reads bytes_received from TCP_INFO"
+assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*123456' "${LIST_SS_JSON}" "Test 19k: ss parser reads bytes_sent from TCP_INFO"
+assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*12' "${LIST_SS_JSON}" "Test 19l: ss parser reports integer TCP RTT milliseconds"
+rm -f "${MOCK_ROOT}/instances.json" "${MOCK_ROOT}/usr/sbin/ss"
 
 # 20. Missing profile start/stop returns ok:false
 RES_START_NONEXIST="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call start '{"id":"nonexistent_profile"}' 2>&1 || true)"

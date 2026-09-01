@@ -27,12 +27,12 @@ def require(condition: bool, message: str) -> None:
 
 
 def main() -> int:
-    print("=== R9 release, deployment, and CI contracts ===")
+    print("=== R10 release, deployment, and CI contracts ===")
 
     for makefile in ("core/Makefile", "status/Makefile", "geodata/Makefile"):
         content = read(makefile)
         require("PKG_VERSION:=3.7.1" in content, f"{makefile} keeps version 3.7.1")
-        require("PKG_RELEASE:=9" in content, f"{makefile} declares release 9")
+        require("PKG_RELEASE:=10" in content, f"{makefile} declares release 10")
         require("PKGARCH:=all" in content, f"{makefile} declares architecture all")
 
     tracked = subprocess.check_output(
@@ -57,6 +57,18 @@ def main() -> int:
     workflow = workflow_bytes.decode("utf-8")
     workflow_document = yaml.safe_load(workflow)
     print("PASS: workflow YAML parses")
+    workflow_branches = workflow_document.get(True, {}).get("push", {}).get("branches", [])
+    require(workflow_branches == ["codex/r10-profile-metrics"],
+            "workflow is restricted to the dedicated R10 branch")
+    for package_name in (
+        "luci-app-xray_3.7.1-10_all.ipk",
+        "luci-app-xray-status_3.7.1-10_all.ipk",
+        "luci-app-xray-3.7.1-r10.apk",
+        "luci-app-xray-status-3.7.1-r10.apk",
+    ):
+        require(package_name in workflow, f"workflow pins exact R10 artifact {package_name}")
+    require("package_release=10" in workflow,
+            "workflow records release 10 in build metadata")
     job_env_values = (
         str(value)
         for job in workflow_document.get("jobs", {}).values()
@@ -74,14 +86,14 @@ def main() -> int:
         "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/telephony/packages.adb",
         "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/video/packages.adb",
     ]
-    bundle_script = read("scripts/build_r9_offline_bundle.sh")
-    for root_package in ("coreutils", "coreutils-base64", "coreutils-timeout", "ip-full"):
+    bundle_script = read("scripts/build_r10_offline_bundle.sh")
+    for root_package in ("coreutils", "coreutils-base64", "coreutils-timeout", "ip-full", "ss"):
         require(re.search(rf"^\s+{re.escape(root_package)}\s*$", bundle_script, re.MULTILINE) is not None,
                 f"offline resolver includes operational root {root_package}")
     for repository in exact_repositories:
         require(repository in bundle_script, f"offline resolver uses exact repository {repository}")
     require("APKINDEX.tar.gz" not in workflow + bundle_script, "resolver never searches Alpine APKINDEX.tar.gz")
-    require("apk manifest" not in workflow + bundle_script + read("install_and_smoke_r9.sh"),
+    require("apk manifest" not in workflow + bundle_script + read("install_and_smoke_r10.sh"),
             "APK metadata uses apk-tools v3 adbdump rather than file-checksum manifest output")
     require("--no-network" in bundle_script and "OFFLINE-TRANSACTION.log" in bundle_script,
             "bundle builder records a network-disabled transaction")
@@ -99,10 +111,13 @@ def main() -> int:
             "bundle builder uses apk usermode only while initializing the isolated database")
     require("strace" in bundle_script and "AF_INET" in bundle_script,
             "offline proof audits network syscalls")
-    require("SHA256SUMS-R9.txt" in workflow and "sha256sum -c SHA256SUMS-R9.txt" in workflow,
-            "bundle builder verifies complete R9 checksums")
+    require("SHA256SUMS-R10.txt" in workflow and "sha256sum -c SHA256SUMS-R10.txt" in workflow,
+            "bundle builder verifies complete R10 checksums")
     require("OFFLINE-PACKAGES-MANIFEST.txt" in bundle_script,
             "bundle builder emits the dependency manifest")
+    require("kmod-netlink-diag" in bundle_script and
+            '"${PACKAGE_NAME}" != kmod-netlink-diag' in bundle_script,
+            "bundle includes only the exact kernel diagnostic dependency required by ss")
     package_verifier = read("tests/ci/verify_package_contents.sh")
     require("extract --help" not in package_verifier and
             '"${SDK_APK}" --allow-untrusted extract' in package_verifier,
@@ -133,8 +148,8 @@ def main() -> int:
             "target ucode proof reports entrypoint failures before cleanup")
     critical_paths = (
         ".github/workflows/build-release.yml",
-        "scripts/build_r9_offline_bundle.sh",
-        "install_and_smoke_r9.sh",
+        "scripts/build_r10_offline_bundle.sh",
+        "install_and_smoke_r10.sh",
         "tests/ci/checksum_lib.sh",
         "tests/ci/fetch_xray.sh",
         "tests/ci/run_target_ucode.sh",
@@ -144,28 +159,36 @@ def main() -> int:
     for critical_path in critical_paths:
         require("|| true" not in read(critical_path), f"{critical_path} contains no forbidden fail-open continuation")
 
-    installer = read("install_and_smoke_r9.sh")
-    require('R9_INSTALL_AND_HARDWARE_SMOKE_OK' in installer, "installer has the exact R9 success marker")
+    installer = read("install_and_smoke_r10.sh")
+    require('R10_INSTALL_AND_HARDWARE_SMOKE_OK' in installer, "installer has the exact R10 success marker")
     require('run -test -config' in installer and 'xray test -c' not in installer,
             "installer uses the required Xray validation form")
     for package in ("kmod-nf-tproxy", "kmod-nft-tproxy", "firewall4", "luci-base", "dnsmasq", "ca-bundle"):
         require(package in installer, f"installer checks target prerequisite {package}")
-    require("SHA256SUMS-R9.txt" in installer and "sha256sum -c" in installer,
-            "installer verifies R9 checksums before mutation")
+    require("SHA256SUMS-R10.txt" in installer and "sha256sum -c" in installer,
+            "installer verifies R10 checksums before mutation")
     require("--no-network" in installer and "--simulate" in installer,
             "installer simulates and installs offline")
+    require("BLOCKED: POST_TRANSACTION_HARDWARE_FAILURE" in installer,
+            "installer emits the exact hard-stop marker after a package transaction failure")
     require("manifest metadata does not match" in installer and "manifest_source_allowed" in installer,
             "installer verifies dependency APK metadata and approved source provenance")
     require("timeout 5" in installer and "call list '{}'" in installer and "</dev/null" in installer,
             "installer bounds explicit-empty-object backend invocation with closed stdin")
+    require("command -v ss" in installer and "installed traffic metrics dependency kmod-netlink-diag" in installer,
+            "installer verifies the traffic metrics runtime after the offline transaction")
     require("rm -rf /opt/xray/profiles" not in installer,
             "installer never deletes the complete production profile directory")
+    require("mktemp -d /opt/" not in installer and "[ -d /opt ] && [ -w /opt ]" in installer,
+            "installer performs no temporary diagnostic writes outside /tmp")
 
     hardware = read("tests/hardware/profile_mode_smoke.sh")
     require("HARDWARE_PROFILE_MODE_SMOKE_OK" in hardware, "hardware smoke has the exact success marker")
     require("jsonfilter" in hardware, "hardware smoke uses target-native structured JSON parsing")
     require("ip -6 rule" in hardware and "list ruleset" in hardware and "dnsmasq" in hardware,
             "hardware smoke compares IPv6, nftables, and dnsmasq state")
+    require("TCP_INFO traffic metrics are unavailable" in hardware and "traffic.uptime_seconds" in hardware,
+            "hardware smoke verifies per-profile traffic metrics and process uptime")
     require("xray_core.after.uci" in hardware and "enablement/running state was not restored" in hardware,
             "hardware smoke verifies exact UCI and service-state restoration")
     require("grep -o '\"id\"" not in hardware, "hardware smoke does not parse formatted JSON with grep")
@@ -178,6 +201,10 @@ def main() -> int:
     require('access(XRAY_BIN, "x")' in backend, "backend binary_found requires executable access")
     require("requires_geoip" in backend and "requires_geosite" in backend,
             "backend reports per-profile geodata requirements")
+    require('"${SS_BIN}" -tinpH' in backend and "get_process_uptime" in backend,
+            "backend reads per-process TCP_INFO and uptime without an Xray listener")
+    require("sha256:" not in backend and "size: size" not in backend,
+            "backend polling omits retired profile size and SHA metadata")
     require("assets_found" not in backend, "backend exposes no misleading global assets status")
     require("finally" not in backend and "throw " not in backend and "is_array(" not in backend,
             "backend cleanup uses target-compatible ucode syntax")
@@ -198,8 +225,34 @@ def main() -> int:
     require("handleSave: null" in profiles_view and "handleSaveApply: null" in profiles_view and "handleReset: null" in profiles_view,
             "profile page disables generic LuCI controls")
     require("refreshInFlight" in profiles_view, "profile polling prevents overlapping requests")
+    require("E('th', { 'class': 'th' }, _('Имя файла JSON'))" not in profiles_view and
+            "E('th', { 'class': 'th' }, _('Размер'))" not in profiles_view and
+            "E('th', { 'class': 'th' }, _('SHA-256'))" not in profiles_view,
+            "profile table retires filename, size, and SHA columns")
+    require("traffic.rx_bytes" in profiles_view and "traffic.tx_bytes" in profiles_view and
+            "display.rxBps" in profiles_view and "display.txBps" in profiles_view and
+            "traffic.rtt_ms" in profiles_view and "traffic.uptime_seconds" in profiles_view,
+            "profile table renders live RX, TX, RTT, and uptime metrics")
 
-    print("All R9 contracts passed.")
+    active_release_files = (
+        ".github/workflows/build-release.yml",
+        "core/Makefile",
+        "status/Makefile",
+        "geodata/Makefile",
+        "install_and_smoke_r10.sh",
+        "ROLLBACK-R10.txt",
+        "scripts/build_r10_offline_bundle.sh",
+        "scripts/r10_apk_manifest.py",
+        "tests/run_tests.sh",
+        "tests/test_installer_r10.sh",
+        "tests/test_r10_manifest.py",
+    )
+    stale_patterns = ("R9", "r9", "PKG_RELEASE:=9", "3.7.1-r9", "3.7.1-9", "package_release=9")
+    for active_file in active_release_files:
+        require(not any(pattern in read(active_file) for pattern in stale_patterns),
+                f"{active_file} contains no stale R9 release identity")
+
+    print("All R10 contracts passed.")
     return 0
 
 

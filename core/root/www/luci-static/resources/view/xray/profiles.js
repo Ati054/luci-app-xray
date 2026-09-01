@@ -104,6 +104,114 @@ return view.extend({
     handleSaveApply: null,
     handleReset: null,
     refreshInFlight: null,
+    trafficSnapshots: {},
+
+    formatMetricNumber: function(value) {
+        if (value >= 100) return value.toFixed(0);
+        return value.toFixed(1).replace(/\.0$/, '');
+    },
+
+    formatBitRate: function(bitsPerSecond) {
+        if (bitsPerSecond == null || !isFinite(bitsPerSecond)) return '—';
+        var value = Math.max(0, bitsPerSecond);
+        var units = [ 'bps', 'Kbps', 'Mbps', 'Gbps', 'Tbps' ];
+        var unit = 0;
+        while (value >= 1000 && unit < units.length - 1) {
+            value /= 1000;
+            unit++;
+        }
+        return unit === 0 ? '%d %s'.format(Math.round(value), units[unit]) :
+            '%s %s'.format(this.formatMetricNumber(value), units[unit]);
+    },
+
+    formatBytes: function(bytes) {
+        if (bytes == null || !isFinite(bytes)) return '—';
+        var value = Math.max(0, bytes);
+        var units = [ 'B', 'KB', 'MB', 'GB', 'TB' ];
+        var unit = 0;
+        while (value >= 1024 && unit < units.length - 1) {
+            value /= 1024;
+            unit++;
+        }
+        return unit === 0 ? '%d %s'.format(Math.round(value), units[unit]) :
+            '%s %s'.format(this.formatMetricNumber(value), units[unit]);
+    },
+
+    formatDuration: function(seconds) {
+        if (seconds == null || !isFinite(seconds) || seconds < 0) return '—';
+        var total = Math.floor(seconds);
+        var days = Math.floor(total / 86400);
+        var hours = Math.floor((total % 86400) / 3600);
+        var minutes = Math.floor((total % 3600) / 60);
+        var secs = total % 60;
+        if (days > 0) return _('%d д %d ч').format(days, hours);
+        if (hours > 0) return _('%d ч %d мин').format(hours, minutes);
+        if (minutes > 0) return _('%d мин %d с').format(minutes, secs);
+        return _('%d с').format(secs);
+    },
+
+    getTrafficDisplay: function(p) {
+        var traffic = p.traffic || {};
+        var display = { traffic: traffic, rxBps: null, txBps: null };
+
+        if (!p.running || !traffic.available) {
+            delete this.trafficSnapshots[p.id];
+            return display;
+        }
+
+        var now = Number(traffic.sample_time) || Date.now() / 1000;
+        var rxBytes = Math.max(0, Number(traffic.rx_bytes) || 0);
+        var txBytes = Math.max(0, Number(traffic.tx_bytes) || 0);
+        var previous = this.trafficSnapshots[p.id];
+
+        if (previous && previous.pid === p.pid && now > previous.sampleTime &&
+                rxBytes >= previous.rxBytes && txBytes >= previous.txBytes) {
+            var elapsed = now - previous.sampleTime;
+            display.rxBps = (rxBytes - previous.rxBytes) * 8 / elapsed;
+            display.txBps = (txBytes - previous.txBytes) * 8 / elapsed;
+        } else if ((Number(traffic.connections) || 0) === 0) {
+            display.rxBps = 0;
+            display.txBps = 0;
+        }
+
+        this.trafficSnapshots[p.id] = {
+            pid: p.pid,
+            sampleTime: now,
+            rxBytes: rxBytes,
+            txBytes: txBytes
+        };
+        return display;
+    },
+
+    trafficUnavailableText: function(reason) {
+        if (reason === 'stopped') return _('Профиль остановлен.');
+        if (reason === 'ss_failed') return _('Не удалось прочитать TCP_INFO через ss.');
+        return _('TCP-метрики недоступны: утилита ss не установлена или не исполняется.');
+    },
+
+    renderTrafficCell: function(p, display, direction) {
+        var traffic = display.traffic;
+        var isRx = direction === 'rx';
+        var bytes = isRx ? traffic.rx_bytes : traffic.tx_bytes;
+        var rate = isRx ? display.rxBps : display.txBps;
+        var directionName = isRx ? _('Принято') : _('Отправлено');
+        var title;
+
+        if (!p.running || !traffic.available) {
+            title = this.trafficUnavailableText(traffic.reason || (p.running ? 'ss_unavailable' : 'stopped'));
+            return E('td', { 'class': 'td xray-traffic-cell', 'title': title }, [
+                E('span', { 'class': 'xray-traffic-rate' }, '—'),
+                E('span', { 'class': 'xray-traffic-total' }, _('всего —'))
+            ]);
+        }
+
+        title = _('%s: текущая скорость %s; всего %s по активным TCP-соединениям текущего процесса. Счётчик сбрасывается при перезапуске процесса или соединения.')
+            .format(directionName, this.formatBitRate(rate), this.formatBytes(bytes));
+        return E('td', { 'class': 'td xray-traffic-cell', 'title': title }, [
+            E('span', { 'class': 'xray-traffic-rate' }, this.formatBitRate(rate)),
+            E('span', { 'class': 'xray-traffic-total' }, _('всего %s').format(this.formatBytes(bytes)))
+        ]);
+    },
 
     load: function() {
         return callProfilesList().catch(function() {
@@ -112,7 +220,25 @@ return view.extend({
     },
 
     render: function(data) {
+        this.trafficSnapshots = {};
         var viewContainer = E('div', { 'class': 'cbi-map' });
+
+        viewContainer.appendChild(E('style', {}, `
+            .xray-profile-name { cursor: help; text-decoration: underline dotted; text-underline-offset: .2em; }
+            .xray-profile-name:focus-visible, .xray-process-indicator:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+            .xray-status-cell { width: 3.5rem; text-align: center; }
+            .xray-process-indicator { display: inline-flex; min-width: 1.65rem; min-height: 1.65rem; align-items: center; justify-content: center; cursor: help; font-size: 1rem; }
+            .xray-traffic-cell { min-width: 7.25rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+            .xray-traffic-rate { display: block; font-weight: 600; }
+            .xray-traffic-total { display: block; margin-top: .15rem; font-size: 85%; opacity: .72; }
+            .xray-link-cell { min-width: 8rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
+            .xray-link-cell > span { display: block; }
+            .xray-link-uptime { margin-top: .15rem; font-size: 85%; opacity: .72; }
+            .xray-autostart-toggle { min-width: 3.6rem; padding: 2px 7px !important; font-size: 85% !important; }
+            .xray-profile-actions { display: flex; justify-content: flex-end; gap: 4px; flex-wrap: wrap; }
+            .xray-profile-actions .btn { margin: 0 !important; }
+            .xray-table-scroll { overflow-x: auto; }
+        `));
 
         // Header Title
         viewContainer.appendChild(E('h2', {}, _('Xray Reverse — Управление профилями')));
@@ -232,11 +358,11 @@ return view.extend({
         var table = E('table', { 'class': 'table cbi-section-table' }, [
             E('tr', { 'class': 'tr cbi-section-table-titles' }, [
                 E('th', { 'class': 'th' }, _('Название профиля')),
-                E('th', { 'class': 'th' }, _('Имя файла JSON')),
-                E('th', { 'class': 'th' }, _('Размер')),
-                E('th', { 'class': 'th' }, _('SHA-256')),
-                E('th', { 'class': 'th' }, _('Статус процесса')),
-                E('th', { 'class': 'th' }, _('Автозапуск')),
+                E('th', { 'class': 'th xray-status-cell' }, _('Статус')),
+                E('th', { 'class': 'th' }, _('↓ Принято')),
+                E('th', { 'class': 'th' }, _('↑ Отправлено')),
+                E('th', { 'class': 'th' }, _('Связь')),
+                E('th', { 'class': 'th' }, _('Авто')),
                 E('th', { 'class': 'th right' }, _('Действия'))
             ])
         ]);
@@ -257,36 +383,60 @@ return view.extend({
             }
         }
 
-        tableContainer.appendChild(E('div', { 'class': 'cbi-section' }, [ table ]));
+        tableContainer.appendChild(E('div', { 'class': 'cbi-section xray-table-scroll' }, [ table ]));
     },
 
     renderProfileRow: function(p) {
         var self = this;
-        var statusBadge = p.running ?
-            E('span', { 'class': 'label success' }, _('Работает (PID: %d)').format(p.pid || 0)) :
-            E('span', { 'class': 'label' }, _('Остановлен'));
-
         var geodata = p.geodata || {};
         var missingGeodata = Array.isArray(geodata.missing) ? geodata.missing : [];
-        var statusContent = [ statusBadge ];
-        if (missingGeodata.length > 0) {
-            statusContent.push(E('div', {
-                'class': 'alert-message warning',
-                'style': 'margin-top: 6px; padding: 4px 6px; font-size: 85%;'
-            }, _('Профилю требуются отсутствующие файлы: %s').format(missingGeodata.join(', '))));
-        }
+        var trafficDisplay = this.getTrafficDisplay(p);
+        var traffic = trafficDisplay.traffic;
+        var statusLines = [ p.running ? _('Состояние: работает') : _('Состояние: остановлен') ];
+        if (p.running) statusLines.push(_('PID: %d').format(p.pid || 0));
+        if ((p.respawn_count || 0) > 0) statusLines.push(_('Перезапусков procd: %d').format(p.respawn_count));
+        if (p.running && traffic.available)
+            statusLines.push(_('Активных TCP-соединений: %d').format(traffic.connections || 0));
+        if (missingGeodata.length > 0)
+            statusLines.push(_('Отсутствуют обязательные файлы: %s').format(missingGeodata.join(', ')));
+        var statusTitle = statusLines.join('\n');
+        var statusClass = missingGeodata.length > 0 ? 'label danger' : (p.running ? 'label success' : 'label');
+        var statusIcon = E('span', {
+            'class': statusClass + ' xray-process-indicator',
+            'role': 'img',
+            'tabindex': '0',
+            'title': statusTitle,
+            'aria-label': statusTitle
+        }, missingGeodata.length > 0 ? '!' : (p.running ? '●' : '○'));
 
         var autostartBtn = E('button', {
-            'class': 'btn cbi-button ' + (p.autostart ? 'cbi-button-positive' : 'cbi-button-neutral'),
-            'style': 'padding: 2px 8px; font-size: 90%;',
+            'type': 'button',
+            'class': 'btn cbi-button xray-autostart-toggle ' + (p.autostart ? 'cbi-button-positive' : 'cbi-button-neutral'),
+            'aria-pressed': p.autostart ? 'true' : 'false',
+            'title': p.autostart ?
+                _('Автозапуск включён. Нажмите, чтобы выключить.') :
+                _('Автозапуск выключен. Нажмите, чтобы включить.'),
             'click': function() {
                 callProfilesSetAutostart(p.id, !p.autostart).then(function() {
                     ui.addNotification(null, E('p', {}, _('Автозапуск для профиля «%s» изменен.').format(p.name)), 'info');
                 });
             }
-        }, p.autostart ? _('Включен') : _('Выключен'));
+        }, p.autostart ? _('✓ Авто') : _('○ Авто'));
 
-        var actions = E('div', { 'class': 'right' }, [
+        var linkTitle = p.running ?
+            _('RTT берётся из TCP_INFO активных соединений и не является ICMP ping. Uptime — время работы текущего процесса Xray.') :
+            _('Профиль остановлен.');
+        var linkCell = E('td', { 'class': 'td xray-link-cell', 'title': linkTitle }, [
+            E('span', {}, _('RTT %s').format(
+                p.running && traffic.available && traffic.rtt_ms != null ?
+                    _('%d ms').format(traffic.rtt_ms) : '—'
+            )),
+            E('span', { 'class': 'xray-link-uptime' }, _('uptime %s').format(
+                p.running ? this.formatDuration(traffic.uptime_seconds) : '—'
+            ))
+        ]);
+
+        var actions = E('div', { 'class': 'right xray-profile-actions' }, [
             p.running ?
                 E('button', {
                     'class': 'btn cbi-button cbi-button-reset',
@@ -385,11 +535,16 @@ return view.extend({
         ]);
 
         return E('tr', { 'class': 'tr cbi-rowstyle-1' }, [
-            E('td', { 'class': 'td' }, E('strong', {}, p.name)),
-            E('td', { 'class': 'td' }, E('code', {}, p.filename)),
-            E('td', { 'class': 'td' }, '%d B'.format(p.size)),
-            E('td', { 'class': 'td' }, E('code', {}, p.sha256 || '-')),
-            E('td', { 'class': 'td' }, statusContent),
+            E('td', { 'class': 'td' }, E('strong', {
+                'class': 'xray-profile-name',
+                'tabindex': '0',
+                'title': _('Имя файла JSON: %s').format(p.filename),
+                'aria-label': _('%s. Имя файла JSON: %s').format(p.name, p.filename)
+            }, p.name)),
+            E('td', { 'class': 'td xray-status-cell' }, statusIcon),
+            this.renderTrafficCell(p, trafficDisplay, 'rx'),
+            this.renderTrafficCell(p, trafficDisplay, 'tx'),
+            linkCell,
             E('td', { 'class': 'td' }, autostartBtn),
             E('td', { 'class': 'td right' }, actions)
         ]);

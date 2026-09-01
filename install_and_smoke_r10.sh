@@ -1,13 +1,13 @@
 #!/bin/sh
-# One-command, fail-closed OpenWrt 25.12.5 offline installer for R9.
+# One-command, fail-closed OpenWrt 25.12.5 offline installer for R10.
 
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-CHECKSUM_FILE="${SCRIPT_DIR}/SHA256SUMS-R9.txt"
+CHECKSUM_FILE="${SCRIPT_DIR}/SHA256SUMS-R10.txt"
 XRAY_BIN="/opt/xray/current/xray"
-DIAG_LOG="/tmp/xray-r9-install-$(date +%Y%m%dT%H%M%S)-$$.log"
-BACKUP_DIR="/tmp/xray-r9-backup-$(date +%Y%m%dT%H%M%S)-$$"
+DIAG_LOG="/tmp/xray-r10-install-$(date +%Y%m%dT%H%M%S)-$$.log"
+BACKUP_DIR="/tmp/xray-r10-backup-$(date +%Y%m%dT%H%M%S)-$$"
 BACKUP_READY=0
 PACKAGE_TRANSACTION_STARTED=0
 SUCCESS=0
@@ -53,85 +53,85 @@ disable_service_strict() {
     }
 }
 
-# BEGIN R9_TARGET_PORTABILITY_HELPERS
-r9_file_size_bytes() {
-    r9_size_path="$1"
-    [ -f "${r9_size_path}" ] && [ ! -L "${r9_size_path}" ] && [ -r "${r9_size_path}" ] || return 1
-    r9_size_value="$(LC_ALL=C wc -c < "${r9_size_path}")" || return 1
-    case "${r9_size_value}" in
+# BEGIN R10_TARGET_PORTABILITY_HELPERS
+r10_file_size_bytes() {
+    r10_size_path="$1"
+    [ -f "${r10_size_path}" ] && [ ! -L "${r10_size_path}" ] && [ -r "${r10_size_path}" ] || return 1
+    r10_size_value="$(LC_ALL=C wc -c < "${r10_size_path}")" || return 1
+    case "${r10_size_value}" in
         ''|*[!0-9]*) return 1 ;;
     esac
-    [ -f "${r9_size_path}" ] && [ ! -L "${r9_size_path}" ] && [ -r "${r9_size_path}" ] || return 1
-    printf '%s\n' "${r9_size_value}"
+    [ -f "${r10_size_path}" ] && [ ! -L "${r10_size_path}" ] && [ -r "${r10_size_path}" ] || return 1
+    printf '%s\n' "${r10_size_value}"
 }
 
-r9_verify_exact_file_size() {
-    r9_expected_bytes="$2"
-    case "${r9_expected_bytes}" in
+r10_verify_exact_file_size() {
+    r10_expected_bytes="$2"
+    case "${r10_expected_bytes}" in
         ''|*[!0-9]*) return 1 ;;
     esac
-    r9_actual_bytes="$(r9_file_size_bytes "$1")" || return 1
-    [ "${r9_actual_bytes}" = "${r9_expected_bytes}" ]
+    r10_actual_bytes="$(r10_file_size_bytes "$1")" || return 1
+    [ "${r10_actual_bytes}" = "${r10_expected_bytes}" ]
 }
-# END R9_TARGET_PORTABILITY_HELPERS
+# END R10_TARGET_PORTABILITY_HELPERS
 
-# BEGIN R9_APK_HELP_COMPATIBILITY_HELPERS
-r9_capture_apk_help() {
-    r9_help_output_path="$1"
+# BEGIN R10_APK_HELP_COMPATIBILITY_HELPERS
+r10_capture_apk_help() {
+    r10_help_output_path="$1"
     shift
     [ "$#" -gt 0 ] || {
         echo "ERROR: apk help command is missing" >&2
         return 1
     }
 
-    if "$@" --help > "${r9_help_output_path}" 2>&1; then
-        r9_help_rc=0
+    if "$@" --help > "${r10_help_output_path}" 2>&1; then
+        r10_help_rc=0
     else
-        r9_help_rc=$?
+        r10_help_rc=$?
     fi
 
-    case "${r9_help_rc}" in
+    case "${r10_help_rc}" in
         0|1) ;;
         *)
-            echo "ERROR: apk help command failed with exit ${r9_help_rc}: $*" >&2
+            echo "ERROR: apk help command failed with exit ${r10_help_rc}: $*" >&2
             return 1
             ;;
     esac
 
-    [ -s "${r9_help_output_path}" ] || {
+    [ -s "${r10_help_output_path}" ] || {
         echo "ERROR: apk help command produced no output: $*" >&2
         return 1
     }
 }
-# END R9_APK_HELP_COMPATIBILITY_HELPERS
+# END R10_APK_HELP_COMPATIBILITY_HELPERS
 
-# BEGIN R9_UCODE_MODULE_COMPATIBILITY_HELPERS
-r9_compile_ucode_source() {
-    r9_ucode_bin="$1"
-    r9_module_path="$2"
-    r9_import_wrapper="$3"
-    r9_compile_stderr="$4"
-    r9_compile_source="${r9_module_path}"
+# BEGIN R10_UCODE_MODULE_COMPATIBILITY_HELPERS
+r10_compile_ucode_source() {
+    r10_ucode_bin="$1"
+    r10_module_path="$2"
+    r10_import_wrapper="$3"
+    r10_compile_stderr="$4"
+    r10_compile_source="${r10_module_path}"
 
-    case "${r9_module_path}" in
+    case "${r10_module_path}" in
         *.mjs)
-            r9_escaped_module="$(printf '%s' "${r9_module_path}" | sed 's/[\\"]/\\&/g')"
+            r10_escaped_module="$(printf '%s' "${r10_module_path}" | sed 's/[\\"]/\\&/g')"
             printf 'import * as module_under_test from "%s";\n' \
-                "${r9_escaped_module}" > "${r9_import_wrapper}"
-            r9_compile_source="${r9_import_wrapper}"
+                "${r10_escaped_module}" > "${r10_import_wrapper}"
+            r10_compile_source="${r10_import_wrapper}"
             ;;
     esac
 
-    : > "${r9_compile_stderr}"
-    if "${r9_ucode_bin}" -cdynlink=ubus -o /dev/null "${r9_compile_source}" \
-        > /dev/null 2> "${r9_compile_stderr}"; then
-        r9_compile_rc=0
+    : > "${r10_compile_stderr}"
+    if "${r10_ucode_bin}" -cdynlink=ubus -o /dev/null "${r10_compile_source}" \
+        > /dev/null 2> "${r10_compile_stderr}"; then
+        r10_compile_rc=0
     else
-        r9_compile_rc=$?
+        r10_compile_rc=$?
     fi
-    return "${r9_compile_rc}"
+    return "${r10_compile_rc}"
 }
-# END R9_UCODE_MODULE_COMPATIBILITY_HELPERS
+# END R10_UCODE_MODULE_COMPATIBILITY_HELPERS
 
 manifest_source_allowed() {
     case "$1" in
@@ -141,7 +141,8 @@ manifest_source_allowed() {
         https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/packages/packages.adb|\
         https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/routing/packages.adb|\
         https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/telephony/packages.adb|\
-        https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/video/packages.adb)
+        https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/video/packages.adb|\
+        https://downloads.openwrt.org/releases/25.12.5/targets/bcm27xx/bcm2710/kmods/*/packages.adb)
             return 0
             ;;
     esac
@@ -187,7 +188,7 @@ failure_handler() {
     [ "${SUCCESS}" -eq 0 ] || return 0
     set +e
     rm -f "${BACKUP_DIR}.metadata.json"
-    console "R9 installation failed; diagnostic log: ${DIAG_LOG}"
+    console "R10 installation failed; diagnostic log: ${DIAG_LOG}"
     echo "PRIMARY_EXIT_CODE=${primary_rc}"
 
     if [ "${BACKUP_READY}" -eq 0 ]; then
@@ -204,6 +205,7 @@ failure_handler() {
     if [ "${PACKAGE_TRANSACTION_STARTED}" -eq 0 ]; then
         restore_pretransaction_services || echo "WARNING: service-state restoration was incomplete"
     else
+        console "BLOCKED: POST_TRANSACTION_HARDWARE_FAILURE"
         echo "PACKAGE_ROLLBACK=not-performed"
         echo "Package files were not rolled back because previous APK payloads are not bundled."
         echo "Services remain stopped and disabled for safety."
@@ -216,7 +218,7 @@ trap failure_handler EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-console "R9 offline installation started; diagnostic log: ${DIAG_LOG}"
+console "R10 offline installation started; diagnostic log: ${DIAG_LOG}"
 
 [ "$(id -u)" -eq 0 ] || {
     echo "ERROR: installer must run as root" >&2
@@ -242,11 +244,10 @@ awk '$2 == "/opt" { found = 1 } END { exit(found ? 0 : 1) }' /proc/mounts || {
     echo "ERROR: /opt must be a distinct mounted filesystem" >&2
     exit 1
 }
-OPT_WRITE_TEST="$(mktemp -d /opt/.xray-r9-write.XXXXXX)" || {
+[ -d /opt ] && [ -w /opt ] || {
     echo "ERROR: /opt is not writable" >&2
     exit 1
 }
-rmdir "${OPT_WRITE_TEST}"
 
 [ -x "${XRAY_BIN}" ] || {
     echo "ERROR: Xray is not executable at ${XRAY_BIN}" >&2
@@ -272,7 +273,7 @@ for required_command in awk find grep jsonfilter pidof sed sha256sum sort wc; do
     }
 done
 
-# BEGIN R9_APK_HELP_COMPATIBILITY_PREFLIGHT
+# BEGIN R10_APK_HELP_COMPATIBILITY_PREFLIGHT
 APK_GLOBAL_HELP_PATH="${BACKUP_DIR}.apk-global-help"
 APK_INFO_HELP_PATH="${BACKUP_DIR}.apk-info-help"
 APK_ADD_HELP_PATH="${BACKUP_DIR}.apk-add-help"
@@ -281,11 +282,11 @@ APK_LIST_HELP_PATH="${BACKUP_DIR}.apk-list-help"
 APK_NO_NETWORK_PROBE_PATH="${BACKUP_DIR}.apk-no-network-probe"
 
 apk --version
-r9_capture_apk_help "${APK_GLOBAL_HELP_PATH}" apk
-r9_capture_apk_help "${APK_INFO_HELP_PATH}" apk info
-r9_capture_apk_help "${APK_ADD_HELP_PATH}" apk add
-r9_capture_apk_help "${APK_ADBDUMP_HELP_PATH}" apk adbdump
-r9_capture_apk_help "${APK_LIST_HELP_PATH}" apk list
+r10_capture_apk_help "${APK_GLOBAL_HELP_PATH}" apk
+r10_capture_apk_help "${APK_INFO_HELP_PATH}" apk info
+r10_capture_apk_help "${APK_ADD_HELP_PATH}" apk add
+r10_capture_apk_help "${APK_ADBDUMP_HELP_PATH}" apk adbdump
+r10_capture_apk_help "${APK_LIST_HELP_PATH}" apk list
 cat "${APK_GLOBAL_HELP_PATH}" "${APK_INFO_HELP_PATH}" "${APK_ADD_HELP_PATH}" \
     "${APK_ADBDUMP_HELP_PATH}" "${APK_LIST_HELP_PATH}"
 
@@ -336,7 +337,7 @@ grep -q -- '--installed' "${APK_LIST_HELP_PATH}" || {
 }
 rm -f "${APK_GLOBAL_HELP_PATH}" "${APK_INFO_HELP_PATH}" "${APK_ADD_HELP_PATH}" \
     "${APK_ADBDUMP_HELP_PATH}" "${APK_LIST_HELP_PATH}" "${APK_NO_NETWORK_PROBE_PATH}"
-# END R9_APK_HELP_COMPATIBILITY_PREFLIGHT
+# END R10_APK_HELP_COMPATIBILITY_PREFLIGHT
 
 for required_package in kmod-nf-tproxy kmod-nft-tproxy firewall4 luci-base dnsmasq ca-bundle; do
     apk info --exists "${required_package}" >/dev/null 2>&1 || {
@@ -346,7 +347,7 @@ for required_package in kmod-nf-tproxy kmod-nft-tproxy firewall4 luci-base dnsma
 done
 
 [ -s "${CHECKSUM_FILE}" ] || {
-    echo "ERROR: SHA256SUMS-R9.txt is missing or empty" >&2
+    echo "ERROR: SHA256SUMS-R10.txt is missing or empty" >&2
     exit 1
 }
 cd "${SCRIPT_DIR}"
@@ -356,7 +357,7 @@ if find . -maxdepth 1 -type f -size 0 -print | grep -q .; then
 fi
 
 for required_bundle_file in \
-    install_and_smoke_r9.sh \
+    install_and_smoke_r10.sh \
     profile_mode_smoke.sh \
     profile-smoke-a.json \
     profile-smoke-b.json \
@@ -364,7 +365,7 @@ for required_bundle_file in \
     OFFLINE-PACKAGES-MANIFEST.txt \
     OFFLINE-TRANSACTION.log \
     BUILD-INFO-openwrt-25.12.5-all.txt \
-    ROLLBACK-R9.txt; do
+    ROLLBACK-R10.txt; do
     [ -s "${required_bundle_file}" ] || {
         echo "ERROR: required bundle file is missing or empty: ${required_bundle_file}" >&2
         exit 1
@@ -420,14 +421,14 @@ for apk_file in "$@"; do
     esac
     case "${apk_package}" in
         luci-app-xray)
-            [ "${apk_version}" = "3.7.1-r9" ] || {
+            [ "${apk_version}" = "3.7.1-r10" ] || {
                 echo "ERROR: core APK has unexpected version ${apk_version}" >&2
                 exit 1
             }
             CORE_APK_COUNT=$((CORE_APK_COUNT + 1))
             ;;
         luci-app-xray-status)
-            [ "${apk_version}" = "3.7.1-r9" ] || {
+            [ "${apk_version}" = "3.7.1-r10" ] || {
                 echo "ERROR: status APK has unexpected version ${apk_version}" >&2
                 exit 1
             }
@@ -446,13 +447,14 @@ for apk_file in "$@"; do
             manifest_arch="$(awk -F ';' -v filename="${dependency_filename}" '$1 == filename { print $5 }' OFFLINE-PACKAGES-MANIFEST.txt)"
             manifest_bytes="$(awk -F ';' -v filename="${dependency_filename}" '$1 == filename { print $6 }' OFFLINE-PACKAGES-MANIFEST.txt)"
             manifest_sha256="$(awk -F ';' -v filename="${dependency_filename}" '$1 == filename { print $7 }' OFFLINE-PACKAGES-MANIFEST.txt)"
+            manifest_dependencies="$(awk -F ';' -v filename="${dependency_filename}" '$1 == filename { print $8 }' OFFLINE-PACKAGES-MANIFEST.txt)"
             manifest_source="$(awk -F ';' -v filename="${dependency_filename}" '$1 == filename { print $9 }' OFFLINE-PACKAGES-MANIFEST.txt)"
             manifest_full_version="${manifest_version}"
             [ -z "${manifest_release}" ] || manifest_full_version="${manifest_version}-${manifest_release}"
             [ "${manifest_package}" = "${apk_package}" ] && \
                 [ "${manifest_full_version}" = "${apk_version}" ] && \
                 [ "${manifest_arch}" = "${apk_arch}" ] && \
-                r9_verify_exact_file_size "${apk_file}" "${manifest_bytes}" && \
+                r10_verify_exact_file_size "${apk_file}" "${manifest_bytes}" && \
                 [ "${manifest_sha256}" = "$(sha256sum "${apk_file}" | awk '{ print $1 }')" ] || {
                 echo "ERROR: manifest metadata does not match ${dependency_filename}" >&2
                 exit 1
@@ -461,6 +463,20 @@ for apk_file in "$@"; do
                 echo "ERROR: manifest source is not an approved OpenWrt 25.12.5 repository: ${manifest_source}" >&2
                 exit 1
             }
+            if [ "${apk_package}" = "kmod-netlink-diag" ]; then
+                installed_kernel_version="$(apk list --installed kernel | sed -n 's/^kernel-\([^[:space:]]*\).*/\1/p' | head -n 1)"
+                [ -n "${installed_kernel_version}" ] || {
+                    echo "ERROR: installed kernel package version is unavailable" >&2
+                    exit 1
+                }
+                case " ${manifest_dependencies} " in
+                    *" kernel=${installed_kernel_version} "*) ;;
+                    *)
+                    echo "ERROR: kmod-netlink-diag does not match the installed kernel ABI" >&2
+                    exit 1
+                    ;;
+                esac
+            fi
             ;;
     esac
     grep -Fq "  ${apk_file#./}" "${CHECKSUM_FILE}" || {
@@ -470,7 +486,7 @@ for apk_file in "$@"; do
 done
 rm -f "${BACKUP_DIR}.metadata.json"
 [ "${CORE_APK_COUNT}" -eq 1 ] && [ "${STATUS_APK_COUNT}" -eq 1 ] || {
-    echo "ERROR: bundle must contain exactly one core and one status R9 APK" >&2
+    echo "ERROR: bundle must contain exactly one core and one status R10 APK" >&2
     exit 1
 }
 
@@ -481,7 +497,7 @@ awk -F ';' 'NR > 1 { print $1 }' OFFLINE-PACKAGES-MANIFEST.txt | while IFS= read
     }
 done
 
-sha256sum -c SHA256SUMS-R9.txt
+sha256sum -c SHA256SUMS-R10.txt
 
 mkdir -p "${BACKUP_DIR}"
 chmod 0700 "${BACKUP_DIR}"
@@ -504,7 +520,7 @@ for service_name in xray_core xray_profiles; do
     if service_running "${service_name}"; then echo 1; else echo 0; fi > "${BACKUP_DIR}/${service_name}.running"
 done
 BACKUP_READY=1
-console "R9 target backup completed: ${BACKUP_DIR}"
+console "R10 target backup completed: ${BACKUP_DIR}"
 
 stop_service_strict xray_core
 stop_service_strict xray_profiles
@@ -518,16 +534,24 @@ console "Installing complete APK transaction with networking disabled"
 PACKAGE_TRANSACTION_STARTED=1
 apk add --no-network --allow-untrusted ./*.apk
 
-apk list --installed luci-app-xray | grep -Eq '^luci-app-xray-3\.7\.1-r9([[:space:]]|$)' || {
-    echo "ERROR: luci-app-xray 3.7.1-r9 is not installed" >&2
+apk list --installed luci-app-xray | grep -Eq '^luci-app-xray-3\.7\.1-r10([[:space:]]|$)' || {
+    echo "ERROR: luci-app-xray 3.7.1-r10 is not installed" >&2
     exit 1
 }
-apk list --installed luci-app-xray-status | grep -Eq '^luci-app-xray-status-3\.7\.1-r9([[:space:]]|$)' || {
-    echo "ERROR: luci-app-xray-status 3.7.1-r9 is not installed" >&2
+apk list --installed luci-app-xray-status | grep -Eq '^luci-app-xray-status-3\.7\.1-r10([[:space:]]|$)' || {
+    echo "ERROR: luci-app-xray-status 3.7.1-r10 is not installed" >&2
     exit 1
 }
 command -v timeout >/dev/null 2>&1 || {
     echo "ERROR: installed coreutils-timeout did not provide a timeout command" >&2
+    exit 1
+}
+command -v ss >/dev/null 2>&1 || {
+    echo "ERROR: installed ss package did not provide the socket statistics utility" >&2
+    exit 1
+}
+apk info --exists kmod-netlink-diag >/dev/null 2>&1 || {
+    echo "ERROR: installed traffic metrics dependency kmod-netlink-diag is missing" >&2
     exit 1
 }
 
@@ -567,7 +591,7 @@ UCODE_PARSE_STDERR="${BACKUP_DIR}/ucode-parse.stderr"
 : > "${UCODE_PARSE_STDERR}"
 find /usr/share/xray -type f \( -name '*.uc' -o -name '*.mjs' \) -print | sort > "${UCODE_MODULE_LIST}"
 while IFS= read -r module_path; do
-    if ! r9_compile_ucode_source "${UCODE_BIN}" "${module_path}" \
+    if ! r10_compile_ucode_source "${UCODE_BIN}" "${module_path}" \
         "${UCODE_IMPORT_WRAPPER}" "${UCODE_COMPILE_STDERR}"; then
         {
             echo "ERROR: installed ucode source did not compile: ${module_path}"
@@ -608,7 +632,7 @@ UCI_CONFIG_DIR="${BACKUP_DIR}/uci" "${UCODE_BIN}" /usr/share/xray/gen_config.uc 
 }
 XRAY_LOCATION_ASSET=/opt/xray/current "${XRAY_BIN}" run -test -config "${BACKUP_DIR}/generated-empty.json"
 
-R9_INSTALLER_FINAL_DISABLED=1 sh "${SCRIPT_DIR}/profile_mode_smoke.sh"
+R10_INSTALLER_FINAL_DISABLED=1 sh "${SCRIPT_DIR}/profile_mode_smoke.sh"
 
 stop_service_strict xray_core
 stop_service_strict xray_profiles
@@ -623,5 +647,5 @@ fi
 
 SUCCESS=1
 trap - EXIT INT TERM
-console "R9_INSTALL_AND_HARDWARE_SMOKE_OK"
+console "R10_INSTALL_AND_HARDWARE_SMOKE_OK"
 exit 0

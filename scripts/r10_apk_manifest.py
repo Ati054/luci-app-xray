@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and verify the canonical R9 dependency manifest from real APK files."""
+"""Create and verify the canonical R10 dependency manifest from real APK files."""
 
 from __future__ import annotations
 
@@ -104,8 +104,9 @@ def main() -> int:
         if metadata["name"] in package_names:
             raise ValueError(f"duplicate package in dependency closure: {metadata['name']}")
         package_names.add(metadata["name"])
-        if metadata["name"].startswith("kmod-") or metadata["name"] == "kernel":
-            raise ValueError(f"kernel package must not enter the userland artifact: {metadata['name']}")
+        if ((metadata["name"].startswith("kmod-") and metadata["name"] != "kmod-netlink-diag")
+                or metadata["name"] == "kernel"):
+            raise ValueError(f"unapproved kernel package must not enter the artifact: {metadata['name']}")
         if metadata["arch"] not in {"aarch64_cortex-a53", "aarch64", "all", "noarch"}:
             raise ValueError(f"unexpected architecture {metadata['arch']} in {apk_file.name}")
         if apk_file.name not in sources:

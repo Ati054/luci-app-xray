@@ -50,6 +50,8 @@ Some features are deprecated / unstable so they are placed in preview app. To en
 
 ## Changelog since 3.7.0
 
+* 2026-09-01 feat: R10 compact profile controls and live per-profile RX/TX rate, transferred totals, TCP RTT, and process uptime
+* 2026-09-01 build: R10 offline OpenWrt 25.12.5 bundle includes the exact `ss` / `kmod-netlink-diag` dependency pair for Raspberry Pi 3 aarch64
 * 2026-01-14 chore: bump version
 * 2026-01-26 fix: typos and hysteria version check
 

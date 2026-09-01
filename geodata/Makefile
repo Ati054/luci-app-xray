@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-xray-geodata
 PKG_VERSION:=3.7.1
-PKG_RELEASE:=9
+PKG_RELEASE:=10
 PKGARCH:=all
 
 PKG_LICENSE:=MPLv2

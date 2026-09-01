@@ -32,6 +32,7 @@ USERLAND_ROOTS=(
     coreutils-base64
     coreutils-timeout
     ip-full
+    ss
     wget
     ucode
     ucode-mod-fs
@@ -40,6 +41,7 @@ USERLAND_ROOTS=(
 TARGET_PRECONDITIONS=(
     kmod-nf-tproxy
     kmod-nft-tproxy
+    kmod-netlink-diag
     firewall4
     luci-base
     dnsmasq
@@ -165,50 +167,10 @@ init_apk_root() {
     printf '%s\nall\n' "${TARGET_ARCH}" > "${root}/etc/apk/arch"
 }
 
-RESOLVER_ROOT="${TMP_ROOT}/resolver-root"
-init_apk_root "${RESOLVER_ROOT}"
-REPOSITORY_FILE="${RESOLVER_ROOT}/etc/apk/repositories"
-printf '%s\n' "${REPOSITORIES[@]}" > "${REPOSITORY_FILE}"
-
-"${APK_HOST}" \
-    --root "${RESOLVER_ROOT}" \
-    --arch "${TARGET_ARCH}" \
-    --allow-untrusted \
-    --repositories-file "${REPOSITORY_FILE}" \
-    update
-
-"${APK_HOST}" \
-    --root "${RESOLVER_ROOT}" \
-    --arch "${TARGET_ARCH}" \
-    --allow-untrusted \
-    --repositories-file "${REPOSITORY_FILE}" \
-    fetch "${RECURSIVE_OPTION}" --url "${USERLAND_ROOTS[@]}" > "${TMP_ROOT}/dependency-urls.txt"
-
-"${APK_HOST}" \
-    --root "${RESOLVER_ROOT}" \
-    --arch "${TARGET_ARCH}" \
-    --allow-untrusted \
-    --repositories-file "${REPOSITORY_FILE}" \
-    fetch "${RECURSIVE_OPTION}" --output "${TMP_ROOT}/deps" "${USERLAND_ROOTS[@]}"
-
-mapfile -t DEPENDENCY_APKS < <(find "${TMP_ROOT}/deps" -maxdepth 1 -type f -name '*.apk' -print | sort)
-[[ ${#DEPENDENCY_APKS[@]} -gt ${#USERLAND_ROOTS[@]} ]] || {
-    echo "ERROR: recursive resolver did not produce a transitive closure" >&2
-    exit 1
-}
-
-python3 "${WORKSPACE}/scripts/r9_apk_manifest.py" \
-    --apk-bin "${APK_HOST}" \
-    --apk-dir "${TMP_ROOT}/deps" \
-    --urls "${TMP_ROOT}/dependency-urls.txt" \
-    --output "${OUTPUT_DIR}/OFFLINE-PACKAGES-MANIFEST.txt"
-
-cp -p "${DEPENDENCY_APKS[@]}" "${OUTPUT_DIR}/"
-cp -p "${CORE_APK}" "${STATUS_APK}" "${OUTPUT_DIR}/"
-
-# Establish the exact Raspberry Pi 3 kernel ABI before fetching any temporary
-# kmod seed APK. Seed packages are used only to model already-installed target
-# prerequisites and are never copied into the artifact.
+# Establish the exact Raspberry Pi 3 kernel ABI before resolving the userland
+# closure. The ss package has a hard kmod-netlink-diag dependency, so its exact
+# kmods repository must participate in resolution while kernel APKs remain
+# target preconditions and never enter the portable artifact.
 TARGET_BASE="https://downloads.openwrt.org/releases/25.12.5/targets/bcm27xx/bcm2710"
 TARGET_MANIFEST="openwrt-25.12.5-bcm27xx-bcm2710.manifest"
 wget -q -O "${TMP_ROOT}/sha256sums" "${TARGET_BASE}/sha256sums"
@@ -277,11 +239,11 @@ for apk_file in "${SEED_APKS[@]}"; do
         echo "ERROR: zero-byte seed APK: ${apk_file}" >&2
         exit 1
     }
-    PACKAGE_NAME="$(python3 "${WORKSPACE}/scripts/r9_apk_manifest.py" \
+    PACKAGE_NAME="$(python3 "${WORKSPACE}/scripts/r10_apk_manifest.py" \
         --apk-bin "${APK_HOST}" --inspect "${apk_file}" --field name)"
-    PACKAGE_DEPS="$(python3 "${WORKSPACE}/scripts/r9_apk_manifest.py" \
+    PACKAGE_DEPS="$(python3 "${WORKSPACE}/scripts/r10_apk_manifest.py" \
         --apk-bin "${APK_HOST}" --inspect "${apk_file}" --field depends)"
-    PACKAGE_VERSION="$(python3 "${WORKSPACE}/scripts/r9_apk_manifest.py" \
+    PACKAGE_VERSION="$(python3 "${WORKSPACE}/scripts/r10_apk_manifest.py" \
         --apk-bin "${APK_HOST}" --inspect "${apk_file}" --field version)"
     if [[ "${PACKAGE_NAME}" == kmod-* ]]; then
         KMOD_COUNT=$((KMOD_COUNT + 1))
@@ -305,6 +267,58 @@ done
     echo "ERROR: expected exactly one verified target kernel seed, found ${KERNEL_COUNT}" >&2
     exit 1
 }
+
+RESOLVER_ROOT="${TMP_ROOT}/resolver-root"
+init_apk_root "${RESOLVER_ROOT}"
+REPOSITORY_FILE="${RESOLVER_ROOT}/etc/apk/repositories"
+printf '%s\n' "${REPOSITORIES[@]}" "${KMOD_REPOSITORY}" > "${REPOSITORY_FILE}"
+
+"${APK_HOST}" \
+    --root "${RESOLVER_ROOT}" \
+    --arch "${TARGET_ARCH}" \
+    --allow-untrusted \
+    --repositories-file "${REPOSITORY_FILE}" \
+    update
+
+"${APK_HOST}" \
+    --root "${RESOLVER_ROOT}" \
+    --arch "${TARGET_ARCH}" \
+    --allow-untrusted \
+    --repositories-file "${REPOSITORY_FILE}" \
+    fetch "${RECURSIVE_OPTION}" --url "${USERLAND_ROOTS[@]}" > "${TMP_ROOT}/dependency-urls.txt"
+
+"${APK_HOST}" \
+    --root "${RESOLVER_ROOT}" \
+    --arch "${TARGET_ARCH}" \
+    --allow-untrusted \
+    --repositories-file "${REPOSITORY_FILE}" \
+    fetch "${RECURSIVE_OPTION}" --output "${TMP_ROOT}/deps" "${USERLAND_ROOTS[@]}"
+
+# The exact kmod repository is needed to solve ss. Bundle only its verified
+# kmod-netlink-diag runtime requirement; all other kernel packages remain
+# target preconditions and never enter the artifact.
+for apk_file in "${TMP_ROOT}/deps"/*.apk; do
+    PACKAGE_NAME="$(python3 "${WORKSPACE}/scripts/r10_apk_manifest.py" \
+        --apk-bin "${APK_HOST}" --inspect "${apk_file}" --field name)"
+    if [[ ( "${PACKAGE_NAME}" == kmod-* && "${PACKAGE_NAME}" != kmod-netlink-diag ) || "${PACKAGE_NAME}" == kernel ]]; then
+        rm -f "${apk_file}"
+    fi
+done
+
+mapfile -t DEPENDENCY_APKS < <(find "${TMP_ROOT}/deps" -maxdepth 1 -type f -name '*.apk' -print | sort)
+[[ ${#DEPENDENCY_APKS[@]} -gt ${#USERLAND_ROOTS[@]} ]] || {
+    echo "ERROR: recursive resolver did not produce a transitive closure" >&2
+    exit 1
+}
+
+python3 "${WORKSPACE}/scripts/r10_apk_manifest.py" \
+    --apk-bin "${APK_HOST}" \
+    --apk-dir "${TMP_ROOT}/deps" \
+    --urls "${TMP_ROOT}/dependency-urls.txt" \
+    --output "${OUTPUT_DIR}/OFFLINE-PACKAGES-MANIFEST.txt"
+
+cp -p "${DEPENDENCY_APKS[@]}" "${OUTPUT_DIR}/"
+cp -p "${CORE_APK}" "${STATUS_APK}" "${OUTPUT_DIR}/"
 
 SEED_INDEX_DIR="${TMP_ROOT}/seed-index"
 ARTIFACT_INDEX_DIR="${TMP_ROOT}/artifact-index"
@@ -381,19 +395,19 @@ fi
     --repositories-file /dev/null \
     list --installed luci-app-xray luci-app-xray-status >> "${OFFLINE_LOG}"
 
-grep -q '^luci-app-xray-3\.7\.1-r9' "${OFFLINE_LOG}" || {
-    echo "ERROR: offline root does not contain core R9" >&2
+grep -q '^luci-app-xray-3\.7\.1-r10' "${OFFLINE_LOG}" || {
+    echo "ERROR: offline root does not contain core R10" >&2
     exit 1
 }
-grep -q '^luci-app-xray-status-3\.7\.1-r9' "${OFFLINE_LOG}" || {
-    echo "ERROR: offline root does not contain status R9" >&2
+grep -q '^luci-app-xray-status-3\.7\.1-r10' "${OFFLINE_LOG}" || {
+    echo "ERROR: offline root does not contain status R10" >&2
     exit 1
 }
-echo "R9_OFFLINE_TRANSACTION_OK" >> "${OFFLINE_LOG}"
+echo "R10_OFFLINE_TRANSACTION_OK" >> "${OFFLINE_LOG}"
 
 if find "${OUTPUT_DIR}" -maxdepth 1 -type f -size 0 -print | grep -q .; then
     echo "ERROR: zero-byte file found in offline bundle output" >&2
     exit 1
 fi
 
-echo "R9 offline dependency closure and transaction proof completed successfully."
+echo "R10 offline dependency closure and transaction proof completed successfully."

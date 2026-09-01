@@ -1,4 +1,4 @@
-R9 rollback and recovery notes
+R10 rollback and recovery notes
 ==============================
 
 The installer stores its diagnostic log and backup directory under /tmp and
@@ -9,7 +9,7 @@ profile contents, service enablement, and running state.
 
 On failure after the APK transaction starts, it restores saved UCI/profile
 data where possible but leaves both Xray services stopped and disabled. It does
-not claim to roll package files back: prior APK payloads are not part of the R9
+not claim to roll package files back: prior APK payloads are not part of the R10
 bundle. Use the recorded installed-packages.txt plus trusted copies of the prior
 packages if an actual package downgrade is required.
 
