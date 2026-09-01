@@ -459,7 +459,9 @@ function get_profile_stack(filepath) {
 
         let parts = [ "VLESS" ];
         let stream = outbound.streamSettings || {};
-        let network = stream.network || "";
+        // Modern Reverse exports may call the transport selector "method"
+        // while conventional Xray JSON uses "network".
+        let network = stream.network || stream.method || "";
         let security = stream.security || "";
         let flow = outbound.settings.flow || "";
 

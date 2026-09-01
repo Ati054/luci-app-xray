@@ -248,7 +248,8 @@ assert_match '"ok":false' "${RES_REP_FAIL}" "Test 14a: Failed replacement return
 assert_match 'reverse-smoke-a-in' "$(cat "${PROFILES_DIR}/profile-a.json")" "Test 14b: Failed replacement preserves previous valid file"
 
 # 15. Import valid profile B
-CONTENT_B="$(cat "${FIXTURE_B}")"
+# Real Reverse exports may use streamSettings.method instead of network.
+CONTENT_B="$(sed 's/"network": "xhttp"/"method": "xhttp"/' "${FIXTURE_B}")"
 RES_IMP_B="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call import "{\"name\":\"Profile B\",\"filename\":\"profile-b.json\",\"content\":\"$(echo "${CONTENT_B}" | tr -d '\n\r' | sed 's/"/\\"/g')\",\"autostart\":true}" 2>&1 || true)"
 assert_match '"ok":true' "${RES_IMP_B}" "Test 15: Import profile B succeeds"
 PROFILE_B_ID="$(printf '%s\n' "${RES_IMP_B}" | sed -n 's/.*"id"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' | head -n 1)"
@@ -307,8 +308,9 @@ assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*524288' "${LIST_JSON}" "Test 19
 assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*17' "${LIST_JSON}" "Test 19f: RPC list reports TCP_INFO RTT"
 assert_match '"uptime_seconds"[[:space:]]*:[[:space:]]*3661' "${LIST_JSON}" "Test 19g: RPC list reports process uptime"
 assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS \+ REALITY \+ Vision"' "${LIST_JSON}" "Test 19h: RPC list derives the safe protocol stack from profile JSON"
+assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS \+ XHTTP \+ REALITY"' "${LIST_JSON}" "Test 19i: RPC list recognizes Reverse streamSettings.method transport"
 HAS_OBSOLETE_FILE_METADATA=$(echo "${LIST_JSON}" | grep -E -c '"(size|sha256)"[[:space:]]*:' || true)
-assert_equal "0" "${HAS_OBSOLETE_FILE_METADATA}" "Test 19i: RPC list omits removed size and SHA metadata"
+assert_equal "0" "${HAS_OBSOLETE_FILE_METADATA}" "Test 19j: RPC list omits removed size and SHA metadata"
 rm -f "${MOCK_ROOT}/traffic.json"
 mkdir -p "${MOCK_ROOT}/usr/sbin"
 cat > "${MOCK_ROOT}/usr/sbin/ss" <<'EOF'
@@ -320,11 +322,11 @@ OUTPUT
 EOF
 chmod 0755 "${MOCK_ROOT}/usr/sbin/ss"
 LIST_SS_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
-assert_match '"connections"[[:space:]]*:[[:space:]]*1' "${LIST_SS_JSON}" "Test 19j: one-line ss parser selects only sockets owned by the exact profile PID"
-assert_match '"bytes_available"[[:space:]]*:[[:space:]]*true' "${LIST_SS_JSON}" "Test 19k: ss parser reports explicit byte-counter capability"
-assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*654321' "${LIST_SS_JSON}" "Test 19l: one-line ss parser reads bytes_received from TCP_INFO"
-assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*123456' "${LIST_SS_JSON}" "Test 19m: one-line ss parser reads bytes_sent from TCP_INFO"
-assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*12' "${LIST_SS_JSON}" "Test 19n: one-line ss parser reports integer TCP RTT milliseconds"
+assert_match '"connections"[[:space:]]*:[[:space:]]*1' "${LIST_SS_JSON}" "Test 19k: one-line ss parser selects only sockets owned by the exact profile PID"
+assert_match '"bytes_available"[[:space:]]*:[[:space:]]*true' "${LIST_SS_JSON}" "Test 19l: ss parser reports explicit byte-counter capability"
+assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*654321' "${LIST_SS_JSON}" "Test 19m: one-line ss parser reads bytes_received from TCP_INFO"
+assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*123456' "${LIST_SS_JSON}" "Test 19n: one-line ss parser reads bytes_sent from TCP_INFO"
+assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*12' "${LIST_SS_JSON}" "Test 19o: one-line ss parser reports integer TCP RTT milliseconds"
 
 mkdir -p "${MOCK_ROOT}/usr/libexec"
 cat > "${MOCK_ROOT}/usr/libexec/xray-sockstats" <<'EOF'
@@ -333,26 +335,26 @@ printf '%s\n' '{"4242":{"available":true,"reason":null,"connections":3,"bytes_av
 EOF
 chmod 0755 "${MOCK_ROOT}/usr/libexec/xray-sockstats"
 LIST_HELPER_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
-assert_match '"source"[[:space:]]*:[[:space:]]*"pidfd_tcp_info"' "${LIST_HELPER_JSON}" "Test 19o: backend prefers the native read-only TCP_INFO collector"
-assert_match '"connections"[[:space:]]*:[[:space:]]*3' "${LIST_HELPER_JSON}" "Test 19p: native collector metrics are mapped to the exact profile PID"
-assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*700000' "${LIST_HELPER_JSON}" "Test 19q: native collector receive bytes reach RPC output"
-assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*800000' "${LIST_HELPER_JSON}" "Test 19r: native collector transmit bytes reach RPC output"
+assert_match '"source"[[:space:]]*:[[:space:]]*"pidfd_tcp_info"' "${LIST_HELPER_JSON}" "Test 19p: backend prefers the native read-only TCP_INFO collector"
+assert_match '"connections"[[:space:]]*:[[:space:]]*3' "${LIST_HELPER_JSON}" "Test 19q: native collector metrics are mapped to the exact profile PID"
+assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*700000' "${LIST_HELPER_JSON}" "Test 19r: native collector receive bytes reach RPC output"
+assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*800000' "${LIST_HELPER_JSON}" "Test 19s: native collector transmit bytes reach RPC output"
 rm -f "${MOCK_ROOT}/instances.json" "${MOCK_ROOT}/usr/sbin/ss" "${MOCK_ROOT}/usr/libexec/xray-sockstats"
 
 # 20. Missing profile start/stop returns ok:false
 RES_START_NONEXIST="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call start '{"id":"nonexistent_profile"}' 2>&1 || true)"
-assert_match '"ok":false' "${RES_START_NONEXIST}" "Test 19a: Start on nonexistent profile returns ok:false"
+assert_match '"ok":false' "${RES_START_NONEXIST}" "Test 20a: Start on nonexistent profile returns ok:false"
 
 RES_STOP_NONEXIST="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call stop '{"id":"nonexistent_profile"}' 2>&1 || true)"
 # Stop on missing init returns ok:false if init missing or handles safely
-assert_match '"ok":' "${RES_STOP_NONEXIST}" "Test 19b: Stop handler returns valid JSON result"
+assert_match '"ok":' "${RES_STOP_NONEXIST}" "Test 20b: Stop handler returns valid JSON result"
 
-# 20. Safe Deletion into .trash/
+# 21. Safe Deletion into .trash/
 RES_DEL_A="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call delete "{\"id\":\"${PROFILE_A_ID}\"}" 2>&1 || true)"
-assert_match '"ok":true' "${RES_DEL_A}" "Test 20a: Delete returns ok:true"
-assert_equal "0" "$([ -f "${PROFILES_DIR}/profile-a.json" ] && echo 1 || echo 0)" "Test 20b: Deleted profile removed from active profiles directory"
+assert_match '"ok":true' "${RES_DEL_A}" "Test 21a: Delete returns ok:true"
+assert_equal "0" "$([ -f "${PROFILES_DIR}/profile-a.json" ] && echo 1 || echo 0)" "Test 21b: Deleted profile removed from active profiles directory"
 TRASH_COUNT="$(find "${PROFILES_DIR}/.trash" -name "*profile-a.json" 2>/dev/null | wc -l | tr -d ' ' || echo 0)"
-assert_equal "1" "${TRASH_COUNT}" "Test 20c: Deleted profile archived safely in .trash/"
+assert_equal "1" "${TRASH_COUNT}" "Test 21c: Deleted profile archived safely in .trash/"
 
 echo "\nSummary: ${PASSED} passed, ${FAILED} failed"
 if [ "${FAILED}" -gt 0 ]; then

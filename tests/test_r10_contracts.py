@@ -212,6 +212,11 @@ def main() -> int:
             "restored running profile count" in installer and
             "has invalid restored PID" in installer,
             "successful install restores data and the exact active-profile state before success")
+    restore_body = installer.split("restore_pretransaction_services() {", 1)[1].split("\n}", 1)[0]
+    enable_restore = restore_body.index("for service_name in xray_core xray_profiles")
+    require(restore_body.index("stop_service_strict xray_core") < enable_restore and
+            restore_body.index("stop_service_strict xray_profiles") < enable_restore,
+            "service restoration clears package-hook runtime state before applying the snapshot")
 
     hardware = read("tests/hardware/profile_mode_smoke.sh")
     require("HARDWARE_PROFILE_MODE_SMOKE_OK" in hardware, "hardware smoke has the exact success marker")
@@ -246,6 +251,7 @@ def main() -> int:
             "tcp_info_fields_unavailable" in backend,
             "backend prefers direct socket TCP_INFO and degrades without fabricated zeroes")
     require("protocol_stack: get_profile_stack(filepath)" in backend and
+            "stream.network || stream.method" in backend and
             'push(parts, "gRPC")' in backend and 'push(parts, "XHTTP")' in backend,
             "backend derives safe protocol-stack labels from stored profile JSON")
     sockstats = read("core/src/xray-sockstats.c")

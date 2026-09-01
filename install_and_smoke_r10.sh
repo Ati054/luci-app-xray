@@ -176,6 +176,12 @@ restore_data_backup() {
 
 restore_pretransaction_services() {
     [ "${BACKUP_READY}" -eq 1 ] || return 0
+
+    # Package upgrade hooks may have started services after our pre-transaction
+    # snapshot. Clear that transient state before restoring the exact snapshot.
+    stop_service_strict xray_core
+    stop_service_strict xray_profiles
+
     for service_name in xray_core xray_profiles; do
         service_exists "${service_name}" || continue
         if [ "$(cat "${BACKUP_DIR}/${service_name}.enabled")" = "1" ]; then
