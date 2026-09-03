@@ -105,6 +105,7 @@ return view.extend({
     handleReset: null,
     refreshInFlight: null,
     trafficSnapshots: {},
+    cpuSnapshot: null,
 
     formatMetricNumber: function(value) {
         if (value >= 100) return value.toFixed(0);
@@ -148,6 +149,60 @@ return view.extend({
         if (hours > 0) return _('%d ч %d мин').format(hours, minutes);
         if (minutes > 0) return _('%d мин %d с').format(minutes, secs);
         return _('%d с').format(secs);
+    },
+
+    renderHardwareHealth: function(summary) {
+        var hardware = summary.hardware || {};
+        var temperatureText = hardware.temperature_available &&
+            Number.isFinite(Number(hardware.temperature_celsius)) ?
+            _('%s °C').format(Number(hardware.temperature_celsius).toFixed(1)) : '—';
+        var temperatureTitle = hardware.temperature_available ?
+            _('Температура CPU Raspberry Pi. Обновляется каждые 5 секунд.') :
+            _('Датчик температуры недоступен на этом устройстве.');
+        var cpuText = '—';
+        var cpuTotal = Number(hardware.cpu_total_ticks);
+        var cpuIdle = Number(hardware.cpu_idle_ticks);
+        if (hardware.cpu_available && Number.isFinite(cpuTotal) && Number.isFinite(cpuIdle)) {
+            if (this.cpuSnapshot && cpuTotal > this.cpuSnapshot.total && cpuIdle >= this.cpuSnapshot.idle) {
+                var totalDelta = cpuTotal - this.cpuSnapshot.total;
+                var idleDelta = Math.min(totalDelta, cpuIdle - this.cpuSnapshot.idle);
+                cpuText = _('%s%%').format(((totalDelta - idleDelta) * 100 / totalDelta).toFixed(1));
+            }
+            this.cpuSnapshot = { total: cpuTotal, idle: cpuIdle };
+        } else {
+            this.cpuSnapshot = null;
+        }
+
+        var children = [
+            E('span', {
+                'class': 'xray-hardware-temperature',
+                'title': temperatureTitle,
+                'tabindex': '0'
+            }, [ E('strong', {}, _('Температура: ')), temperatureText ]),
+            E('span', {
+                'class': 'xray-hardware-cpu',
+                'title': hardware.cpu_available ?
+                    _('Средняя загрузка всех ядер CPU между двумя обновлениями страницы.') :
+                    _('Счётчики загрузки CPU недоступны на этом устройстве.'),
+                'tabindex': '0'
+            }, [ E('strong', {}, _('CPU: ')), cpuText ])
+        ];
+
+        if (hardware.power_status_available &&
+                (hardware.undervoltage_now || hardware.undervoltage_occurred)) {
+            var powerText = hardware.undervoltage_now ?
+                _('Пониженное напряжение питания обнаружено сейчас.') :
+                _('Пониженное напряжение питания фиксировалось после загрузки.');
+            children.push(E('span', {
+                'class': 'label ' + (hardware.undervoltage_now ? 'danger' : 'warning') + ' xray-power-warning',
+                'title': powerText,
+                'aria-label': powerText,
+                'role': 'img',
+                'tabindex': '0'
+            }, '⚡'));
+        }
+
+        return E('div', { 'class': 'xray-hardware-health' }, children);
     },
 
     getTrafficDisplay: function(p) {
@@ -225,13 +280,14 @@ return view.extend({
 
     render: function(data) {
         this.trafficSnapshots = {};
+        this.cpuSnapshot = null;
         var viewContainer = E('div', { 'class': 'cbi-map' });
 
         viewContainer.appendChild(E('style', {}, `
             .xray-profile-cell { min-width: 10.5rem; }
             .xray-profile-name { display: block; cursor: help; text-decoration: underline dotted; text-underline-offset: .2em; }
             .xray-profile-stack { display: block; margin-top: .2rem; max-width: 18rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 80%; font-weight: 400; opacity: .72; }
-            .xray-profile-name:focus-visible, .xray-process-indicator:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
+            .xray-profile-name:focus-visible, .xray-process-indicator:focus-visible, .xray-hardware-temperature:focus-visible, .xray-hardware-cpu:focus-visible, .xray-power-warning:focus-visible { outline: 2px solid currentColor; outline-offset: 3px; }
             .xray-status-cell { width: 3.5rem; text-align: center; }
             .xray-process-indicator { display: inline-flex; min-width: 1.65rem; min-height: 1.65rem; align-items: center; justify-content: center; cursor: help; font-size: 1rem; }
             .xray-traffic-cell { min-width: 10rem; white-space: nowrap; font-variant-numeric: tabular-nums; }
@@ -245,6 +301,9 @@ return view.extend({
             .xray-profile-actions { display: flex; justify-content: flex-end; gap: 3px; flex-wrap: nowrap; }
             .xray-profile-actions .btn { margin: 0 !important; }
             .xray-action-btn { box-sizing: border-box; min-width: 2rem; padding: 2px 6px !important; font-size: 1rem !important; line-height: 1.35 !important; text-align: center; }
+            .xray-hardware-health { display: flex; align-items: center; gap: .45rem; margin-top: .55rem; min-height: 1.4rem; font-variant-numeric: tabular-nums; }
+            .xray-hardware-temperature, .xray-hardware-cpu { cursor: help; white-space: nowrap; }
+            .xray-power-warning { display: inline-flex; align-items: center; justify-content: center; min-width: 1.35rem; cursor: help; font-size: 1rem; line-height: 1.35; }
             .xray-table-scroll { overflow-x: auto; }
         `));
 
@@ -356,7 +415,8 @@ return view.extend({
             ]),
             E('div', { 'class': 'cbi-value', 'style': 'flex: 1 1 200px; padding: 10px; border: 1px solid #e0e0e0; border-radius: 4px;' }, [
                 E('strong', {}, _('Сохраненных: ')), E('span', { 'class': 'badge' }, summary.stored_count || 0),
-                ' | ', E('strong', {}, _('Активных: ')), E('span', { 'class': 'badge success' }, summary.running_count || 0)
+                ' | ', E('strong', {}, _('Активных: ')), E('span', { 'class': 'badge success' }, summary.running_count || 0),
+                this.renderHardwareHealth(summary)
             ])
         ]);
         statusContainer.appendChild(cards);

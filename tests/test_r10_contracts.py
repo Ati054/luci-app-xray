@@ -254,6 +254,9 @@ def main() -> int:
             "stream.network || stream.method" in backend and
             'push(parts, "gRPC")' in backend and 'push(parts, "XHTTP")' in backend,
             "backend derives safe protocol-stack labels from stored profile JSON")
+    require("THERMAL_TEMP_PATH" in backend and "VCGENCMD_BIN" in backend and "PROC_STAT_PATH" in backend and
+            "undervoltage_now" in backend and "undervoltage_occurred" in backend,
+            "backend exposes read-only Raspberry Pi CPU, temperature, and undervoltage health")
     sockstats = read("core/src/xray-sockstats.c")
     require("SYS_pidfd_open" in sockstats and "SYS_pidfd_getfd" in sockstats and
             "getsockopt(duplicate_fd, IPPROTO_TCP, TCP_INFO" in sockstats,
@@ -293,6 +296,9 @@ def main() -> int:
     require("xray-action-btn" in profiles_view and "xray-traffic-separator" in profiles_view and
             "p.protocol_stack" in profiles_view,
             "profile table uses compact actions, inline counters, and protocol-stack labels")
+    require("renderHardwareHealth" in profiles_view and "xray-power-warning" in profiles_view and
+            "temperature_celsius" in profiles_view and "cpu_total_ticks" in profiles_view,
+            "summary card renders CPU load, temperature, and an accessible undervoltage warning")
 
     active_release_files = (
         ".github/workflows/build-release.yml",

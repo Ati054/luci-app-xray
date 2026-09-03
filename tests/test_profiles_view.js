@@ -82,7 +82,17 @@ const summary = {
     stored_count: 2,
     running_count: 1,
     service_enabled: false,
-    legacy_running: false
+    legacy_running: false,
+    hardware: {
+        temperature_available: true,
+        temperature_celsius: 51.25,
+        cpu_available: true,
+        cpu_total_ticks: 10000,
+        cpu_idle_ticks: 8000,
+        power_status_available: true,
+        undervoltage_now: false,
+        undervoltage_occurred: true
+    }
 };
 const firstProfiles = [
     {
@@ -114,6 +124,15 @@ const renderedNodes = descendants(root);
 const headerText = renderedNodes.filter(value => value.tag === 'th').map(textContent).join(' | ');
 assert(renderedText.includes('/opt/xray/current/xray'), 'view renders the exact backend binary path');
 assert(renderedText.includes('Xray 26.7.28 exact-backend-value'), 'view renders the exact backend binary version');
+assert(renderedText.includes('Температура:') && renderedText.includes('51.3 °C'),
+    'summary card renders Raspberry Pi temperature with one decimal place');
+const cpuStatus = renderedNodes.find(value => hasClass(value, 'xray-hardware-cpu'));
+assert(cpuStatus && textContent(cpuStatus).includes('CPU:') && textContent(cpuStatus).includes('—'),
+    'first hardware sample waits for a truthful CPU utilization delta');
+const powerWarnings = renderedNodes.filter(value => hasClass(value, 'xray-power-warning'));
+assert(powerWarnings.length === 1 && textContent(powerWarnings[0]).includes('⚡') &&
+    String(powerWarnings[0].attrs.title).includes('фиксировалось') && powerWarnings[0].attrs.tabindex === '0',
+    'latched undervoltage renders a keyboard-accessible lightning warning');
 assert(!renderedText.includes('GeoIP/GeoSite') && !renderedText.includes('assets_found'), 'view has no global geodata health card');
 assert(!headerText.includes('Имя файла JSON') && !headerText.includes('Размер') && !headerText.includes('SHA-256'),
     'table removes filename, size, and SHA columns');
@@ -160,9 +179,19 @@ profileView.updateView({
             tx_bytes: 102000
         }
     }],
-    summary
+    summary: {
+        ...summary,
+        hardware: {
+            ...summary.hardware,
+            cpu_total_ticks: 11000,
+            cpu_idle_ticks: 8750
+        }
+    }
 }, statusContainer, tableContainer);
 const updatedText = textContent(tableContainer);
+const updatedCpuStatus = descendants(statusContainer).find(value => hasClass(value, 'xray-hardware-cpu'));
+assert(updatedCpuStatus && textContent(updatedCpuStatus).includes('25.0%'),
+    'hardware card derives CPU utilization from consecutive kernel tick samples');
 assert(updatedText.includes('320 Kbps') && updatedText.includes('160 Kbps'),
     'poll delta is rendered as per-profile receive and transmit speed');
 assert(updatedText.includes('всего 196 KB') && updatedText.includes('всего 99.6 KB'),

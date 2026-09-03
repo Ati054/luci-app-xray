@@ -297,6 +297,14 @@ EOF
 cat > "${MOCK_ROOT}/traffic.json" <<EOF
 {"${PROFILE_A_ID}":{"available":true,"sample_time":100,"connections":2,"rx_bytes":1048576,"tx_bytes":524288,"rtt_ms":17,"uptime_seconds":3661}}
 EOF
+mkdir -p "${MOCK_ROOT}/sys/class/thermal/thermal_zone0" "${MOCK_ROOT}/usr/bin" "${MOCK_ROOT}/proc"
+printf '%s\n' '51234' > "${MOCK_ROOT}/sys/class/thermal/thermal_zone0/temp"
+printf '%s\n' 'cpu  100 20 30 800 50 5 6 0 0 0' > "${MOCK_ROOT}/proc/stat"
+cat > "${MOCK_ROOT}/usr/bin/vcgencmd" <<'EOF'
+#!/bin/sh
+printf '%s\n' 'throttled=0x10001'
+EOF
+chmod 0755 "${MOCK_ROOT}/usr/bin/vcgencmd"
 LIST_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
 HAS_LEAKED_UUID=$(echo "${LIST_JSON}" | grep -c "11111111-1111-1111-1111-111111111111" || true)
 HAS_LEAKED_ADDR=$(echo "${LIST_JSON}" | grep -c "192.0.2.10" || true)
@@ -311,6 +319,14 @@ assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS \+ REALITY \+ Visi
 assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS \+ XHTTP \+ REALITY"' "${LIST_JSON}" "Test 19i: RPC list recognizes Reverse streamSettings.method transport"
 HAS_OBSOLETE_FILE_METADATA=$(echo "${LIST_JSON}" | grep -E -c '"(size|sha256)"[[:space:]]*:' || true)
 assert_equal "0" "${HAS_OBSOLETE_FILE_METADATA}" "Test 19j: RPC list omits removed size and SHA metadata"
+assert_match '"temperature_available"[[:space:]]*:[[:space:]]*true' "${LIST_JSON}" "Test 19k: RPC list reports temperature sensor availability"
+assert_match '"temperature_celsius"[[:space:]]*:[[:space:]]*51\.2' "${LIST_JSON}" "Test 19l: RPC list converts millidegrees to Celsius"
+assert_match '"cpu_available"[[:space:]]*:[[:space:]]*true' "${LIST_JSON}" "Test 19m: RPC list reports CPU counter availability"
+assert_match '"cpu_total_ticks"[[:space:]]*:[[:space:]]*1011' "${LIST_JSON}" "Test 19n: RPC list reports cumulative CPU ticks"
+assert_match '"cpu_idle_ticks"[[:space:]]*:[[:space:]]*850' "${LIST_JSON}" "Test 19o: RPC list includes iowait in idle CPU ticks"
+assert_match '"power_status_available"[[:space:]]*:[[:space:]]*true' "${LIST_JSON}" "Test 19p: RPC list reports Raspberry Pi power diagnostics availability"
+assert_match '"undervoltage_now"[[:space:]]*:[[:space:]]*true' "${LIST_JSON}" "Test 19q: RPC list detects current undervoltage"
+assert_match '"undervoltage_occurred"[[:space:]]*:[[:space:]]*true' "${LIST_JSON}" "Test 19r: RPC list detects latched undervoltage"
 rm -f "${MOCK_ROOT}/traffic.json"
 mkdir -p "${MOCK_ROOT}/usr/sbin"
 cat > "${MOCK_ROOT}/usr/sbin/ss" <<'EOF'
@@ -322,11 +338,11 @@ OUTPUT
 EOF
 chmod 0755 "${MOCK_ROOT}/usr/sbin/ss"
 LIST_SS_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
-assert_match '"connections"[[:space:]]*:[[:space:]]*1' "${LIST_SS_JSON}" "Test 19k: one-line ss parser selects only sockets owned by the exact profile PID"
-assert_match '"bytes_available"[[:space:]]*:[[:space:]]*true' "${LIST_SS_JSON}" "Test 19l: ss parser reports explicit byte-counter capability"
-assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*654321' "${LIST_SS_JSON}" "Test 19m: one-line ss parser reads bytes_received from TCP_INFO"
-assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*123456' "${LIST_SS_JSON}" "Test 19n: one-line ss parser reads bytes_sent from TCP_INFO"
-assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*12' "${LIST_SS_JSON}" "Test 19o: one-line ss parser reports integer TCP RTT milliseconds"
+assert_match '"connections"[[:space:]]*:[[:space:]]*1' "${LIST_SS_JSON}" "Test 19s: one-line ss parser selects only sockets owned by the exact profile PID"
+assert_match '"bytes_available"[[:space:]]*:[[:space:]]*true' "${LIST_SS_JSON}" "Test 19t: ss parser reports explicit byte-counter capability"
+assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*654321' "${LIST_SS_JSON}" "Test 19u: one-line ss parser reads bytes_received from TCP_INFO"
+assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*123456' "${LIST_SS_JSON}" "Test 19v: one-line ss parser reads bytes_sent from TCP_INFO"
+assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*12' "${LIST_SS_JSON}" "Test 19w: one-line ss parser reports integer TCP RTT milliseconds"
 
 mkdir -p "${MOCK_ROOT}/usr/libexec"
 cat > "${MOCK_ROOT}/usr/libexec/xray-sockstats" <<'EOF'
@@ -335,10 +351,10 @@ printf '%s\n' '{"4242":{"available":true,"reason":null,"connections":3,"bytes_av
 EOF
 chmod 0755 "${MOCK_ROOT}/usr/libexec/xray-sockstats"
 LIST_HELPER_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
-assert_match '"source"[[:space:]]*:[[:space:]]*"pidfd_tcp_info"' "${LIST_HELPER_JSON}" "Test 19p: backend prefers the native read-only TCP_INFO collector"
-assert_match '"connections"[[:space:]]*:[[:space:]]*3' "${LIST_HELPER_JSON}" "Test 19q: native collector metrics are mapped to the exact profile PID"
-assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*700000' "${LIST_HELPER_JSON}" "Test 19r: native collector receive bytes reach RPC output"
-assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*800000' "${LIST_HELPER_JSON}" "Test 19s: native collector transmit bytes reach RPC output"
+assert_match '"source"[[:space:]]*:[[:space:]]*"pidfd_tcp_info"' "${LIST_HELPER_JSON}" "Test 19x: backend prefers the native read-only TCP_INFO collector"
+assert_match '"connections"[[:space:]]*:[[:space:]]*3' "${LIST_HELPER_JSON}" "Test 19y: native collector metrics are mapped to the exact profile PID"
+assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*700000' "${LIST_HELPER_JSON}" "Test 19z: native collector receive bytes reach RPC output"
+assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*800000' "${LIST_HELPER_JSON}" "Test 19aa: native collector transmit bytes reach RPC output"
 rm -f "${MOCK_ROOT}/instances.json" "${MOCK_ROOT}/usr/sbin/ss" "${MOCK_ROOT}/usr/libexec/xray-sockstats"
 
 # 20. Missing profile start/stop returns ok:false

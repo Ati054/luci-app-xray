@@ -65,6 +65,10 @@ const LEGACY_INIT = mock_dir ? `${mock_dir}/etc/init.d/xray_core` : "/etc/init.d
 const UCI_DIR = mock_dir ? `${mock_dir}/etc/config` : null;
 const SS_BIN = mock_dir ? `${mock_dir}/usr/sbin/ss` : "/usr/sbin/ss";
 const SOCKSTATS_BIN = mock_dir ? `${mock_dir}/usr/libexec/xray-sockstats` : "/usr/libexec/xray-sockstats";
+const THERMAL_TEMP_PATH = mock_dir ? `${mock_dir}/sys/class/thermal/thermal_zone0/temp` : "/sys/class/thermal/thermal_zone0/temp";
+const THROTTLED_PATH = mock_dir ? `${mock_dir}/sys/devices/platform/soc/soc:firmware/get_throttled` : "/sys/devices/platform/soc/soc:firmware/get_throttled";
+const VCGENCMD_BIN = mock_dir ? `${mock_dir}/usr/bin/vcgencmd` : "/usr/bin/vcgencmd";
+const PROC_STAT_PATH = mock_dir ? `${mock_dir}/proc/stat` : "/proc/stat";
 const LINUX_USER_HZ = 100;
 
 // Helpers
@@ -158,6 +162,78 @@ function run_process(cmd_str, max_output_bytes) {
 function run_cmd(command) {
     let res = run_process(command);
     return res.stdout;
+}
+
+function parse_hex_uint(value) {
+    let input = lc(trim(value || ""));
+    let marker = index(input, "0x");
+    if (marker >= 0) input = substr(input, marker + 2);
+    if (!length(input)) return null;
+
+    let parsed = 0;
+    const digits = "0123456789abcdef";
+    for (let i = 0; i < length(input); i++) {
+        let digit = index(digits, substr(input, i, 1));
+        if (digit < 0) return null;
+        parsed = parsed * 16 + digit;
+    }
+    return parsed;
+}
+
+function flag_set(value, mask) {
+    return value != null && (int(value / mask) % 2) == 1;
+}
+
+function get_cpu_ticks() {
+    let content = readfile(PROC_STAT_PATH);
+    if (!content) return null;
+    let line = split(content, "\n")[0] || "";
+    let fields = split(trim(line), /[ \t]+/);
+    if (length(fields) < 5 || fields[0] != "cpu") return null;
+
+    let total = 0;
+    for (let i = 1; i < length(fields); i++) {
+        if (!match(fields[i], /^[0-9]+$/)) return null;
+        total += int(fields[i]);
+    }
+
+    return {
+        total: total,
+        idle: int(fields[4]) + int(fields[5] || "0")
+    };
+}
+
+function get_hardware_health() {
+    let temperature = null;
+    let raw_temperature = readfile(THERMAL_TEMP_PATH);
+    if (raw_temperature && match(trim(raw_temperature), /^[-]?[0-9]+$/)) {
+        let millidegrees = int(trim(raw_temperature));
+        if (millidegrees >= -40000 && millidegrees <= 150000) {
+            temperature = int((millidegrees + 50) / 100) / 10;
+        }
+    }
+
+    let throttled_text = readfile(THROTTLED_PATH);
+    if (!throttled_text && access(VCGENCMD_BIN, "x")) {
+        let handle = popen(`"${VCGENCMD_BIN}" get_throttled 2>/dev/null`, "r");
+        if (handle) {
+            throttled_text = handle.read(256) || "";
+            handle.close();
+        }
+    }
+
+    let throttled = parse_hex_uint(throttled_text);
+    let cpu_ticks = get_cpu_ticks();
+    return {
+        temperature_available: temperature != null,
+        temperature_celsius: temperature,
+        cpu_available: cpu_ticks != null,
+        cpu_total_ticks: cpu_ticks ? cpu_ticks.total : null,
+        cpu_idle_ticks: cpu_ticks ? cpu_ticks.idle : null,
+        power_status_available: throttled != null,
+        undervoltage_now: flag_set(throttled, 1),
+        undervoltage_occurred: flag_set(throttled, 65536)
+    };
 }
 
 // Process PID checker
@@ -780,7 +856,8 @@ function rpc_list() {
             running_count: running_cnt,
             failed_count: failed_cnt,
             service_enabled: service_enabled,
-            legacy_running: legacy_running
+            legacy_running: legacy_running,
+            hardware: get_hardware_health()
         }
     };
 }
