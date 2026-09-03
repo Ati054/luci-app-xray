@@ -84,6 +84,9 @@ mkdir -p "${PROFILES_DIR}" "${UCI_CONFIG_DIR}" "${MOCK_ROOT}/pids"
 cat << 'EOF' > "${XRAY_BIN_MOCK}"
 #!/bin/sh
 if [ "$1" = "version" ]; then
+    count_file="${0%/*}/xray-version-count"
+    count="$(cat "${count_file}" 2>/dev/null || echo 0)"
+    printf '%s\n' "$((count + 1))" > "${count_file}"
     echo "Xray 26.7.28 (mock) (OpenWrt test)"
     exit 0
 fi
@@ -355,6 +358,8 @@ assert_match '"source"[[:space:]]*:[[:space:]]*"pidfd_tcp_info"' "${LIST_HELPER_
 assert_match '"connections"[[:space:]]*:[[:space:]]*3' "${LIST_HELPER_JSON}" "Test 19y: native collector metrics are mapped to the exact profile PID"
 assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*700000' "${LIST_HELPER_JSON}" "Test 19z: native collector receive bytes reach RPC output"
 assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*800000' "${LIST_HELPER_JSON}" "Test 19aa: native collector transmit bytes reach RPC output"
+XRAY_VERSION_CALLS="$(cat "${MOCK_ROOT}/xray-version-count")"
+assert_equal "1" "${XRAY_VERSION_CALLS}" "Test 19ab: repeated polling executes the heavy Xray version probe only once per binary"
 rm -f "${MOCK_ROOT}/instances.json" "${MOCK_ROOT}/usr/sbin/ss" "${MOCK_ROOT}/usr/libexec/xray-sockstats"
 
 # 20. Missing profile start/stop returns ok:false

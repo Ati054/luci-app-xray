@@ -69,6 +69,8 @@ const THERMAL_TEMP_PATH = mock_dir ? `${mock_dir}/sys/class/thermal/thermal_zone
 const THROTTLED_PATH = mock_dir ? `${mock_dir}/sys/devices/platform/soc/soc:firmware/get_throttled` : "/sys/devices/platform/soc/soc:firmware/get_throttled";
 const VCGENCMD_BIN = mock_dir ? `${mock_dir}/usr/bin/vcgencmd` : "/usr/bin/vcgencmd";
 const PROC_STAT_PATH = mock_dir ? `${mock_dir}/proc/stat` : "/proc/stat";
+const VERSION_CACHE_DIR = mock_dir ? `${mock_dir}/.xray-profiles-cache` : "/tmp/xray-profiles-cache";
+const VERSION_CACHE_PATH = `${VERSION_CACHE_DIR}/version.json`;
 const LINUX_USER_HZ = 100;
 
 // Helpers
@@ -234,6 +236,46 @@ function get_hardware_health() {
         undervoltage_now: flag_set(throttled, 1),
         undervoltage_occurred: flag_set(throttled, 65536)
     };
+}
+
+function get_binary_version() {
+    let binary_stat = stat(XRAY_BIN);
+    if (!binary_stat || !access(XRAY_BIN, "x")) return "";
+
+    let signature = `${binary_stat.size || 0}:${binary_stat.mtime || 0}`;
+    let cached_text = readfile(VERSION_CACHE_PATH);
+    if (cached_text) {
+        try {
+            let cached = json(cached_text);
+            if (cached && cached.signature == signature && cached.version) {
+                return cached.version;
+            }
+        } catch (e) {
+            // A partial cache is ignored and replaced atomically below.
+        }
+    }
+
+    let version_result = run_process(`"${XRAY_BIN}" version`);
+    if (version_result.exit_code !== 0) return "";
+    let version = split(version_result.stdout, "\n")[0] || "";
+    if (!version) return "";
+
+    let cache_dir_stat = lstat(VERSION_CACHE_DIR);
+    if (cache_dir_stat && cache_dir_stat.type != "directory") return version;
+    if (!cache_dir_stat) mkdir(VERSION_CACHE_DIR, 0700);
+    chmod(VERSION_CACHE_DIR, 0700);
+    let cache_stat = lstat(VERSION_CACHE_PATH);
+    if (cache_stat && cache_stat.type != "file") return version;
+
+    let cache_tmp = `${VERSION_CACHE_PATH}.tmp.${current_pid()}`;
+    let cache_handle = open(cache_tmp, "w", 0600);
+    if (cache_handle) {
+        cache_handle.write(sprintf("%.4J\n", { signature: signature, version: version }));
+        cache_handle.close();
+        chmod(cache_tmp, 0600);
+        rename(cache_tmp, VERSION_CACHE_PATH);
+    }
+    return version;
 }
 
 // Process PID checker
@@ -813,11 +855,7 @@ function rpc_list() {
     let bin_found = access(XRAY_BIN, "x") ? true : false;
     let bin_ver = "";
     if (bin_found) {
-        let version_result = run_process(`"${XRAY_BIN}" version`);
-        if (version_result.exit_code === 0) {
-            let lines = split(version_result.stdout, "\n");
-            bin_ver = lines[0] || "";
-        }
+        bin_ver = get_binary_version();
     }
 
     let running_cnt = 0;

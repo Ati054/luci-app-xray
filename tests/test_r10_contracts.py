@@ -257,6 +257,9 @@ def main() -> int:
     require("THERMAL_TEMP_PATH" in backend and "VCGENCMD_BIN" in backend and "PROC_STAT_PATH" in backend and
             "undervoltage_now" in backend and "undervoltage_occurred" in backend,
             "backend exposes read-only Raspberry Pi CPU, temperature, and undervoltage health")
+    require("VERSION_CACHE_PATH" in backend and "get_binary_version" in backend and
+            "cached.signature == signature" in backend and "rename(cache_tmp, VERSION_CACHE_PATH)" in backend,
+            "backend atomically caches the expensive Xray version probe by binary identity")
     sockstats = read("core/src/xray-sockstats.c")
     require("SYS_pidfd_open" in sockstats and "SYS_pidfd_getfd" in sockstats and
             "getsockopt(duplicate_fd, IPPROTO_TCP, TCP_INFO" in sockstats,
