@@ -85,7 +85,7 @@ const summary = {
     legacy_running: false,
     hardware: {
         temperature_available: true,
-        temperature_celsius: 51.25,
+        temperature_millidegrees: 51250,
         cpu_available: true,
         cpu_total_ticks: 10000,
         cpu_idle_ticks: 8000,

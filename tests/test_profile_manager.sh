@@ -320,7 +320,7 @@ assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS \+ XHTTP \+ REALIT
 HAS_OBSOLETE_FILE_METADATA=$(echo "${LIST_JSON}" | grep -E -c '"(size|sha256)"[[:space:]]*:' || true)
 assert_equal "0" "${HAS_OBSOLETE_FILE_METADATA}" "Test 19j: RPC list omits removed size and SHA metadata"
 assert_match '"temperature_available"[[:space:]]*:[[:space:]]*true' "${LIST_JSON}" "Test 19k: RPC list reports temperature sensor availability"
-assert_match '"temperature_celsius"[[:space:]]*:[[:space:]]*51\.2' "${LIST_JSON}" "Test 19l: RPC list converts millidegrees to Celsius"
+assert_match '"temperature_millidegrees"[[:space:]]*:[[:space:]]*51234' "${LIST_JSON}" "Test 19l: RPC list preserves exact thermal-zone millidegrees"
 assert_match '"cpu_available"[[:space:]]*:[[:space:]]*true' "${LIST_JSON}" "Test 19m: RPC list reports CPU counter availability"
 assert_match '"cpu_total_ticks"[[:space:]]*:[[:space:]]*1011' "${LIST_JSON}" "Test 19n: RPC list reports cumulative CPU ticks"
 assert_match '"cpu_idle_ticks"[[:space:]]*:[[:space:]]*850' "${LIST_JSON}" "Test 19o: RPC list includes iowait in idle CPU ticks"

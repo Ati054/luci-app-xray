@@ -297,7 +297,7 @@ def main() -> int:
             "p.protocol_stack" in profiles_view,
             "profile table uses compact actions, inline counters, and protocol-stack labels")
     require("renderHardwareHealth" in profiles_view and "xray-power-warning" in profiles_view and
-            "temperature_celsius" in profiles_view and "cpu_total_ticks" in profiles_view,
+            "temperature_millidegrees" in profiles_view and "cpu_total_ticks" in profiles_view,
             "summary card renders CPU load, temperature, and an accessible undervoltage warning")
 
     active_release_files = (

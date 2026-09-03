@@ -154,8 +154,8 @@ return view.extend({
     renderHardwareHealth: function(summary) {
         var hardware = summary.hardware || {};
         var temperatureText = hardware.temperature_available &&
-            Number.isFinite(Number(hardware.temperature_celsius)) ?
-            _('%s °C').format(Number(hardware.temperature_celsius).toFixed(1)) : '—';
+            Number.isFinite(Number(hardware.temperature_millidegrees)) ?
+            _('%s °C').format((Number(hardware.temperature_millidegrees) / 1000).toFixed(1)) : '—';
         var temperatureTitle = hardware.temperature_available ?
             _('Температура CPU Raspberry Pi. Обновляется каждые 5 секунд.') :
             _('Датчик температуры недоступен на этом устройстве.');

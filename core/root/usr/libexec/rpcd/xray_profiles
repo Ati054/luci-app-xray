@@ -204,12 +204,12 @@ function get_cpu_ticks() {
 }
 
 function get_hardware_health() {
-    let temperature = null;
+    let temperature_millidegrees = null;
     let raw_temperature = readfile(THERMAL_TEMP_PATH);
     if (raw_temperature && match(trim(raw_temperature), /^[-]?[0-9]+$/)) {
         let millidegrees = int(trim(raw_temperature));
         if (millidegrees >= -40000 && millidegrees <= 150000) {
-            temperature = int((millidegrees + 50) / 100) / 10;
+            temperature_millidegrees = millidegrees;
         }
     }
 
@@ -225,8 +225,8 @@ function get_hardware_health() {
     let throttled = parse_hex_uint(throttled_text);
     let cpu_ticks = get_cpu_ticks();
     return {
-        temperature_available: temperature != null,
-        temperature_celsius: temperature,
+        temperature_available: temperature_millidegrees != null,
+        temperature_millidegrees: temperature_millidegrees,
         cpu_available: cpu_ticks != null,
         cpu_total_ticks: cpu_ticks ? cpu_ticks.total : null,
         cpu_idle_ticks: cpu_ticks ? cpu_ticks.idle : null,
