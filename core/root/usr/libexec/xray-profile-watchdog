@@ -25,6 +25,7 @@ FUNCTIONS_SH="${XRAY_WATCHDOG_FUNCTIONS_SH:-/lib/functions.sh}"
 CHECK_INTERVAL_SECONDS="${XRAY_WATCHDOG_CHECK_INTERVAL_SECONDS:-5}"
 DISCONNECT_GRACE_SECONDS="${XRAY_WATCHDOG_DISCONNECT_GRACE_SECONDS:-25}"
 CONNECTED_REARM_SECONDS="${XRAY_WATCHDOG_CONNECTED_REARM_SECONDS:-10}"
+USER_TIMEOUT_MARGIN_SECONDS="${XRAY_WATCHDOG_USER_TIMEOUT_MARGIN_SECONDS:-15}"
 PROBE_TIMEOUT_SECONDS="${XRAY_WATCHDOG_PROBE_TIMEOUT_SECONDS:-2}"
 MAX_ITERATIONS="${XRAY_WATCHDOG_MAX_ITERATIONS:-0}"
 
@@ -39,6 +40,7 @@ for numeric_value in \
     "$CHECK_INTERVAL_SECONDS" \
     "$DISCONNECT_GRACE_SECONDS" \
     "$CONNECTED_REARM_SECONDS" \
+    "$USER_TIMEOUT_MARGIN_SECONDS" \
     "$PROBE_TIMEOUT_SECONDS" \
     "$MAX_ITERATIONS"; do
     is_uint "$numeric_value" || exit 2
@@ -126,7 +128,7 @@ is_ip_literal() {
 }
 
 get_profile_endpoint() {
-    local id="$1" filename profile_path address port
+    local id="$1" filename profile_path address port tcp_user_timeout
     config_get filename "$id" filename ""
     case "$filename" in
         ''|*/*|*\\*) return 1 ;;
@@ -141,8 +143,12 @@ get_profile_endpoint() {
     port="$("$JSONFILTER_BIN" -i "$profile_path" \
         -e '@.outbounds[@.settings.reverse].settings.port' 2>/dev/null |
         awk 'NR == 1 { print; exit }')"
+    tcp_user_timeout="$("$JSONFILTER_BIN" -i "$profile_path" \
+        -e '@.outbounds[@.settings.reverse].streamSettings.sockopt.tcpUserTimeout' 2>/dev/null |
+        awk 'NR == 1 { print; exit }')"
     [ -n "$address" ] && is_uint "$port" && [ "$port" -gt 0 ] && [ "$port" -le 65535 ] || return 1
-    printf '%s|%s\n' "$address" "$port"
+    is_uint "$tcp_user_timeout" || tcp_user_timeout=0
+    printf '%s|%s|%s\n' "$address" "$port" "$tcp_user_timeout"
 }
 
 get_endpoint_hosts() {
@@ -253,7 +259,7 @@ mark_connected() {
 }
 
 mark_disconnected() {
-    local id="$1" now="$2" peer="$3" armed down_since
+    local id="$1" now="$2" peer="$3" grace_seconds="$4" armed down_since
     remove_state_value "$id" healthy_since
 
     armed="$(cat "$(state_path "$id" armed)" 2>/dev/null)"
@@ -269,7 +275,7 @@ mark_disconnected() {
         return 0
     }
 
-    [ $((now - down_since)) -ge "$DISCONNECT_GRACE_SECONDS" ] || return 0
+    [ $((now - down_since)) -ge "$grace_seconds" ] || return 0
     peer_is_reachable "$id" || return 0
 
     # Disarm before invoking the service. Even a failed restart must not create
@@ -285,7 +291,7 @@ mark_disconnected() {
 }
 
 check_profile() {
-    local id="$1" service_json="$2" now="$3" running pid previous_pid endpoint address port snapshot connections remainder peer stalled
+    local id="$1" service_json="$2" now="$3" running pid previous_pid endpoint address endpoint_settings port tcp_user_timeout grace_seconds user_timeout_seconds snapshot connections remainder peer stalled
     valid_profile_id "$id" || return 0
 
     running="$(get_instance_value "$service_json" "$id" running)"
@@ -305,8 +311,17 @@ check_profile() {
     fi
 
     endpoint="$(get_profile_endpoint "$id")" || return 0
-    address="${endpoint%|*}"
-    port="${endpoint##*|}"
+    address="${endpoint%%|*}"
+    endpoint_settings="${endpoint#*|}"
+    port="${endpoint_settings%%|*}"
+    tcp_user_timeout="${endpoint_settings##*|}"
+    grace_seconds="$DISCONNECT_GRACE_SECONDS"
+    if is_uint "$tcp_user_timeout" && [ "$tcp_user_timeout" -gt 0 ]; then
+        user_timeout_seconds=$(((tcp_user_timeout + 999) / 1000))
+        if [ $((user_timeout_seconds + USER_TIMEOUT_MARGIN_SECONDS)) -gt "$grace_seconds" ]; then
+            grace_seconds=$((user_timeout_seconds + USER_TIMEOUT_MARGIN_SECONDS))
+        fi
+    fi
     snapshot="$(get_tunnel_socket_snapshot "$pid" "$address" "$port")" || return 0
     connections="${snapshot%%|*}"
     remainder="${snapshot#*|}"
@@ -316,7 +331,7 @@ check_profile() {
     if [ "$connections" -gt 0 ] && [ $((stalled * 2)) -lt "$connections" ]; then
         mark_connected "$id" "$now" "$peer"
     else
-        mark_disconnected "$id" "$now" "$peer"
+        mark_disconnected "$id" "$now" "$peer" "$grace_seconds"
     fi
 }
 

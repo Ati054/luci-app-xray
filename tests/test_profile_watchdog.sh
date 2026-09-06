@@ -46,6 +46,7 @@ case "\$expression" in
     *.pid) cat '${TMP_DIR}/pid' ;;
     '@.outbounds[@.settings.reverse].settings.address') printf '%s\n' '198.51.100.7' ;;
     '@.outbounds[@.settings.reverse].settings.port') printf '%s\n' '2443' ;;
+    '@.outbounds[@.settings.reverse].streamSettings.sockopt.tcpUserTimeout') cat '${TMP_DIR}/tcp-user-timeout' ;;
     '@.*.available') printf '%s\n' true ;;
     '@.*.connections') cat '${TMP_DIR}/tunnel-connections' ;;
 esac
@@ -114,6 +115,7 @@ chmod 0755 "${BIN_DIR}"/*
 printf '%s\n' 1 > "${TMP_DIR}/tunnel-connections"
 printf '%s\n' 0 > "${TMP_DIR}/tunnel-stalled"
 printf '%s\n' 2 > "${TMP_DIR}/user-connections"
+printf '%s\n' 0 > "${TMP_DIR}/tcp-user-timeout"
 printf '%s\n' 0 > "${TMP_DIR}/peer-reachable"
 printf '%s\n' 4242 > "${TMP_DIR}/pid"
 
@@ -131,9 +133,10 @@ run_once() {
     XRAY_WATCHDOG_INIT_SCRIPT="${BIN_DIR}/xray_profiles" \
     XRAY_WATCHDOG_LOGGER_BIN="${BIN_DIR}/logger" \
     XRAY_WATCHDOG_UPTIME_FILE="${TMP_DIR}/uptime" \
-    XRAY_WATCHDOG_CHECK_INTERVAL_SECONDS=0 \
+    XRAY_WATCHDOG_CHECK_INTERVAL_SECONDS=5 \
     XRAY_WATCHDOG_DISCONNECT_GRACE_SECONDS=15 \
     XRAY_WATCHDOG_CONNECTED_REARM_SECONDS=10 \
+    XRAY_WATCHDOG_USER_TIMEOUT_MARGIN_SECONDS=15 \
     XRAY_WATCHDOG_PROBE_TIMEOUT_SECONDS=1 \
     XRAY_WATCHDOG_MAX_ITERATIONS=1 \
         sh "$WATCHDOG"
@@ -238,5 +241,22 @@ run_once 50029
 assert_restart_count 1 "stale established tunnel sockets trigger one restart when the server returns"
 run_once 60000
 assert_restart_count 1 "stale established outage cannot create a restart loop"
+
+# Explicit JSON socket policy remains authoritative. The fallback watchdog
+# must not restart the process before Xray's configured TCP user timeout plus
+# the configured recovery margin has elapsed.
+rm -f "${STATE_DIR}"/*
+: > "${TMP_DIR}/restarts"
+printf '%s\n' 8000 > "${TMP_DIR}/pid"
+printf '%s\n' 3 > "${TMP_DIR}/tunnel-connections"
+printf '%s\n' 2 > "${TMP_DIR}/tunnel-stalled"
+printf '%s\n' 1 > "${TMP_DIR}/peer-reachable"
+printf '%s\n' 60000 > "${TMP_DIR}/tcp-user-timeout"
+run_once 70000
+run_once 70030
+run_once 70074
+assert_restart_count 0 "watchdog honors the JSON TCP user timeout without a premature restart"
+run_once 70075
+assert_restart_count 1 "watchdog provides one fallback restart after the JSON timeout and recovery margin"
 
 echo "Profile watchdog state-machine tests completed successfully."

@@ -314,6 +314,8 @@ def main() -> int:
             "watchdog requires a confirmed outage and reachable peer, then disarms before recovery")
     require("get_profile_endpoint" in watchdog and "get_tunnel_socket_snapshot" in watchdog and
             "@.outbounds[@.settings.reverse].settings.address" in watchdog and
+            "streamSettings.sockopt.tcpUserTimeout" in watchdog and
+            "USER_TIMEOUT_MARGIN_SECONDS" in watchdog and
             'peer_port($5) != target_port' in watchdog and
             'index($0, "timer:(on,")' in watchdog and "stalled * 2" in watchdog,
             "watchdog evaluates endpoint-specific sockets and detects stale established tunnels")
