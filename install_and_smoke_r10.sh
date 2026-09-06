@@ -366,6 +366,10 @@ grep -q -- '--simulate' "${APK_ADD_HELP_PATH}" || {
     echo "ERROR: target apk does not support --simulate" >&2
     exit 1
 }
+grep -q -- '--force-reinstall' "${APK_ADD_HELP_PATH}" || {
+    echo "ERROR: target apk does not support --force-reinstall" >&2
+    exit 1
+}
 if grep -q -- '--no-network' "${APK_ADD_HELP_PATH}"; then
     :
 elif grep -Fq -- '--network[=BOOL]' "${APK_ADD_HELP_PATH}"; then
@@ -637,11 +641,11 @@ disable_service_strict xray_core
 disable_service_strict xray_profiles
 
 console "Simulating complete APK transaction with networking disabled"
-apk add --simulate --no-network --allow-untrusted ./*.apk
+apk add --simulate --force-reinstall --no-network --allow-untrusted ./*.apk
 
 console "Installing complete APK transaction with networking disabled"
 PACKAGE_TRANSACTION_STARTED=1
-apk add --no-network --allow-untrusted ./*.apk
+apk add --force-reinstall --no-network --allow-untrusted ./*.apk
 
 apk list --installed luci-app-xray | grep -Eq '^luci-app-xray-3\.7\.1-r10([[:space:]]|$)' || {
     echo "ERROR: luci-app-xray 3.7.1-r10 is not installed" >&2

@@ -310,6 +310,8 @@ EOF
     # Create dummy valid profile file
     echo '{"outbounds":[{"protocol":"vless","settings":{"reverse":{"tag":"rev-in"}}}]}' > "${PROFILES_DIR}/profile1.json"
     echo '{"outbounds":[{"protocol":"vless","settings":{"reverse":{"tag":"rev-in"}}}]}' > "${PROFILES_DIR}/profile2.json"
+    printf '%s\n' '#!/bin/sh' 'exit 0' > "${MOCK_DIR}/profile-watchdog"
+    chmod 0755 "${MOCK_DIR}/profile-watchdog"
 
     # Mock ubus
     cat << EOF > "${MOCK_DIR}/bin/ubus"
@@ -359,6 +361,7 @@ EOF
 
         PROFILES_DIR="${PROFILES_DIR}"
         XRAY_BIN="${MOCK_DIR}/opt/xray/current/xray"
+        XRAY_WATCHDOG_BIN="${MOCK_DIR}/profile-watchdog"
         NAME="xray_profiles"
         UCI_PACKAGE="xray_core"
         . "${PROFILES_INIT}"
@@ -380,16 +383,20 @@ EOF
     HAS_P1_RELOAD=$(echo "${RELOAD_SECTION}" | grep -c "PROCD_OPEN: profile_p1" || true)
     HAS_P2_RELOAD=$(echo "${RELOAD_SECTION}" | grep -c "PROCD_OPEN: profile_p2" || true)
     HAS_P3_RELOAD=$(echo "${RELOAD_SECTION}" | grep -c "PROCD_OPEN: profile_p3" || true)
+    HAS_WATCHDOG_RELOAD=$(echo "${RELOAD_SECTION}" | grep -c "PROCD_OPEN: profile_watchdog" || true)
 
     assert_equal "1" "$((HAS_P1_RELOAD > 0))" "reload_service declares running manual profile p1"
     assert_equal "1" "$((HAS_P2_RELOAD > 0))" "reload_service declares autostart profile p2"
     assert_equal "0" "${HAS_P3_RELOAD}" "reload_service safely skips invalid/missing profile p3"
+    assert_equal "1" "$((HAS_WATCHDOG_RELOAD > 0))" "reload_service keeps the connection watchdog supervised"
 
     HAS_P1_TARGET=$(echo "${TARGET_SECTION}" | grep -c "PROCD_OPEN: profile_p1" || true)
     HAS_P2_TARGET=$(echo "${TARGET_SECTION}" | grep -c "PROCD_OPEN: profile_p2" || true)
+    HAS_WATCHDOG_TARGET=$(echo "${TARGET_SECTION}" | grep -c "PROCD_OPEN: profile_watchdog" || true)
 
     assert_equal "1" "$((HAS_P1_TARGET > 0))" "Targeted start declares target instance profile_p1"
     assert_equal "1" "$((HAS_P2_TARGET > 0))" "Targeted start preserves running peer instance profile_p2"
+    assert_equal "1" "$((HAS_WATCHDOG_TARGET > 0))" "Targeted start preserves the supervised watchdog"
 
     DELETED_P1=$(grep -c 'ubus call service delete {"name": "xray_profiles", "instance": "profile_p1"}' "${LOG_FILE}" 2>/dev/null || true)
     assert_equal "1" "$((DELETED_P1 > 0))" "Targeted stop_service issues targeted ubus service delete"

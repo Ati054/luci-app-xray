@@ -153,6 +153,17 @@ assert(statusIndicators.length === 2 && statusIndicators.some(value => String(va
     'compact process icon tooltip retains profile-specific geodata warnings');
 assert(statusIndicators.some(value => String(value.attrs.title).includes('PID: 4242')),
     'compact process icon tooltip includes the exact running PID');
+const reconnectingRow = profileView.renderProfileRow({
+    id: 'reconnecting', name: 'Reconnecting', filename: 'reconnecting.json', running: true, pid: 4343,
+    connection_state: 'connecting', autostart: true,
+    geodata: { requires_geoip: false, requires_geosite: false, missing: [] },
+    traffic: { available: true, bytes_available: true, connections: 0, rx_bytes: 0, tx_bytes: 0, uptime_seconds: 30 }
+});
+const reconnectingIndicator = descendants(reconnectingRow).find(value => hasClass(value, 'xray-process-indicator'));
+assert(reconnectingIndicator && hasClass(reconnectingIndicator, 'warning') &&
+    textContent(reconnectingIndicator).includes('◐') &&
+    String(reconnectingIndicator.attrs.title).includes('соединение восстанавливается'),
+    'live process without a tunnel renders a distinct reconnecting warning');
 const autostartButtons = renderedNodes.filter(value => hasClass(value, 'xray-autostart-toggle'));
 assert(autostartButtons.length === 2 && autostartButtons.some(value => value.attrs['aria-pressed'] === 'true'),
     'autostart is a compact accessible toggle button');

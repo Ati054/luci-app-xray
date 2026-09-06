@@ -85,6 +85,7 @@ if [ "${R10_FAKE_EMPTY_HELP:-}" != "${command_name}" ]; then
         add)
             printf '%s\n' 'Usage: apk add [<OPTIONS>]'
             [ "${R10_FAKE_MISSING_CAPABILITY:-}" = "simulate" ] || printf '%s\n' '  --simulate'
+            [ "${R10_FAKE_MISSING_CAPABILITY:-}" = "force-reinstall" ] || printf '%s\n' '  --force-reinstall'
             if [ "${R10_FAKE_MISSING_CAPABILITY:-}" != "no-network" ]; then
                 case "${R10_FAKE_NETWORK_HELP_STYLE:-explicit}" in
                     explicit) printf '%s\n' '  --no-network' ;;
@@ -261,6 +262,10 @@ echo "PASS: missing apk info --exists is rejected."
 run_case missing_simulate 1 'ERROR: target apk does not support --simulate' \
     R10_FAKE_MISSING_CAPABILITY=simulate
 echo "PASS: missing apk add --simulate is rejected."
+
+run_case missing_force_reinstall 1 'ERROR: target apk does not support --force-reinstall' \
+    R10_FAKE_MISSING_CAPABILITY=force-reinstall
+echo "PASS: missing apk add --force-reinstall is rejected."
 
 run_case missing_no_network 1 'ERROR: target apk does not support --no-network' \
     R10_FAKE_MISSING_CAPABILITY=no-network

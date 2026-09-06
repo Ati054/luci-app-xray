@@ -1,0 +1,268 @@
+#!/bin/sh
+
+# Connection-aware recovery for independent Xray Reverse profiles.
+# A profile is restarted only after its established TCP connection has been
+# absent for several samples and the last observed peer is reachable again.
+# One restart is allowed per outage, including an outage already present at
+# boot; a stable connection is required before another restart can be armed.
+
+SERVICE_NAME="${XRAY_WATCHDOG_SERVICE_NAME:-xray_profiles}"
+UCI_PACKAGE="${XRAY_WATCHDOG_UCI_PACKAGE:-xray_core}"
+INIT_SCRIPT="${XRAY_WATCHDOG_INIT_SCRIPT:-/etc/init.d/xray_profiles}"
+STATE_DIR="${XRAY_WATCHDOG_STATE_DIR:-/var/run/xray-profile-watchdog}"
+SOCKSTATS_BIN="${XRAY_WATCHDOG_SOCKSTATS_BIN:-/usr/libexec/xray-sockstats}"
+SS_BIN="${XRAY_WATCHDOG_SS_BIN:-/usr/sbin/ss}"
+UBUS_BIN="${XRAY_WATCHDOG_UBUS_BIN:-/bin/ubus}"
+JSONFILTER_BIN="${XRAY_WATCHDOG_JSONFILTER_BIN:-/usr/bin/jsonfilter}"
+TIMEOUT_BIN="${XRAY_WATCHDOG_TIMEOUT_BIN:-/usr/bin/timeout}"
+NC_BIN="${XRAY_WATCHDOG_NC_BIN:-/usr/bin/nc}"
+LOGGER_BIN="${XRAY_WATCHDOG_LOGGER_BIN:-/usr/bin/logger}"
+UPTIME_FILE="${XRAY_WATCHDOG_UPTIME_FILE:-/proc/uptime}"
+FUNCTIONS_SH="${XRAY_WATCHDOG_FUNCTIONS_SH:-/lib/functions.sh}"
+
+CHECK_INTERVAL_SECONDS="${XRAY_WATCHDOG_CHECK_INTERVAL_SECONDS:-5}"
+DISCONNECT_GRACE_SECONDS="${XRAY_WATCHDOG_DISCONNECT_GRACE_SECONDS:-15}"
+CONNECTED_REARM_SECONDS="${XRAY_WATCHDOG_CONNECTED_REARM_SECONDS:-10}"
+PROBE_TIMEOUT_SECONDS="${XRAY_WATCHDOG_PROBE_TIMEOUT_SECONDS:-2}"
+MAX_ITERATIONS="${XRAY_WATCHDOG_MAX_ITERATIONS:-0}"
+
+is_uint() {
+    case "$1" in
+        ''|*[!0-9]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+for numeric_value in \
+    "$CHECK_INTERVAL_SECONDS" \
+    "$DISCONNECT_GRACE_SECONDS" \
+    "$CONNECTED_REARM_SECONDS" \
+    "$PROBE_TIMEOUT_SECONDS" \
+    "$MAX_ITERATIONS"; do
+    is_uint "$numeric_value" || exit 2
+done
+
+[ -r "$FUNCTIONS_SH" ] || exit 1
+. "$FUNCTIONS_SH"
+
+mkdir -p "$STATE_DIR" || exit 1
+chmod 0700 "$STATE_DIR" 2>/dev/null || exit 1
+
+log_message() {
+    local priority="$1"
+    shift
+    if [ -x "$LOGGER_BIN" ]; then
+        "$LOGGER_BIN" -t xray-profile-watchdog -p "$priority" "$*"
+    fi
+}
+
+monotonic_seconds() {
+    local uptime_value ignored
+    read -r uptime_value ignored < "$UPTIME_FILE" || return 1
+    uptime_value="${uptime_value%%.*}"
+    is_uint "$uptime_value" || return 1
+    printf '%s\n' "$uptime_value"
+}
+
+valid_profile_id() {
+    case "$1" in
+        ''|*[!A-Za-z0-9_-]*|[!A-Za-z0-9_]*) return 1 ;;
+        *) return 0 ;;
+    esac
+}
+
+state_path() {
+    printf '%s/%s.%s\n' "$STATE_DIR" "$1" "$2"
+}
+
+read_state_number() {
+    local path value
+    path="$(state_path "$1" "$2")"
+    [ -f "$path" ] || return 1
+    read -r value < "$path" || return 1
+    is_uint "$value" || return 1
+    printf '%s\n' "$value"
+}
+
+write_state_value() {
+    local path
+    path="$(state_path "$1" "$2")"
+    printf '%s\n' "$3" > "$path"
+    chmod 0600 "$path" 2>/dev/null || true
+}
+
+remove_state_value() {
+    rm -f "$(state_path "$1" "$2")"
+}
+
+clear_profile_state() {
+    local id="$1" suffix
+    for suffix in pid armed healthy_since down_since peer; do
+        remove_state_value "$id" "$suffix"
+    done
+}
+
+clear_profile_observation_state() {
+    local id="$1" suffix
+    for suffix in pid healthy_since down_since peer; do
+        remove_state_value "$id" "$suffix"
+    done
+}
+
+get_instance_value() {
+    local service_json="$1" id="$2" field="$3"
+    printf '%s\n' "$service_json" |
+        "$JSONFILTER_BIN" -e "@.${SERVICE_NAME}.instances.profile_${id}.${field}" 2>/dev/null
+}
+
+get_established_connections() {
+    local pid="$1" metrics available connections
+
+    if [ -x "$SOCKSTATS_BIN" ]; then
+        metrics="$("$SOCKSTATS_BIN" "$pid" 2>/dev/null)" || metrics=""
+        if [ -n "$metrics" ]; then
+            available="$(printf '%s\n' "$metrics" | "$JSONFILTER_BIN" -e '@.*.available' 2>/dev/null)"
+            connections="$(printf '%s\n' "$metrics" | "$JSONFILTER_BIN" -e '@.*.connections' 2>/dev/null)"
+            if [ "$available" = "true" ] && is_uint "$connections"; then
+                printf '%s\n' "$connections"
+                return 0
+            fi
+        fi
+    fi
+
+    [ -x "$SS_BIN" ] || return 1
+    connections="$("$SS_BIN" -tnpH 2>/dev/null |
+        awk -v owner="pid=${pid}," '$1 == "ESTAB" && index($0, owner) { count++ } END { print count + 0 }')"
+    is_uint "$connections" || return 1
+    printf '%s\n' "$connections"
+}
+
+remember_connecting_peer() {
+    local id="$1" pid="$2" peer
+    [ -x "$SS_BIN" ] || return 0
+    peer="$("$SS_BIN" -tnpH 2>/dev/null |
+        awk -v owner="pid=${pid}," '$1 == "SYN-SENT" && index($0, owner) { print $5; exit }')"
+    [ -n "$peer" ] && write_state_value "$id" peer "$peer"
+}
+
+peer_is_reachable() {
+    local id="$1" peer host port
+    [ -x "$TIMEOUT_BIN" ] && [ -x "$NC_BIN" ] || return 1
+    peer="$(cat "$(state_path "$id" peer)" 2>/dev/null)"
+    [ -n "$peer" ] || return 1
+
+    port="${peer##*:}"
+    host="${peer%:*}"
+    host="${host#[}"
+    host="${host%]}"
+    is_uint "$port" || return 1
+    [ -n "$host" ] || return 1
+
+    "$TIMEOUT_BIN" "$PROBE_TIMEOUT_SECONDS" "$NC_BIN" "$host" "$port" \
+        </dev/null >/dev/null 2>&1
+}
+
+mark_connected() {
+    local id="$1" now="$2" healthy_since
+    remove_state_value "$id" down_since
+    remove_state_value "$id" peer
+
+    if [ "$(cat "$(state_path "$id" armed)" 2>/dev/null)" = "1" ]; then
+        remove_state_value "$id" healthy_since
+        return 0
+    fi
+
+    healthy_since="$(read_state_number "$id" healthy_since 2>/dev/null)" || {
+        write_state_value "$id" healthy_since "$now"
+        return 0
+    }
+
+    if [ $((now - healthy_since)) -ge "$CONNECTED_REARM_SECONDS" ]; then
+        write_state_value "$id" armed 1
+        remove_state_value "$id" healthy_since
+        log_message daemon.info "Profile ${id} is stably connected; recovery is armed"
+    fi
+}
+
+mark_disconnected() {
+    local id="$1" pid="$2" now="$3" armed down_since
+    remove_state_value "$id" healthy_since
+
+    armed="$(cat "$(state_path "$id" armed)" 2>/dev/null)"
+    case "$armed" in
+        0) return 0 ;;
+        1|'') ;;
+        *) return 0 ;;
+    esac
+    remember_connecting_peer "$id" "$pid"
+
+    down_since="$(read_state_number "$id" down_since 2>/dev/null)" || {
+        write_state_value "$id" down_since "$now"
+        return 0
+    }
+
+    [ $((now - down_since)) -ge "$DISCONNECT_GRACE_SECONDS" ] || return 0
+    peer_is_reachable "$id" || return 0
+
+    # Disarm before invoking the service. Even a failed restart must not create
+    # a loop; a new stable connection is the only event that rearms recovery.
+    write_state_value "$id" armed 0
+    remove_state_value "$id" down_since
+    remove_state_value "$id" peer
+
+    log_message daemon.warn "Profile ${id} lost its tunnel while the peer is reachable; performing one targeted restart"
+    if ! "$INIT_SCRIPT" restart "$id" >/dev/null 2>&1; then
+        log_message daemon.err "Targeted restart failed for profile ${id}; recovery remains disarmed"
+    fi
+}
+
+check_profile() {
+    local id="$1" service_json="$2" now="$3" running pid previous_pid connections
+    valid_profile_id "$id" || return 0
+
+    running="$(get_instance_value "$service_json" "$id" running)"
+    pid="$(get_instance_value "$service_json" "$id" pid)"
+    if [ "$running" != "true" ] || ! is_uint "$pid" || [ "$pid" -eq 0 ]; then
+        clear_profile_state "$id"
+        return 0
+    fi
+
+    previous_pid="$(read_state_number "$id" pid 2>/dev/null)" || previous_pid=""
+    if [ "$previous_pid" != "$pid" ]; then
+        # Preserve the recovery arm across procd respawns. In particular, a
+        # watchdog-initiated restart writes armed=0 before the PID changes, so
+        # the replacement process cannot create a restart loop.
+        clear_profile_observation_state "$id"
+        write_state_value "$id" pid "$pid"
+    fi
+
+    connections="$(get_established_connections "$pid")" || return 0
+    if [ "$connections" -gt 0 ]; then
+        mark_connected "$id" "$now"
+    else
+        mark_disconnected "$id" "$pid" "$now"
+    fi
+}
+
+watchdog_iteration() {
+    local service_json now
+    service_json="$("$UBUS_BIN" call service list "{\"name\":\"${SERVICE_NAME}\"}" 2>/dev/null)" || return 0
+    [ -n "$service_json" ] || return 0
+    now="$(monotonic_seconds)" || return 0
+
+    config_load "$UCI_PACKAGE" || return 0
+    inspect_profile() {
+        check_profile "$1" "$service_json" "$now"
+    }
+    config_foreach inspect_profile profile
+}
+
+iteration=0
+while :; do
+    watchdog_iteration
+    iteration=$((iteration + 1))
+    if [ "$MAX_ITERATIONS" -gt 0 ] && [ "$iteration" -ge "$MAX_ITERATIONS" ]; then
+        break
+    fi
+    sleep "$CHECK_INTERVAL_SECONDS"
+done

@@ -849,7 +849,12 @@ function rpc_list() {
     });
 
     let traffic = get_profile_traffic(profiles);
-    for (let profile in profiles) profile.traffic = traffic[profile.id];
+    for (let profile in profiles) {
+        profile.traffic = traffic[profile.id];
+        profile.connection_state = !profile.running ? "stopped" :
+            (!profile.traffic.available ? "unknown" :
+                (profile.traffic.connections > 0 ? "connected" : "connecting"));
+    }
 
     // Check system status
     let bin_found = access(XRAY_BIN, "x") ? true : false;

@@ -320,6 +320,7 @@ assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*17' "${LIST_JSON}" "Test 19f: RPC
 assert_match '"uptime_seconds"[[:space:]]*:[[:space:]]*3661' "${LIST_JSON}" "Test 19g: RPC list reports process uptime"
 assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS \+ REALITY \+ Vision"' "${LIST_JSON}" "Test 19h: RPC list derives the safe protocol stack from profile JSON"
 assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS \+ XHTTP \+ REALITY"' "${LIST_JSON}" "Test 19i: RPC list recognizes Reverse streamSettings.method transport"
+assert_match '"connection_state"[[:space:]]*:[[:space:]]*"connected"' "${LIST_JSON}" "Test 19ia: RPC list distinguishes a connected tunnel from a live process"
 HAS_OBSOLETE_FILE_METADATA=$(echo "${LIST_JSON}" | grep -E -c '"(size|sha256)"[[:space:]]*:' || true)
 assert_equal "0" "${HAS_OBSOLETE_FILE_METADATA}" "Test 19j: RPC list omits removed size and SHA metadata"
 assert_match '"temperature_available"[[:space:]]*:[[:space:]]*true' "${LIST_JSON}" "Test 19k: RPC list reports temperature sensor availability"
@@ -358,6 +359,13 @@ assert_match '"source"[[:space:]]*:[[:space:]]*"pidfd_tcp_info"' "${LIST_HELPER_
 assert_match '"connections"[[:space:]]*:[[:space:]]*3' "${LIST_HELPER_JSON}" "Test 19y: native collector metrics are mapped to the exact profile PID"
 assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*700000' "${LIST_HELPER_JSON}" "Test 19z: native collector receive bytes reach RPC output"
 assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*800000' "${LIST_HELPER_JSON}" "Test 19aa: native collector transmit bytes reach RPC output"
+cat > "${MOCK_ROOT}/usr/libexec/xray-sockstats" <<'EOF'
+#!/bin/sh
+printf '%s\n' '{"4242":{"available":true,"reason":null,"connections":0,"bytes_available":true,"rx_bytes":0,"tx_bytes":0,"rtt_available":false,"rtt_ms":null}}'
+EOF
+chmod 0755 "${MOCK_ROOT}/usr/libexec/xray-sockstats"
+LIST_CONNECTING_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
+assert_match '"connection_state"[[:space:]]*:[[:space:]]*"connecting"' "${LIST_CONNECTING_JSON}" "Test 19aaa: live process without established TCP is reported as reconnecting"
 XRAY_VERSION_CALLS="$(cat "${MOCK_ROOT}/xray-version-count")"
 assert_equal "1" "${XRAY_VERSION_CALLS}" "Test 19ab: repeated polling executes the heavy Xray version probe only once per binary"
 rm -f "${MOCK_ROOT}/instances.json" "${MOCK_ROOT}/usr/sbin/ss" "${MOCK_ROOT}/usr/libexec/xray-sockstats"

@@ -180,8 +180,8 @@ def main() -> int:
         require(package in installer, f"installer checks target prerequisite {package}")
     require("SHA256SUMS-R10.txt" in installer and "sha256sum -c" in installer,
             "installer verifies R10 checksums before mutation")
-    require("--no-network" in installer and "--simulate" in installer,
-            "installer simulates and installs offline")
+    require("--no-network" in installer and "--simulate" in installer and "--force-reinstall" in installer,
+            "installer simulates and force-reinstalls same-release hotfixes offline")
     require("BLOCKED: POST_TRANSACTION_HARDWARE_FAILURE" in installer,
             "installer emits the exact hard-stop marker after a package transaction failure")
     require("manifest metadata does not match" in installer and "manifest_source_allowed" in installer,
@@ -257,6 +257,9 @@ def main() -> int:
     require("THERMAL_TEMP_PATH" in backend and "VCGENCMD_BIN" in backend and "PROC_STAT_PATH" in backend and
             "undervoltage_now" in backend and "undervoltage_occurred" in backend,
             "backend exposes read-only Raspberry Pi CPU, temperature, and undervoltage health")
+    require('profile.connection_state = !profile.running ? "stopped"' in backend and
+            'profile.traffic.connections > 0 ? "connected" : "connecting"' in backend,
+            "backend distinguishes process liveness from established tunnel health")
     require("VERSION_CACHE_PATH" in backend and "get_binary_version" in backend and
             "cached.signature == signature" in backend and "rename(cache_tmp, VERSION_CACHE_PATH)" in backend,
             "backend atomically caches the expensive Xray version probe by binary identity")
@@ -302,6 +305,18 @@ def main() -> int:
     require("renderHardwareHealth" in profiles_view and "xray-power-warning" in profiles_view and
             "temperature_millidegrees" in profiles_view and "cpu_total_ticks" in profiles_view,
             "summary card renders CPU load, temperature, and an accessible undervoltage warning")
+    require("connectionState === 'connected'" in profiles_view and "label warning" in profiles_view and "◐" in profiles_view,
+            "profile status visibly distinguishes reconnecting processes from connected tunnels")
+
+    watchdog = read("core/root/usr/libexec/xray-profile-watchdog")
+    require("DISCONNECT_GRACE_SECONDS" in watchdog and "CONNECTED_REARM_SECONDS" in watchdog and
+            "peer_is_reachable" in watchdog and 'write_state_value "$id" armed 0' in watchdog,
+            "watchdog requires a confirmed outage and reachable peer, then disarms before recovery")
+    require('"$INIT_SCRIPT" restart "$id"' in watchdog and "clear_profile_state" in watchdog,
+            "watchdog restarts only one isolated profile and clears intent after manual stop")
+    require("xray-profile-watchdog" in read("core/Makefile") and
+            "profile_watchdog" in read("core/root/etc/init.d/xray_profiles"),
+            "package installs and procd supervises the profile watchdog")
 
     active_release_files = (
         ".github/workflows/build-release.yml",

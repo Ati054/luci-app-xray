@@ -88,6 +88,7 @@ case "$(basename "${PACKAGE}")" in
             etc/init.d/xray_profiles
             usr/libexec/rpcd/xray
             usr/libexec/rpcd/xray_profiles
+            usr/libexec/xray-profile-watchdog
             usr/libexec/xray-sockstats
             usr/share/luci/menu.d/luci-app-xray.json
             usr/share/rpcd/acl.d/luci-app-xray.json
@@ -131,6 +132,7 @@ case "$(basename "${PACKAGE}")" in
             etc/init.d/xray_profiles \
             usr/libexec/rpcd/xray \
             usr/libexec/rpcd/xray_profiles \
+            usr/libexec/xray-profile-watchdog \
             usr/libexec/xray-sockstats \
             usr/share/xray/gen_config.uc \
             usr/share/xray/default_gateway.uc \

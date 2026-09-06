@@ -63,7 +63,7 @@ grep -q 'manifest metadata does not match' "${INSTALLER}" && \
 
 CHECKSUM_LINE="$(grep -n '^sha256sum -c SHA256SUMS-R10.txt$' "${INSTALLER}" | cut -d: -f1)"
 SIMULATION_LINE="$(grep -n '^console "Simulating complete APK transaction with networking disabled"$' "${INSTALLER}" | cut -d: -f1)"
-INSTALL_LINE="$(grep -n '^apk add --no-network --allow-untrusted ./\*\.apk$' "${INSTALLER}" | cut -d: -f1)"
+INSTALL_LINE="$(grep -n '^apk add --force-reinstall --no-network --allow-untrusted ./\*\.apk$' "${INSTALLER}" | cut -d: -f1)"
 [ -n "${CHECKSUM_LINE}" ] && [ -n "${SIMULATION_LINE}" ] && [ -n "${INSTALL_LINE}" ] && \
 [ "${CHECKSUM_LINE}" -lt "${SIMULATION_LINE}" ] && [ "${SIMULATION_LINE}" -lt "${INSTALL_LINE}" ] || {
     echo "FAIL: checksum/simulation/install order is unsafe" >&2
@@ -71,6 +71,10 @@ INSTALL_LINE="$(grep -n '^apk add --no-network --allow-untrusted ./\*\.apk$' "${
 }
 grep -q 'BLOCKED: POST_TRANSACTION_HARDWARE_FAILURE' "${INSTALLER}" || {
     echo "FAIL: installer omits the exact post-transaction hard-stop marker" >&2
+    exit 1
+}
+grep -q '^apk add --simulate --force-reinstall --no-network --allow-untrusted ./\*\.apk$' "${INSTALLER}" || {
+    echo "FAIL: installer does not force a verified reinstall of same-release hotfix packages" >&2
     exit 1
 }
 

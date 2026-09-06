@@ -460,7 +460,12 @@ return view.extend({
         var missingGeodata = Array.isArray(geodata.missing) ? geodata.missing : [];
         var trafficDisplay = this.getTrafficDisplay(p);
         var traffic = trafficDisplay.traffic;
-        var statusLines = [ p.running ? _('Состояние: работает') : _('Состояние: остановлен') ];
+        var connectionState = p.connection_state || (!p.running ? 'stopped' :
+            (traffic.available ? ((traffic.connections || 0) > 0 ? 'connected' : 'connecting') : 'unknown'));
+        var stateText = connectionState === 'connected' ? _('Состояние: туннель подключён') :
+            (connectionState === 'connecting' ? _('Состояние: соединение восстанавливается') :
+                (connectionState === 'unknown' ? _('Состояние соединения: неизвестно') : _('Состояние: остановлен')));
+        var statusLines = [ stateText ];
         if (p.running) statusLines.push(_('PID: %d').format(p.pid || 0));
         if ((p.respawn_count || 0) > 0) statusLines.push(_('Перезапусков procd: %d').format(p.respawn_count));
         if (p.running && traffic.available)
@@ -468,14 +473,17 @@ return view.extend({
         if (missingGeodata.length > 0)
             statusLines.push(_('Отсутствуют обязательные файлы: %s').format(missingGeodata.join(', ')));
         var statusTitle = statusLines.join('\n');
-        var statusClass = missingGeodata.length > 0 ? 'label danger' : (p.running ? 'label success' : 'label');
+        var statusClass = missingGeodata.length > 0 ? 'label danger' :
+            (connectionState === 'connected' ? 'label success' :
+                (connectionState === 'connecting' ? 'label warning' : 'label'));
         var statusIcon = E('span', {
             'class': statusClass + ' xray-process-indicator',
             'role': 'img',
             'tabindex': '0',
             'title': statusTitle,
             'aria-label': statusTitle
-        }, missingGeodata.length > 0 ? '!' : (p.running ? '●' : '○'));
+        }, missingGeodata.length > 0 ? '!' :
+            (connectionState === 'connected' ? '●' : (connectionState === 'connecting' ? '◐' : '○')));
 
         var autostartBtn = E('button', {
             'type': 'button',

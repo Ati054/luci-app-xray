@@ -84,6 +84,7 @@ echo "\n--- 4. Running init lifecycle and state transition tests ---"
 sh "${SCRIPT_DIR}/test_executable_modes.sh"
 sh "${SCRIPT_DIR}/test_init_lifecycle.sh"
 sh "${SCRIPT_DIR}/test_rand_removal.sh"
+sh "${SCRIPT_DIR}/test_profile_watchdog.sh"
 
 echo "\n--- 5. Running JSON profile manager and process isolation tests ---"
 if check_tool "${UCODE_BIN}"; then
