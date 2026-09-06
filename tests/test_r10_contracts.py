@@ -320,16 +320,10 @@ def main() -> int:
     require('"$INIT_SCRIPT" restart "$id"' in watchdog and "clear_profile_state" in watchdog,
             "watchdog restarts only one isolated profile and clears intent after manual stop")
     profile_init = read("core/root/etc/init.d/xray_profiles")
-    runtime_config = read("core/root/usr/libexec/xray-profile-runtime-config")
     require("xray-profile-watchdog" in read("core/Makefile") and
             "profile_watchdog" in profile_init and "restart()" in profile_init and
             'stop_service "$target_id"' in profile_init,
             "package installs and procd supervises the profile watchdog")
-    require("xray-profile-runtime-config" in read("core/Makefile") and
-            "render_runtime_profile" in profile_init and
-            "tcpKeepAliveIdle" in runtime_config and "tcpKeepAliveInterval" in runtime_config and
-            "tcpUserTimeout" in runtime_config and "15000" in runtime_config,
-            "profiles run from volatile copies with bounded TCP half-open detection")
 
     active_release_files = (
         ".github/workflows/build-release.yml",

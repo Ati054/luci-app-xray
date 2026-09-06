@@ -12,44 +12,6 @@ XRAY_BIN="${XRAY_BIN:-/opt/xray/current/xray}"
 XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET:-/opt/xray/current}"
 XRAY_RUN_DIR="${XRAY_RUN_DIR:-/var/run}"
 WATCHDOG_BIN="${XRAY_WATCHDOG_BIN:-/usr/libexec/xray-profile-watchdog}"
-UCODE_BIN="${UCODE_BIN:-/usr/bin/ucode}"
-RUNTIME_CONFIG_BIN="${XRAY_RUNTIME_CONFIG_BIN:-/usr/libexec/xray-profile-runtime-config}"
-RUNTIME_PROFILES_DIR="${XRAY_RUNTIME_PROFILES_DIR:-${XRAY_RUN_DIR}/xray-profiles}"
-
-render_runtime_profile() {
-    local cfg="$1" source_file="$2" runtime_file tmp_file
-    runtime_file="${RUNTIME_PROFILES_DIR}/${cfg}.json"
-    tmp_file="${runtime_file}.tmp.$$"
-
-    mkdir -p "$RUNTIME_PROFILES_DIR" || return 1
-    chmod 0700 "$RUNTIME_PROFILES_DIR" 2>/dev/null || return 1
-    umask 077
-
-    if ! XRAY_PROFILE_SOURCE="$source_file" \
-        XRAY_PROFILE_TCP_KEEPALIVE_IDLE=10 \
-        XRAY_PROFILE_TCP_KEEPALIVE_INTERVAL=3 \
-        XRAY_PROFILE_TCP_USER_TIMEOUT=15000 \
-        "$UCODE_BIN" "$RUNTIME_CONFIG_BIN" > "$tmp_file"; then
-        rm -f "$tmp_file"
-        return 1
-    fi
-
-    if ! XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET}" \
-        "$XRAY_BIN" run -test -config "$tmp_file" >/dev/null 2>&1; then
-        rm -f "$tmp_file"
-        return 1
-    fi
-
-    chmod 0600 "$tmp_file" 2>/dev/null || {
-        rm -f "$tmp_file"
-        return 1
-    }
-    mv -f "$tmp_file" "$runtime_file" || {
-        rm -f "$tmp_file"
-        return 1
-    }
-    printf '%s\n' "$runtime_file"
-}
 
 start_watchdog_instance() {
     if [ ! -x "$WATCHDOG_BIN" ]; then
@@ -98,18 +60,16 @@ start_profile_instance() {
         return 1
     fi
 
-    # Build a volatile runtime copy with bounded TCP liveness timers. The
-    # imported profile remains byte-for-byte unchanged under /opt.
+    # Pre-start validation with real Xray binary
     if [ ! -x "$XRAY_BIN" ]; then
         logger -st "${NAME}[$$]" -p3 "Xray binary missing or not executable: $XRAY_BIN"
         return 1
     fi
 
-    local runtime_profile
-    runtime_profile="$(render_runtime_profile "$cfg" "$profile_file")" || {
-        logger -st "${NAME}[$$]" -p3 "Runtime config generation failed for profile: $name ($filename) - skipping"
+    if ! XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET}" "$XRAY_BIN" run -test -config "$profile_file" >/dev/null 2>&1; then
+        logger -st "${NAME}[$$]" -p3 "Validation failed for profile: $name ($filename) - skipping"
         return 1
-    }
+    fi
 
     logger -st "${NAME}[$$]" -p4 "Starting Xray profile instance: $name (profile_${cfg})"
     procd_open_instance "profile_${cfg}"
@@ -118,7 +78,7 @@ start_profile_instance() {
     procd_set_param command "$XRAY_BIN"
     procd_append_param command run
     procd_append_param command -config
-    procd_append_param command "$runtime_profile"
+    procd_append_param command "$profile_file"
 
     local rlimit_nofile=""
     if [ -s /usr/share/xray/rlimit_nofile ]; then
@@ -184,7 +144,6 @@ stop_service() {
     if [ -n "$target_id" ]; then
         # Stop specific procd instance via targeted delete
         ubus call service delete "{\"name\": \"${NAME}\", \"instance\": \"profile_${target_id}\"}" >/dev/null 2>&1 || true
-        rm -f "${RUNTIME_PROFILES_DIR}/${target_id}.json"
     fi
     # If no target_id, procd automatically stops all instances of xray_profiles
 }
