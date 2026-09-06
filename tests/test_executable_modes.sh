@@ -9,6 +9,7 @@ for f in core/root/etc/init.d/xray_core \
          core/root/usr/libexec/rpcd/xray \
          core/root/usr/libexec/rpcd/xray_profiles \
          core/root/usr/libexec/xray-profile-watchdog \
+         core/root/usr/libexec/xray-profile-runtime-config \
          core/root/usr/share/xray/gen_config.uc \
          core/root/usr/share/xray/default_gateway.uc \
          core/root/usr/share/xray/dnsmasq_include.ut \

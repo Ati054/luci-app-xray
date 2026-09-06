@@ -321,6 +321,23 @@ assert_match '"uptime_seconds"[[:space:]]*:[[:space:]]*3661' "${LIST_JSON}" "Tes
 assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS \+ REALITY \+ Vision"' "${LIST_JSON}" "Test 19h: RPC list derives the safe protocol stack from profile JSON"
 assert_match '"protocol_stack"[[:space:]]*:[[:space:]]*"VLESS \+ XHTTP \+ REALITY"' "${LIST_JSON}" "Test 19i: RPC list recognizes Reverse streamSettings.method transport"
 assert_match '"connection_state"[[:space:]]*:[[:space:]]*"connected"' "${LIST_JSON}" "Test 19ia: RPC list distinguishes a connected tunnel from a live process"
+mkdir -p "${MOCK_ROOT}/var/run/xray-profile-watchdog"
+cat > "${MOCK_ROOT}/instances.json" <<EOF
+{"instances":{"profile_watchdog":{"running":true,"pid":4000},"profile_${PROFILE_A_ID}":{"running":true,"pid":4242,"respawn_count":3}}}
+EOF
+printf '%s\n' 4242 > "${MOCK_ROOT}/var/run/xray-profile-watchdog/${PROFILE_A_ID}.pid"
+printf '%s\n' 123 > "${MOCK_ROOT}/var/run/xray-profile-watchdog/${PROFILE_A_ID}.down_since"
+printf '%s\n' 1 > "${MOCK_ROOT}/var/run/xray-profile-watchdog/${PROFILE_A_ID}.armed"
+LIST_MASKED_TUNNEL_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
+assert_match '"connections"[[:space:]]*:[[:space:]]*2' "${LIST_MASKED_TUNNEL_JSON}" "Test 19ib: aggregate user TCP metrics remain visible during a tunnel outage"
+assert_match '"connection_state"[[:space:]]*:[[:space:]]*"connecting"' "${LIST_MASKED_TUNNEL_JSON}" "Test 19ic: user TCP sessions cannot mask watchdog-confirmed tunnel loss"
+rm -f "${MOCK_ROOT}/var/run/xray-profile-watchdog/${PROFILE_A_ID}.down_since"
+LIST_WATCHDOG_HEALTHY_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
+assert_match '"connection_state"[[:space:]]*:[[:space:]]*"connected"' "${LIST_WATCHDOG_HEALTHY_JSON}" "Test 19id: armed endpoint-specific watchdog state reports a connected tunnel"
+rm -rf "${MOCK_ROOT}/var/run/xray-profile-watchdog"
+cat > "${MOCK_ROOT}/instances.json" <<EOF
+{"instances":{"profile_${PROFILE_A_ID}":{"running":true,"pid":4242,"respawn_count":3}}}
+EOF
 HAS_OBSOLETE_FILE_METADATA=$(echo "${LIST_JSON}" | grep -E -c '"(size|sha256)"[[:space:]]*:' || true)
 assert_equal "0" "${HAS_OBSOLETE_FILE_METADATA}" "Test 19j: RPC list omits removed size and SHA metadata"
 assert_match '"temperature_available"[[:space:]]*:[[:space:]]*true' "${LIST_JSON}" "Test 19k: RPC list reports temperature sensor availability"

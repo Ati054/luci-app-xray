@@ -69,6 +69,7 @@ const THERMAL_TEMP_PATH = mock_dir ? `${mock_dir}/sys/class/thermal/thermal_zone
 const THROTTLED_PATH = mock_dir ? `${mock_dir}/sys/devices/platform/soc/soc:firmware/get_throttled` : "/sys/devices/platform/soc/soc:firmware/get_throttled";
 const VCGENCMD_BIN = mock_dir ? `${mock_dir}/usr/bin/vcgencmd` : "/usr/bin/vcgencmd";
 const PROC_STAT_PATH = mock_dir ? `${mock_dir}/proc/stat` : "/proc/stat";
+const WATCHDOG_STATE_DIR = mock_dir ? `${mock_dir}/var/run/xray-profile-watchdog` : "/var/run/xray-profile-watchdog";
 const VERSION_CACHE_DIR = mock_dir ? `${mock_dir}/.xray-profiles-cache` : "/tmp/xray-profiles-cache";
 const VERSION_CACHE_PATH = `${VERSION_CACHE_DIR}/version.json`;
 const LINUX_USER_HZ = 100;
@@ -557,6 +558,26 @@ function get_profile_traffic(profiles) {
     return metrics;
 }
 
+function get_profile_connection_state(profile, instances) {
+    if (!profile.running) return "stopped";
+
+    let watchdog = instances.profile_watchdog || {};
+    if (watchdog.running && watchdog.pid > 0) {
+        let prefix = `${WATCHDOG_STATE_DIR}/${profile.id}`;
+        let observed_pid = trim(readfile(`${prefix}.pid`) || "");
+        if (observed_pid == `${profile.pid}`) {
+            if (access(`${prefix}.down_since`, "r")) return "connecting";
+
+            let armed = trim(readfile(`${prefix}.armed`) || "");
+            if (armed == "1") return "connected";
+            if (armed == "0" || access(`${prefix}.healthy_since`, "r")) return "connecting";
+        }
+    }
+
+    return !profile.traffic.available ? "unknown" :
+        (profile.traffic.connections > 0 ? "connected" : "connecting");
+}
+
 function get_profile_stack(filepath) {
     let content = readfile(filepath);
     if (!content) return null;
@@ -851,9 +872,7 @@ function rpc_list() {
     let traffic = get_profile_traffic(profiles);
     for (let profile in profiles) {
         profile.traffic = traffic[profile.id];
-        profile.connection_state = !profile.running ? "stopped" :
-            (!profile.traffic.available ? "unknown" :
-                (profile.traffic.connections > 0 ? "connected" : "connecting"));
+        profile.connection_state = get_profile_connection_state(profile, instances);
     }
 
     // Check system status

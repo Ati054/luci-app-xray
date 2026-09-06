@@ -132,6 +132,7 @@ endif
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/xray $(1)/usr/libexec/rpcd/xray
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/xray_profiles $(1)/usr/libexec/rpcd/xray_profiles
 	$(INSTALL_BIN) ./root/usr/libexec/xray-profile-watchdog $(1)/usr/libexec/xray-profile-watchdog
+	$(INSTALL_BIN) ./root/usr/libexec/xray-profile-runtime-config $(1)/usr/libexec/xray-profile-runtime-config
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/xray-sockstats $(1)/usr/libexec/xray-sockstats
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
 	$(INSTALL_DATA) ./root/usr/share/luci/menu.d/luci-app-xray.json $(1)/usr/share/luci/menu.d/luci-app-xray.json

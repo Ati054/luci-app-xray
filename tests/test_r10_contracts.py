@@ -257,9 +257,9 @@ def main() -> int:
     require("THERMAL_TEMP_PATH" in backend and "VCGENCMD_BIN" in backend and "PROC_STAT_PATH" in backend and
             "undervoltage_now" in backend and "undervoltage_occurred" in backend,
             "backend exposes read-only Raspberry Pi CPU, temperature, and undervoltage health")
-    require('profile.connection_state = !profile.running ? "stopped"' in backend and
-            'profile.traffic.connections > 0 ? "connected" : "connecting"' in backend,
-            "backend distinguishes process liveness from established tunnel health")
+    require("get_profile_connection_state" in backend and "WATCHDOG_STATE_DIR" in backend and
+            'access(`${prefix}.down_since`, "r")' in backend,
+            "backend distinguishes aggregate traffic from endpoint-specific watchdog health")
     require("VERSION_CACHE_PATH" in backend and "get_binary_version" in backend and
             "cached.signature == signature" in backend and "rename(cache_tmp, VERSION_CACHE_PATH)" in backend,
             "backend atomically caches the expensive Xray version probe by binary identity")
@@ -312,11 +312,24 @@ def main() -> int:
     require("DISCONNECT_GRACE_SECONDS" in watchdog and "CONNECTED_REARM_SECONDS" in watchdog and
             "peer_is_reachable" in watchdog and 'write_state_value "$id" armed 0' in watchdog,
             "watchdog requires a confirmed outage and reachable peer, then disarms before recovery")
+    require("get_profile_endpoint" in watchdog and "get_tunnel_socket_snapshot" in watchdog and
+            "@.outbounds[@.settings.reverse].settings.address" in watchdog and
+            'peer_port($5) != target_port' in watchdog and
+            'index($0, "timer:(on,")' in watchdog and "stalled * 2" in watchdog,
+            "watchdog evaluates endpoint-specific sockets and detects stale established tunnels")
     require('"$INIT_SCRIPT" restart "$id"' in watchdog and "clear_profile_state" in watchdog,
             "watchdog restarts only one isolated profile and clears intent after manual stop")
+    profile_init = read("core/root/etc/init.d/xray_profiles")
+    runtime_config = read("core/root/usr/libexec/xray-profile-runtime-config")
     require("xray-profile-watchdog" in read("core/Makefile") and
-            "profile_watchdog" in read("core/root/etc/init.d/xray_profiles"),
+            "profile_watchdog" in profile_init and "restart()" in profile_init and
+            'stop_service "$target_id"' in profile_init,
             "package installs and procd supervises the profile watchdog")
+    require("xray-profile-runtime-config" in read("core/Makefile") and
+            "render_runtime_profile" in profile_init and
+            "tcpKeepAliveIdle" in runtime_config and "tcpKeepAliveInterval" in runtime_config and
+            "tcpUserTimeout" in runtime_config and "15000" in runtime_config,
+            "profiles run from volatile copies with bounded TCP half-open detection")
 
     active_release_files = (
         ".github/workflows/build-release.yml",

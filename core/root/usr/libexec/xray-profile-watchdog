@@ -1,17 +1,19 @@
 #!/bin/sh
 
 # Connection-aware recovery for independent Xray Reverse profiles.
-# A profile is restarted only after its established TCP connection has been
-# absent for several samples and the last observed peer is reachable again.
+# A profile is restarted only after its endpoint-specific TCP connection has
+# been absent or persistently retransmitting for several samples and the last
+# observed peer is reachable again.
 # One restart is allowed per outage, including an outage already present at
 # boot; a stable connection is required before another restart can be armed.
 
 SERVICE_NAME="${XRAY_WATCHDOG_SERVICE_NAME:-xray_profiles}"
 UCI_PACKAGE="${XRAY_WATCHDOG_UCI_PACKAGE:-xray_core}"
 INIT_SCRIPT="${XRAY_WATCHDOG_INIT_SCRIPT:-/etc/init.d/xray_profiles}"
+PROFILES_DIR="${XRAY_WATCHDOG_PROFILES_DIR:-/opt/xray/profiles}"
 STATE_DIR="${XRAY_WATCHDOG_STATE_DIR:-/var/run/xray-profile-watchdog}"
-SOCKSTATS_BIN="${XRAY_WATCHDOG_SOCKSTATS_BIN:-/usr/libexec/xray-sockstats}"
 SS_BIN="${XRAY_WATCHDOG_SS_BIN:-/usr/sbin/ss}"
+NSLOOKUP_BIN="${XRAY_WATCHDOG_NSLOOKUP_BIN:-/usr/bin/nslookup}"
 UBUS_BIN="${XRAY_WATCHDOG_UBUS_BIN:-/bin/ubus}"
 JSONFILTER_BIN="${XRAY_WATCHDOG_JSONFILTER_BIN:-/usr/bin/jsonfilter}"
 TIMEOUT_BIN="${XRAY_WATCHDOG_TIMEOUT_BIN:-/usr/bin/timeout}"
@@ -21,7 +23,7 @@ UPTIME_FILE="${XRAY_WATCHDOG_UPTIME_FILE:-/proc/uptime}"
 FUNCTIONS_SH="${XRAY_WATCHDOG_FUNCTIONS_SH:-/lib/functions.sh}"
 
 CHECK_INTERVAL_SECONDS="${XRAY_WATCHDOG_CHECK_INTERVAL_SECONDS:-5}"
-DISCONNECT_GRACE_SECONDS="${XRAY_WATCHDOG_DISCONNECT_GRACE_SECONDS:-15}"
+DISCONNECT_GRACE_SECONDS="${XRAY_WATCHDOG_DISCONNECT_GRACE_SECONDS:-25}"
 CONNECTED_REARM_SECONDS="${XRAY_WATCHDOG_CONNECTED_REARM_SECONDS:-10}"
 PROBE_TIMEOUT_SECONDS="${XRAY_WATCHDOG_PROBE_TIMEOUT_SECONDS:-2}"
 MAX_ITERATIONS="${XRAY_WATCHDOG_MAX_ITERATIONS:-0}"
@@ -115,34 +117,100 @@ get_instance_value() {
         "$JSONFILTER_BIN" -e "@.${SERVICE_NAME}.instances.profile_${id}.${field}" 2>/dev/null
 }
 
-get_established_connections() {
-    local pid="$1" metrics available connections
-
-    if [ -x "$SOCKSTATS_BIN" ]; then
-        metrics="$("$SOCKSTATS_BIN" "$pid" 2>/dev/null)" || metrics=""
-        if [ -n "$metrics" ]; then
-            available="$(printf '%s\n' "$metrics" | "$JSONFILTER_BIN" -e '@.*.available' 2>/dev/null)"
-            connections="$(printf '%s\n' "$metrics" | "$JSONFILTER_BIN" -e '@.*.connections' 2>/dev/null)"
-            if [ "$available" = "true" ] && is_uint "$connections"; then
-                printf '%s\n' "$connections"
-                return 0
-            fi
-        fi
-    fi
-
-    [ -x "$SS_BIN" ] || return 1
-    connections="$("$SS_BIN" -tnpH 2>/dev/null |
-        awk -v owner="pid=${pid}," '$1 == "ESTAB" && index($0, owner) { count++ } END { print count + 0 }')"
-    is_uint "$connections" || return 1
-    printf '%s\n' "$connections"
+is_ip_literal() {
+    case "$1" in
+        *:*) return 0 ;;
+        *[!0-9.]*) return 1 ;;
+        *) return 0 ;;
+    esac
 }
 
-remember_connecting_peer() {
-    local id="$1" pid="$2" peer
-    [ -x "$SS_BIN" ] || return 0
-    peer="$("$SS_BIN" -tnpH 2>/dev/null |
-        awk -v owner="pid=${pid}," '$1 == "SYN-SENT" && index($0, owner) { print $5; exit }')"
-    [ -n "$peer" ] && write_state_value "$id" peer "$peer"
+get_profile_endpoint() {
+    local id="$1" filename profile_path address port
+    config_get filename "$id" filename ""
+    case "$filename" in
+        ''|*/*|*\\*) return 1 ;;
+    esac
+
+    profile_path="${PROFILES_DIR}/${filename}"
+    [ -r "$profile_path" ] || return 1
+
+    address="$("$JSONFILTER_BIN" -i "$profile_path" \
+        -e '@.outbounds[@.settings.reverse].settings.address' 2>/dev/null |
+        awk 'NR == 1 { print; exit }')"
+    port="$("$JSONFILTER_BIN" -i "$profile_path" \
+        -e '@.outbounds[@.settings.reverse].settings.port' 2>/dev/null |
+        awk 'NR == 1 { print; exit }')"
+    [ -n "$address" ] && is_uint "$port" && [ "$port" -gt 0 ] && [ "$port" -le 65535 ] || return 1
+    printf '%s|%s\n' "$address" "$port"
+}
+
+get_endpoint_hosts() {
+    local address="$1" resolved
+    if is_ip_literal "$address"; then
+        printf '%s\n' "$address"
+        return 0
+    fi
+
+    [ -x "$NSLOOKUP_BIN" ] || return 1
+    resolved="$("$NSLOOKUP_BIN" "$address" 2>/dev/null |
+        awk '
+            /^[[:space:]]*Name:/ { seen_name = 1; next }
+            seen_name && /^[[:space:]]*Address:/ { print $2 }
+        ')"
+    [ -n "$resolved" ] || return 1
+    printf '%s\n' "$resolved"
+}
+
+get_tunnel_socket_snapshot() {
+    local pid="$1" address="$2" port="$3" hosts snapshot
+    [ -x "$SS_BIN" ] || return 1
+    hosts="$(get_endpoint_hosts "$address")" || return 1
+
+    snapshot="$("$SS_BIN" -tnopH 2>/dev/null |
+        awk -v owner="pid=${pid}," -v target_port="$port" -v allowed_hosts="$hosts" '
+            BEGIN {
+                host_count = split(allowed_hosts, hosts, /[[:space:]]+/)
+            }
+            function peer_port(peer, value) {
+                value = peer
+                sub(/^.*:/, "", value)
+                return value
+            }
+            function peer_host(peer, value) {
+                value = peer
+                if (substr(value, 1, 1) == "[") {
+                    sub(/^\[/, "", value)
+                    sub(/\]:[0-9]+$/, "", value)
+                } else {
+                    sub(/:[0-9]+$/, "", value)
+                }
+                sub(/%.*/, "", value)
+                return value
+            }
+            function host_allowed(host, i) {
+                for (i = 1; i <= host_count; i++) {
+                    if (hosts[i] == host) return 1
+                }
+                return 0
+            }
+            index($0, owner) && ($1 == "ESTAB" || $1 == "SYN-SENT") {
+                if (peer_port($5) != target_port || !host_allowed(peer_host($5))) next
+                if ($1 == "ESTAB") {
+                    established++
+                    if (!established_peer) established_peer = $5
+                    if (($3 + 0) > 0 && index($0, "timer:(on,")) stalled++
+                } else if (!connecting_peer) {
+                    connecting_peer = $5
+                }
+            }
+            END {
+                peer = established_peer ? established_peer : connecting_peer
+                printf "%d|%s|%d\n", established + 0, peer, stalled + 0
+            }
+        ')"
+    [ -n "$snapshot" ] || return 1
+    printf '%s\n' "$snapshot"
 }
 
 peer_is_reachable() {
@@ -163,9 +231,9 @@ peer_is_reachable() {
 }
 
 mark_connected() {
-    local id="$1" now="$2" healthy_since
+    local id="$1" now="$2" peer="$3" healthy_since
     remove_state_value "$id" down_since
-    remove_state_value "$id" peer
+    [ -n "$peer" ] && write_state_value "$id" peer "$peer"
 
     if [ "$(cat "$(state_path "$id" armed)" 2>/dev/null)" = "1" ]; then
         remove_state_value "$id" healthy_since
@@ -185,7 +253,7 @@ mark_connected() {
 }
 
 mark_disconnected() {
-    local id="$1" pid="$2" now="$3" armed down_since
+    local id="$1" now="$2" peer="$3" armed down_since
     remove_state_value "$id" healthy_since
 
     armed="$(cat "$(state_path "$id" armed)" 2>/dev/null)"
@@ -194,7 +262,7 @@ mark_disconnected() {
         1|'') ;;
         *) return 0 ;;
     esac
-    remember_connecting_peer "$id" "$pid"
+    [ -n "$peer" ] && write_state_value "$id" peer "$peer"
 
     down_since="$(read_state_number "$id" down_since 2>/dev/null)" || {
         write_state_value "$id" down_since "$now"
@@ -217,7 +285,7 @@ mark_disconnected() {
 }
 
 check_profile() {
-    local id="$1" service_json="$2" now="$3" running pid previous_pid connections
+    local id="$1" service_json="$2" now="$3" running pid previous_pid endpoint address port snapshot connections remainder peer stalled
     valid_profile_id "$id" || return 0
 
     running="$(get_instance_value "$service_json" "$id" running)"
@@ -236,11 +304,19 @@ check_profile() {
         write_state_value "$id" pid "$pid"
     fi
 
-    connections="$(get_established_connections "$pid")" || return 0
-    if [ "$connections" -gt 0 ]; then
-        mark_connected "$id" "$now"
+    endpoint="$(get_profile_endpoint "$id")" || return 0
+    address="${endpoint%|*}"
+    port="${endpoint##*|}"
+    snapshot="$(get_tunnel_socket_snapshot "$pid" "$address" "$port")" || return 0
+    connections="${snapshot%%|*}"
+    remainder="${snapshot#*|}"
+    peer="${remainder%|*}"
+    stalled="${remainder##*|}"
+    is_uint "$connections" && is_uint "$stalled" || return 0
+    if [ "$connections" -gt 0 ] && [ $((stalled * 2)) -lt "$connections" ]; then
+        mark_connected "$id" "$now" "$peer"
     else
-        mark_disconnected "$id" "$pid" "$now"
+        mark_disconnected "$id" "$now" "$peer"
     fi
 }
 
