@@ -29,8 +29,11 @@ printf '{}\n' > "${PAYLOAD}/usr/share/rpcd/acl.d/luci-app-xray-status.json"
 printf 'test\n' > "${PAYLOAD}/usr/share/xray/version.txt"
 printf "'use strict';\n" > "${PAYLOAD}/www/luci-static/resources/view/xray/status.js"
 printf '2.0\n' > "${COMPONENTS}/debian-binary"
-tar -C "${PAYLOAD}" -czf "${COMPONENTS}/data.tar.gz" .
-tar -C "${COMPONENTS}/empty-control" -czf "${COMPONENTS}/control.tar.gz" .
+# Archive the actual payload roots instead of the mutable "." directory entry.
+# GNU tar may otherwise report ".: file changed as we read it" and return 1
+# even though the output archive is complete and lives outside PAYLOAD.
+tar -C "${PAYLOAD}" -czf "${COMPONENTS}/data.tar.gz" usr www
+tar -C "${COMPONENTS}/empty-control" -czf "${COMPONENTS}/control.tar.gz" -T /dev/null
 
 TAR_IPK="${TMP_ROOT}/luci-app-xray-status-tar.ipk"
 tar -C "${COMPONENTS}" -czf "${TAR_IPK}" \
