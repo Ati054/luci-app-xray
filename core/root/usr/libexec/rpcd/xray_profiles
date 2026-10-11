@@ -666,7 +666,14 @@ function poll_instance_state(id, expected_running, max_wait_ms) {
 // Validation Helpers & Strict Whitelist
 function is_valid_id(id) {
     if (!id || length(id) == 0 || length(id) > 64) return false;
-    return match(id, /^[a-zA-Z0-9_-]+$/) ? true : false;
+    // Validate every byte instead of relying on regex line anchors. Some
+    // engines treat a newline as a subject terminator and can ignore the
+    // remaining bytes when applying an apparently anchored whitelist.
+    const allowed = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-";
+    for (let i = 0; i < length(id); i++) {
+        if (index(allowed, substr(id, i, 1)) < 0) return false;
+    }
+    return true;
 }
 
 function is_valid_name(str) {
