@@ -78,6 +78,10 @@ def main() -> int:
     require("v26.9.30" in workflow and "Xray-linux-arm64-v8a.zip" in workflow and
             '"$DIST_DIR/xray-core-26.9.30-linux-arm64"' in workflow,
             "artifact pins and carries the verified official Xray 26.9.30 ARM64 binary")
+    require("ARM_VERSION_OUTPUT" in workflow and
+            "qemu-aarch64-static" in workflow and
+            "qemu-aarch64-static \"$RUNNER_TEMP/xray-arm64/xray\" version 2>&1 | head" not in workflow,
+            "ARM64 version proof avoids a pipefail/SIGPIPE false failure")
     require('echo "xray_core_version=26.9.30"' in workflow and
             'echo "xray_core_source_asset=Xray-linux-arm64-v8a.zip"' in workflow,
             "artifact metadata records the exact Xray core version and source asset")
