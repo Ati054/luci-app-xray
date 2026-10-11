@@ -111,11 +111,24 @@ jobs:
           sh "$GITHUB_WORKSPACE/tests/ci/setup_ucode.sh" "$SDK_HOME"
           echo "LD_LIBRARY_PATH=/opt/ucode-pinned/lib:/usr/lib:/usr/lib64:/usr/local/lib" >> "$GITHUB_ENV"
 
-      - name: Fetch and verify official Xray 26.7.28
+      - name: Fetch and verify official Xray 26.9.30
         shell: bash
         run: |
           set -euo pipefail
-          sh "$GITHUB_WORKSPACE/tests/ci/fetch_xray.sh" v26.7.28 "$RUNNER_TEMP/xray-bin"
+          sh "$GITHUB_WORKSPACE/tests/ci/fetch_xray.sh" v26.9.30 "$RUNNER_TEMP/xray-bin"
+
+      - name: Fetch and verify official Xray 26.9.30 for Raspberry Pi
+        if: matrix.id == '25.12.5'
+        shell: bash
+        run: |
+          set -euo pipefail
+          XRAY_RUNNER=qemu-aarch64-static sh "$GITHUB_WORKSPACE/tests/ci/fetch_xray.sh" \
+            v26.9.30 "$RUNNER_TEMP/xray-arm64" Xray-linux-arm64-v8a.zip
+          ARM_VERSION="$(qemu-aarch64-static "$RUNNER_TEMP/xray-arm64/xray" version 2>&1 | head -n 1)"
+          case "$ARM_VERSION" in
+            "Xray 26.9.30"*) ;;
+            *) echo "::error::Unexpected ARM64 Xray version: $ARM_VERSION" >&2; exit 1 ;;
+          esac
 
       - name: Run complete host test suite
         shell: bash
@@ -193,6 +206,9 @@ jobs:
             install -m 0755 \
               "$COLLECTOR_PAYLOAD/usr/libexec/xray-sockstats" \
               "$DIST_DIR/xray-sockstats-aarch64"
+            install -m 0755 \
+              "$RUNNER_TEMP/xray-arm64/xray" \
+              "$DIST_DIR/xray-core-26.9.30-linux-arm64"
             cp -p \
               "$GITHUB_WORKSPACE/install_and_smoke_r10.sh" \
               "$GITHUB_WORKSPACE/tests/hardware/profile_mode_smoke.sh" \
@@ -200,6 +216,7 @@ jobs:
               "$GITHUB_WORKSPACE/tests/fixtures/profile-smoke-b.json" \
               "$GITHUB_WORKSPACE/tests/fixtures/profile-invalid.json" \
               "$GITHUB_WORKSPACE/ROLLBACK-R10.txt" \
+              "$GITHUB_WORKSPACE/scripts/deploy_r10_to_raspberry.ps1" \
               "$DIST_DIR/"
           else
             cp -p "$CORE_PACKAGE" "$STATUS_PACKAGE" "$DIST_DIR/"
@@ -214,6 +231,12 @@ jobs:
             echo "package_format=${{ matrix.package_format }}"
             echo "package_architecture=${{ matrix.target_arch }}"
             echo "sdk_target_architecture=${{ matrix.target_arch }}"
+            echo "xray_core_version=26.9.30"
+            if [ "${{ matrix.id }}" = "25.12.5" ]; then
+              echo "xray_core_source_asset=Xray-linux-arm64-v8a.zip"
+            else
+              echo "xray_core_source_asset=Xray-linux-64.zip"
+            fi
             echo "git_commit=$GITHUB_SHA"
             echo "workflow_run_id=$GITHUB_RUN_ID"
             echo "core_package=$(basename "$CORE_PACKAGE")"

@@ -103,9 +103,9 @@ OPENWRT_RELEASE="$(sed -n "s/^DISTRIB_RELEASE=['\"]\([^'\"]*\)['\"]$/\1/p" /etc/
 }
 XRAY_VERSION_LINE="$(${XRAY_BIN} version 2>&1 | sed -n '1p')"
 case "${XRAY_VERSION_LINE}" in
-    "Xray 26.7.28"*) ;;
+    "Xray 26.9.30"*) ;;
     *)
-        echo "ERROR: expected Xray 26.7.28, found ${XRAY_VERSION_LINE:-unknown}" >&2
+        echo "ERROR: expected Xray 26.9.30, found ${XRAY_VERSION_LINE:-unknown}" >&2
         exit 1
         ;;
 esac

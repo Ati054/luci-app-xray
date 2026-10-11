@@ -123,6 +123,7 @@ endif
 	$(INSTALL_BIN) ./root/etc/hotplug.d/iface/01-transparent-proxy-ipset $(1)/etc/hotplug.d/iface/01-transparent-proxy-ipset
 	$(INSTALL_DIR) $(1)/www/luci-static/resources/view/xray
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/core.js $(1)/www/luci-static/resources/view/xray/core.js
+	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/logs.js $(1)/www/luci-static/resources/view/xray/logs.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/profiles.js $(1)/www/luci-static/resources/view/xray/profiles.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/preview.js $(1)/www/luci-static/resources/view/xray/preview.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/protocol.js $(1)/www/luci-static/resources/view/xray/protocol.js

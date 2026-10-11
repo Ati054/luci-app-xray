@@ -269,7 +269,6 @@ export function outbounds_reverse(general, config) {
             protocol: "freedom",
             tag: "reverse-egress",
             settings: {
-                domainStrategy: "UseIP",
                 finalRules: [
                     {
                         action: "allow",
@@ -279,6 +278,11 @@ export function outbounds_reverse(general, config) {
                         ]
                     }
                 ]
+            },
+            streamSettings: {
+                sockopt: {
+                    domainStrategy: "UseIP"
+                }
             }
         }
     ];

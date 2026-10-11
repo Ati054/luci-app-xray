@@ -73,6 +73,8 @@ const WATCHDOG_STATE_DIR = mock_dir ? `${mock_dir}/var/run/xray-profile-watchdog
 const VERSION_CACHE_DIR = mock_dir ? `${mock_dir}/.xray-profiles-cache` : "/tmp/xray-profiles-cache";
 const VERSION_CACHE_PATH = `${VERSION_CACHE_DIR}/version.json`;
 const LINUX_USER_HZ = 100;
+const LOG_DEFAULT_LINES = 200;
+const LOG_MAX_LINES = 500;
 
 // Helpers
 function ensure_dirs() {
@@ -1410,6 +1412,49 @@ function rpc_diagnostic() {
     return { ok: true, summary: l.summary };
 }
 
+function is_xray_log_line(line) {
+    let value = lc(line || "");
+    return index(value, "xray[") >= 0 ||
+        index(value, "xray_profiles[") >= 0 ||
+        index(value, "xray-profile-watchdog") >= 0 ||
+        index(value, "profile_xray_") >= 0 ||
+        index(value, "xray_reverse_") >= 0 ||
+        index(value, "/opt/xray/") >= 0;
+}
+
+function rpc_logs(params) {
+    let requested = int(params.limit || LOG_DEFAULT_LINES);
+    if (requested < 25) requested = 25;
+    if (requested > LOG_MAX_LINES) requested = LOG_MAX_LINES;
+
+    // logd owns the bounded RAM ring. This method only takes a capped snapshot
+    // and never creates a persistent log file under /etc, /opt, /usr or /www.
+    let result = run_process("logread -l 1000 2>/dev/null", 524288);
+    if (result.exit_code !== 0) {
+        return { ok: false, error: "Unable to read the volatile OpenWrt log" };
+    }
+
+    let matching = [];
+    for (let line in split(result.stdout || "", "\n")) {
+        if (length(line) && is_xray_log_line(line)) push(matching, line);
+    }
+
+    let start = length(matching) > requested ? length(matching) - requested : 0;
+    let bounded = [];
+    for (let i = start; i < length(matching); i++) push(bounded, matching[i]);
+
+    return {
+        ok: true,
+        lines: bounded,
+        returned: length(bounded),
+        available: length(matching),
+        limit: requested,
+        maximum_limit: LOG_MAX_LINES,
+        storage: "ram",
+        source: "logd"
+    };
+}
+
 // -------------------------------------------------------------
 // RPCD CLI Interface Dispatcher
 // -------------------------------------------------------------
@@ -1430,7 +1475,8 @@ if (cmd == "list") {
         enable_service: {},
         disable_service: {},
         disable_legacy: {},
-        diagnostic: {}
+        diagnostic: {},
+        logs: { limit: "int" }
     });
     exit(0);
 }
@@ -1452,6 +1498,7 @@ if (cmd == "call") {
     else if (method == "disable_service") res = rpc_disable_service();
     else if (method == "disable_legacy") res = rpc_disable_legacy();
     else if (method == "diagnostic") res = rpc_diagnostic();
+    else if (method == "logs") res = rpc_logs(args);
 
     printf("%.4J\n", res);
     exit(res.ok ? 0 : 1);

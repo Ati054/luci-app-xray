@@ -66,6 +66,7 @@ assert_equal "1" "$((HAS_SS > 0))" "core/Makefile contains +ss in LUCI_DEPENDS"
 HAS_PROFILES_INIT=$(grep -c "init.d/xray_profiles" "${CORE_MAKEFILE}" || true)
 HAS_PROFILES_RPCD=$(grep -c "rpcd/xray_profiles" "${CORE_MAKEFILE}" || true)
 HAS_PROFILES_VIEW=$(grep -c "view/xray/profiles.js" "${CORE_MAKEFILE}" || true)
+HAS_LOGS_VIEW=$(grep -c "view/xray/logs.js" "${CORE_MAKEFILE}" || true)
 HAS_GEN_MJS=$(grep -c "gen_config.mjs" "${CORE_MAKEFILE}" || true)
 HAS_SOCKSTATS=$(grep -c "usr/libexec/xray-sockstats" "${CORE_MAKEFILE}" || true)
 HAS_PROFILE_WATCHDOG=$(grep -c "usr/libexec/xray-profile-watchdog" "${CORE_MAKEFILE}" || true)
@@ -74,6 +75,7 @@ HAS_TARGET_ARCH=$(grep -Fc 'PKGARCH:=$(ARCH_PACKAGES)' "${CORE_MAKEFILE}" || tru
 assert_equal "1" "$((HAS_PROFILES_INIT > 0))" "core/Makefile installs init.d/xray_profiles"
 assert_equal "1" "$((HAS_PROFILES_RPCD > 0))" "core/Makefile installs rpcd/xray_profiles"
 assert_equal "1" "$((HAS_PROFILES_VIEW > 0))" "core/Makefile installs view/xray/profiles.js"
+assert_equal "1" "$((HAS_LOGS_VIEW > 0))" "core/Makefile installs the bounded RAM log view"
 assert_equal "1" "$((HAS_GEN_MJS > 0))" "core/Makefile installs gen_config.mjs"
 assert_equal "1" "$((HAS_SOCKSTATS > 0))" "core/Makefile installs the native read-only socket collector"
 assert_equal "1" "$((HAS_PROFILE_WATCHDOG > 0))" "core/Makefile installs the per-profile connection watchdog"

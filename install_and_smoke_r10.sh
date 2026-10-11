@@ -6,6 +6,7 @@ set -eu
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 CHECKSUM_FILE="${SCRIPT_DIR}/SHA256SUMS-R10.txt"
 XRAY_BIN="/opt/xray/current/xray"
+BUNDLED_XRAY="${SCRIPT_DIR}/xray-core-26.9.30-linux-arm64"
 DIAG_LOG="/tmp/xray-r10-install-$(date +%Y%m%dT%H%M%S)-$$.log"
 BACKUP_DIR="/tmp/xray-r10-backup-$(date +%Y%m%dT%H%M%S)-$$"
 BACKUP_READY=0
@@ -252,6 +253,8 @@ failure_handler() {
     [ "${SUCCESS}" -eq 0 ] || return 0
     set +e
     rm -f "${BACKUP_DIR}.metadata.json"
+    rm -f "${BACKUP_DIR}.profiles.list"
+    [ -z "${XRAY_STAGE_PATH:-}" ] || rm -f "${XRAY_STAGE_PATH}"
     console "R10 installation failed; diagnostic log: ${DIAG_LOG}"
     echo "PRIMARY_EXIT_CODE=${primary_rc}"
 
@@ -319,9 +322,9 @@ awk '$2 == "/opt" { found = 1 } END { exit(found ? 0 : 1) }' /proc/mounts || {
 }
 XRAY_VERSION_LINE="$("${XRAY_BIN}" version 2>&1 | sed -n '1p')"
 case "${XRAY_VERSION_LINE}" in
-    "Xray 26.7.28"*) ;;
+    "Xray 26.7.28"*|"Xray 26.9.30"*) ;;
     *)
-        echo "ERROR: expected Xray 26.7.28, found ${XRAY_VERSION_LINE:-unknown}" >&2
+        echo "ERROR: expected installed Xray 26.7.28 or 26.9.30, found ${XRAY_VERSION_LINE:-unknown}" >&2
         exit 1
         ;;
 esac
@@ -434,6 +437,8 @@ for required_bundle_file in \
     OFFLINE-TRANSACTION.log \
     BUILD-INFO-openwrt-25.12.5-all.txt \
     xray-sockstats-aarch64 \
+    xray-core-26.9.30-linux-arm64 \
+    deploy_r10_to_raspberry.ps1 \
     ROLLBACK-R10.txt; do
     [ -s "${required_bundle_file}" ] || {
         echo "ERROR: required bundle file is missing or empty: ${required_bundle_file}" >&2
@@ -444,6 +449,15 @@ for required_bundle_file in \
         exit 1
     }
 done
+
+grep -qx 'xray_core_version=26.9.30' BUILD-INFO-openwrt-25.12.5-all.txt || {
+    echo "ERROR: build metadata does not pin Xray core 26.9.30" >&2
+    exit 1
+}
+grep -qx 'xray_core_source_asset=Xray-linux-arm64-v8a.zip' BUILD-INFO-openwrt-25.12.5-all.txt || {
+    echo "ERROR: build metadata does not identify the official ARM64 Xray asset" >&2
+    exit 1
+}
 
 MANIFEST_HEADER="filename;package;version;release;architecture;bytes;sha256;direct_dependencies;source_repository"
 [ "$(sed -n '1p' OFFLINE-PACKAGES-MANIFEST.txt)" = "${MANIFEST_HEADER}" ] || {
@@ -568,6 +582,27 @@ done
 
 sha256sum -c SHA256SUMS-R10.txt
 
+chmod 0700 "${BUNDLED_XRAY}"
+BUNDLED_XRAY_VERSION_LINE="$("${BUNDLED_XRAY}" version 2>&1 | sed -n '1p')"
+case "${BUNDLED_XRAY_VERSION_LINE}" in
+    "Xray 26.9.30"*) ;;
+    *)
+        echo "ERROR: bundled Xray has unexpected version: ${BUNDLED_XRAY_VERSION_LINE:-unknown}" >&2
+        exit 1
+        ;;
+esac
+
+# Prove every existing active-store JSON against the replacement core before
+# backup, service interruption, package mutation, or binary replacement.
+PROFILE_PREFLIGHT_LIST="${BACKUP_DIR}.profiles.list"
+find /opt/xray/profiles -maxdepth 1 -type f -name '*.json' -print 2>/dev/null | sort > "${PROFILE_PREFLIGHT_LIST}"
+while IFS= read -r profile_path; do
+    [ -n "${profile_path}" ] || continue
+    XRAY_LOCATION_ASSET=/opt/xray/current "${BUNDLED_XRAY}" run -test -config "${profile_path}"
+done < "${PROFILE_PREFLIGHT_LIST}"
+rm -f "${PROFILE_PREFLIGHT_LIST}"
+console "Xray 26.9.30 and all stored profiles passed preflight before backup"
+
 # Prove the exact artifact binary and pidfd/TCP_INFO syscall path before any
 # backup, service stop, or package transaction. The probe reads only the
 # installer's existing file descriptors and writes nothing outside /tmp logs.
@@ -599,6 +634,7 @@ if [ -d /opt/xray/profiles ]; then
 else
     echo 0 > "${BACKUP_DIR}/profiles.exists"
 fi
+cp -p "${XRAY_BIN}" "${BACKUP_DIR}/xray-previous"
 apk list --installed > "${BACKUP_DIR}/installed-packages.txt"
 for service_name in xray_core xray_profiles; do
     if service_enabled "${service_name}"; then echo 1; else echo 0; fi > "${BACKUP_DIR}/${service_name}.enabled"
@@ -646,6 +682,28 @@ apk add --simulate --force-reinstall --no-network --allow-untrusted ./*.apk
 console "Installing complete APK transaction with networking disabled"
 PACKAGE_TRANSACTION_STARTED=1
 apk add --force-reinstall --no-network --allow-untrusted ./*.apk
+
+XRAY_STAGE_PATH="/opt/xray/current/.xray-26.9.30-new-$$"
+cp "${BUNDLED_XRAY}" "${XRAY_STAGE_PATH}"
+chmod 0755 "${XRAY_STAGE_PATH}"
+STAGED_XRAY_VERSION_LINE="$("${XRAY_STAGE_PATH}" version 2>&1 | sed -n '1p')"
+case "${STAGED_XRAY_VERSION_LINE}" in
+    "Xray 26.9.30"*) ;;
+    *)
+        echo "ERROR: staged Xray has unexpected version: ${STAGED_XRAY_VERSION_LINE:-unknown}" >&2
+        exit 1
+        ;;
+esac
+mv -f "${XRAY_STAGE_PATH}" "${XRAY_BIN}"
+XRAY_VERSION_LINE="$("${XRAY_BIN}" version 2>&1 | sed -n '1p')"
+case "${XRAY_VERSION_LINE}" in
+    "Xray 26.9.30"*) ;;
+    *)
+        echo "ERROR: installed Xray has unexpected version: ${XRAY_VERSION_LINE:-unknown}" >&2
+        exit 1
+        ;;
+esac
+console "Xray core atomically updated to 26.9.30"
 
 apk list --installed luci-app-xray | grep -Eq '^luci-app-xray-3\.7\.1-r10([[:space:]]|$)' || {
     echo "ERROR: luci-app-xray 3.7.1-r10 is not installed" >&2

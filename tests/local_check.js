@@ -34,6 +34,8 @@ try {
     assert(parsed.outbounds[1].settings.finalRules[0].action === 'allow', 'finalRules[0].action is allow');
     assert(parsed.outbounds[1].settings.finalRules[0].network === 'tcp,udp', 'finalRules[0].network is tcp,udp');
     assert(parsed.outbounds[1].settings.finalRules[0].ip.includes('!geoip:private'), 'finalRules[0].ip includes !geoip:private');
+    assert(parsed.outbounds[1].settings.domainStrategy === undefined, 'Outbound 1 omits deprecated freedom.domainStrategy');
+    assert(parsed.outbounds[1].streamSettings.sockopt.domainStrategy === 'UseIP', 'Outbound 1 uses sockopt.domainStrategy');
     assert(parsed.outbounds[2].settings.reverse.tag === 'reverse-raw-in', 'Outbound 2 has reverse-raw-in');
     assert(parsed.outbounds[3].settings.reverse.tag === 'reverse-xhttp-in', 'Outbound 3 has reverse-xhttp-in');
     assert(parsed.routing.rules[0].outboundTag === 'reverse-egress', 'Routing rule 0 targets reverse-egress');
@@ -68,6 +70,7 @@ try {
 // Check LuCI JS files syntax
 const jsFiles = [
     'core/root/www/luci-static/resources/view/xray/core.js',
+    'core/root/www/luci-static/resources/view/xray/logs.js',
     'core/root/www/luci-static/resources/view/xray/profiles.js',
     'core/root/www/luci-static/resources/view/xray/preview.js',
     'core/root/www/luci-static/resources/view/xray/protocol.js',

@@ -63,7 +63,8 @@ import { outbounds_reverse, rules_reverse, gen_config_from_data } from "../core/
     assert(egress_outbound != null, "reverse-egress outbound must exist");
     assert(egress_outbound.protocol == "freedom", "reverse-egress protocol must be freedom");
     assert(type(egress_outbound.settings) == "object", "settings must exist on reverse-egress");
-    assert(egress_outbound.settings.domainStrategy == "UseIP", "domainStrategy must be UseIP");
+    assert(egress_outbound.settings.domainStrategy == null, "deprecated freedom.domainStrategy must be omitted");
+    assert(egress_outbound.streamSettings.sockopt.domainStrategy == "UseIP", "sockopt.domainStrategy must be UseIP");
     assert(type(egress_outbound.settings.finalRules) == "array", "finalRules must exist on reverse-egress");
     assert(length(egress_outbound.settings.finalRules) == 1, "finalRules must have 1 rule");
     const fr = egress_outbound.settings.finalRules[0];

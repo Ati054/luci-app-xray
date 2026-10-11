@@ -39,6 +39,7 @@ if command -v node >/dev/null 2>&1; then
     node "${SCRIPT_DIR}/local_check.js"
     node "${SCRIPT_DIR}/test_rule_encoding.js"
     node "${SCRIPT_DIR}/test_profiles_view.js"
+    node "${SCRIPT_DIR}/test_logs_view.js"
 else
     if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
         echo "::error::node runtime is required in CI mode."
@@ -71,6 +72,7 @@ if check_tool "${UCODE_BIN}"; then
     UCODE_BIN="${UCODE_BIN}" sh "${SCRIPT_DIR}/test_ucode_entrypoint.sh"
     UCODE_BIN="${UCODE_BIN}" sh "${SCRIPT_DIR}/test_rpcd_stdin.sh"
     UCODE_BIN="${UCODE_BIN}" sh "${SCRIPT_DIR}/test_tmp_cleanup.sh"
+    UCODE_BIN="${UCODE_BIN}" PYTHON_BIN="${PYTHON_BIN}" sh "${SCRIPT_DIR}/test_logs_backend.sh"
 else
     if [ "${CI}" = "true" ] || [ "${GITHUB_ACTIONS}" = "true" ]; then
         echo "::error::ucode CLI is required in CI mode."

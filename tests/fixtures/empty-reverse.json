@@ -13,7 +13,6 @@
       "protocol": "freedom",
       "tag": "reverse-egress",
       "settings": {
-        "domainStrategy": "UseIP",
         "finalRules": [
           {
             "action": "allow",
@@ -23,6 +22,11 @@
             ]
           }
         ]
+      },
+      "streamSettings": {
+        "sockopt": {
+          "domainStrategy": "UseIP"
+        }
       }
     }
   ],

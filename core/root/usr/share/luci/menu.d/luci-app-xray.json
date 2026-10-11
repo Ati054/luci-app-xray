@@ -1,6 +1,20 @@
 {
     "admin/services/xray_profiles": {
         "title": "Xray Reverse",
+        "order": 20,
+        "action": {
+            "type": "firstchild",
+            "preferred": "profiles"
+        },
+        "depends": {
+            "acl": [
+                "luci-app-xray"
+            ]
+        }
+    },
+    "admin/services/xray_profiles/profiles": {
+        "title": "Профили",
+        "order": 10,
         "action": {
             "type": "view",
             "path": "xray/profiles"
@@ -27,6 +41,19 @@
             "uci": {
                 "xray_core": true
             }
+        }
+    },
+    "admin/services/xray_profiles/logs": {
+        "title": "Журнал",
+        "order": 20,
+        "action": {
+            "type": "view",
+            "path": "xray/logs"
+        },
+        "depends": {
+            "acl": [
+                "luci-app-xray"
+            ]
         }
     },
     "admin/services/xray_preview": {

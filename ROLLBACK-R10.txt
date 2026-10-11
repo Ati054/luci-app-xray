@@ -4,6 +4,11 @@ R10 rollback and recovery notes
 The installer stores its diagnostic log and backup directory under /tmp and
 prints their exact paths before making package changes.
 
+Before replacing Xray-core, the installer stores the previous executable as
+xray-previous inside that backup directory. The replacement is staged and
+version-checked on the same /opt filesystem, then atomically renamed over
+/opt/xray/current/xray while services are stopped.
+
 On failure before the APK transaction starts, it restores the saved UCI data,
 profile contents, service enablement, and running state.
 

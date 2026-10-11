@@ -40,6 +40,29 @@ Fork this repository and:
 * Wait until actions finish
 * Use `opkg -i *` to install all ipks from Releases.
 
+## Raspberry Pi 3 / OpenWrt 25.12.5 — быстрое офлайн-обновление
+
+Сборка GitHub Actions для `aarch64_cortex-a53` содержит пакеты, полный набор
+офлайн-зависимостей, официальный
+[Xray-core 26.9.30](https://github.com/XTLS/Xray-core/releases/tag/v26.9.30)
+ARM64 и PowerShell-помощник.
+После загрузки и распаковки артефакта выполните из PowerShell:
+
+```powershell
+.\deploy_r10_to_raspberry.ps1 -RaspberryIp 192.168.102.254
+```
+
+Скрипт использует ключ `%USERPROFILE%\.ssh\id_ed25519_rpi_reverse`, строгую
+проверку `known_hosts`, передаёт bundle только в `/tmp`, проверяет SHA-256,
+делает backup конфигов и активных профилей, атомарно заменяет Xray и возвращает
+те же активные профили. Успех подтверждается строкой
+`R10_INSTALL_AND_HARDWARE_SMOKE_OK`. Сеть Raspberry для установки не нужна.
+
+Вкладка **Сервисы → Xray Reverse — Журнал** показывает только относящиеся к
+Xray записи из RAM-ring OpenWrt `logd`. Backend отдаёт не более 500 строк,
+страница позволяет выбрать 100/200/500 строк, поставить обновление на паузу и
+фильтровать ошибки. Приложение не создаёт постоянных log-файлов на флешке.
+
 ## Enable preview app
 
 Some features are deprecated / unstable so they are placed in preview app. To enable preview app:
@@ -50,6 +73,7 @@ Some features are deprecated / unstable so they are placed in preview app. To en
 
 ## Changelog since 3.7.0
 
+* 2026-10-12 feat: verified Xray-core 26.9.30 ARM64 offline update and bounded RAM-only LuCI diagnostics log
 * 2026-09-07 fix: connection-aware per-profile recovery waits out long server outages, performs one targeted restart when the peer returns, and suppresses restart storms
 * 2026-09-01 feat: R10 compact profile controls and live per-profile RX/TX rate, transferred totals, TCP RTT, and process uptime
 * 2026-09-01 build: R10 offline OpenWrt 25.12.5 bundle includes the exact `ss` / `kmod-netlink-diag` dependency pair for Raspberry Pi 3 aarch64

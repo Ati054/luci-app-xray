@@ -6,9 +6,10 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "${SCRIPT_DIR}/checksum_lib.sh"
 
-XRAY_VERSION="${1:-v26.7.28}"
+XRAY_VERSION="${1:-v26.9.30}"
 DEST_DIR="${2:-/tmp/xray-bin}"
-XRAY_ZIP="Xray-linux-64.zip"
+XRAY_ZIP="${3:-Xray-linux-64.zip}"
+EXPECTED_VERSION="${XRAY_VERSION#v}"
 BASE_URL="https://github.com/XTLS/Xray-core/releases/download/${XRAY_VERSION}"
 ZIP_URL="${BASE_URL}/${XRAY_ZIP}"
 DGST_URL="${BASE_URL}/${XRAY_ZIP}.dgst"
@@ -28,14 +29,18 @@ echo "Extracting ${XRAY_ZIP}..."
 unzip -q -o "${XRAY_ZIP}"
 chmod +x xray
 
-VERSION_OUTPUT=$("${DEST_DIR}/xray" version 2>&1)
+if [ -n "${XRAY_RUNNER:-}" ]; then
+    VERSION_OUTPUT=$("${XRAY_RUNNER}" "${DEST_DIR}/xray" version 2>&1)
+else
+    VERSION_OUTPUT=$("${DEST_DIR}/xray" version 2>&1)
+fi
 FIRST_LINE=$(echo "${VERSION_OUTPUT}" | head -n 1)
 case "${FIRST_LINE}" in
-    "Xray 26.7.28"*)
+    "Xray ${EXPECTED_VERSION}"*)
         echo "Version signature verified: ${FIRST_LINE}"
         ;;
     *)
-        echo "::error::Extracted Xray binary first line '${FIRST_LINE}' does not start with 'Xray 26.7.28'" >&2
+        echo "::error::Extracted Xray binary first line '${FIRST_LINE}' does not start with 'Xray ${EXPECTED_VERSION}'" >&2
         exit 1
         ;;
 esac

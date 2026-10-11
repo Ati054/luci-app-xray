@@ -75,6 +75,12 @@ def main() -> int:
             "workflow records release 10 in build metadata")
     require("package_architecture=${{ matrix.target_arch }}" in workflow,
             "workflow records the compiled core target architecture")
+    require("v26.9.30" in workflow and "Xray-linux-arm64-v8a.zip" in workflow and
+            '"$DIST_DIR/xray-core-26.9.30-linux-arm64"' in workflow,
+            "artifact pins and carries the verified official Xray 26.9.30 ARM64 binary")
+    require('echo "xray_core_version=26.9.30"' in workflow and
+            'echo "xray_core_source_asset=Xray-linux-arm64-v8a.zip"' in workflow,
+            "artifact metadata records the exact Xray core version and source asset")
     job_env_values = (
         str(value)
         for job in workflow_document.get("jobs", {}).values()
@@ -122,6 +128,8 @@ def main() -> int:
     require("xray-sockstats-aarch64" in workflow and
             '"$APK_HOST" --allow-untrusted extract --no-chown' in workflow,
             "artifact carries the exact extracted aarch64 collector for pre-transaction probing")
+    require("deploy_r10_to_raspberry.ps1" in workflow,
+            "artifact carries the one-command Windows deployment helper")
     bundle_call = workflow.index('bash "$GITHUB_WORKSPACE/scripts/build_r10_offline_bundle.sh"')
     collector_copy = workflow.index('"$DIST_DIR/xray-sockstats-aarch64"')
     require(bundle_call < collector_copy,
@@ -199,6 +207,12 @@ def main() -> int:
             "Native TCP_INFO collector preflight passed before backup" in installer and
             installer.index("COLLECTOR_PROBE_AVAILABLE") < installer.index("BACKUP_READY=1"),
             "installer proves pidfd/TCP_INFO compatibility before backup and package mutation")
+    require("xray-core-26.9.30-linux-arm64" in installer and
+            "Xray 26.9.30 and all stored profiles passed preflight before backup" in installer and
+            'mv -f "${XRAY_STAGE_PATH}" "${XRAY_BIN}"' in installer and
+            "build metadata does not pin Xray core 26.9.30" in installer and
+            installer.index("all stored profiles passed preflight") < installer.index("BACKUP_READY=1"),
+            "installer validates Xray 26.9.30 against stored profiles before an atomic core replacement")
     require("profiles-before.json" in installer and "running-profile-ids.txt" in installer and
             "unsafe running profile ID" in installer and
             installer.index("profiles-before.json") < installer.index("BACKUP_READY=1"),
@@ -263,6 +277,10 @@ def main() -> int:
     require("VERSION_CACHE_PATH" in backend and "get_binary_version" in backend and
             "cached.signature == signature" in backend and "rename(cache_tmp, VERSION_CACHE_PATH)" in backend,
             "backend atomically caches the expensive Xray version probe by binary identity")
+    require("rpc_logs" in backend and "LOG_MAX_LINES = 500" in backend and
+            'run_process("logread -l 1000 2>/dev/null", 524288)' in backend and
+            'storage: "ram"' in backend,
+            "backend exposes a bounded read-only snapshot of the volatile logd ring")
     sockstats = read("core/src/xray-sockstats.c")
     require("SYS_pidfd_open" in sockstats and "SYS_pidfd_getfd" in sockstats and
             "getsockopt(duplicate_fd, IPPROTO_TCP, TCP_INFO" in sockstats,
@@ -308,6 +326,16 @@ def main() -> int:
     require("connectionState === 'connected'" in profiles_view and "label warning" in profiles_view and "◐" in profiles_view,
             "profile status visibly distinguishes reconnecting processes from connected tunnels")
 
+    logs_view = read("core/root/www/luci-static/resources/view/xray/logs.js")
+    require("handleSave: null" in logs_view and "callLogs" in logs_view and
+            "maximum_limit || 500" in logs_view and "this.paused && !force" in logs_view,
+            "log page is read-only, bounded, and supports pausing live polling")
+    menu = read("core/root/usr/share/luci/menu.d/luci-app-xray.json")
+    require('"admin/services/xray_profiles/logs"' in menu and '"xray/logs"' in menu and
+            '"type": "firstchild"' in menu and '"preferred": "profiles"' in menu and
+            '"logs"' in read("core/root/usr/share/rpcd/acl.d/luci-app-xray.json"),
+            "LuCI menu and ACL expose the read-only log tab inside Xray Reverse")
+
     watchdog = read("core/root/usr/libexec/xray-profile-watchdog")
     require("DISCONNECT_GRACE_SECONDS" in watchdog and "CONNECTED_REARM_SECONDS" in watchdog and
             "peer_is_reachable" in watchdog and 'write_state_value "$id" armed 0' in watchdog,
@@ -335,6 +363,7 @@ def main() -> int:
         "install_and_smoke_r10.sh",
         "ROLLBACK-R10.txt",
         "scripts/build_r10_offline_bundle.sh",
+        "scripts/deploy_r10_to_raspberry.ps1",
         "scripts/r10_apk_manifest.py",
         "tests/run_tests.sh",
         "tests/test_installer_r10.sh",

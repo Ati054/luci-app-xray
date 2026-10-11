@@ -9,7 +9,8 @@
                 "xray_profiles": [
                     "list",
                     "validate",
-                    "diagnostic"
+                    "diagnostic",
+                    "logs"
                 ],
                 "service": [
                     "list",

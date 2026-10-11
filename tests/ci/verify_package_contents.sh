@@ -112,6 +112,7 @@ case "$(basename "${PACKAGE}")" in
             usr/share/xray/protocol/vless.mjs
             usr/share/xray/protocol/vmess.mjs
             www/luci-static/resources/view/xray/core.js
+            www/luci-static/resources/view/xray/logs.js
             www/luci-static/resources/view/xray/profiles.js
         "
         ;;
