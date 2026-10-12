@@ -340,6 +340,11 @@ def main() -> int:
             '"logs"' in read("core/root/usr/share/rpcd/acl.d/luci-app-xray.json"),
             "LuCI menu and ACL expose the read-only log tab inside Xray Reverse")
 
+    deploy_script_path = ROOT / "scripts/deploy_r10_to_raspberry.ps1"
+    deploy_script_bytes = deploy_script_path.read_bytes()
+    require(all(byte < 0x80 for byte in deploy_script_bytes),
+            "Windows deployment script is ASCII-safe for Windows PowerShell 5.1")
+
     watchdog = read("core/root/usr/libexec/xray-profile-watchdog")
     require("DISCONNECT_GRACE_SECONDS" in watchdog and "CONNECTED_REARM_SECONDS" in watchdog and
             "peer_is_reachable" in watchdog and 'write_state_value "$id" armed 0' in watchdog,

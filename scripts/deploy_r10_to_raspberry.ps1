@@ -13,7 +13,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 if ($RaspberryIp -notmatch '^(?:\d{1,3}\.){3}\d{1,3}$') {
-    throw "Некорректный IPv4-адрес Raspberry: $RaspberryIp"
+    throw "Invalid Raspberry IPv4 address: $RaspberryIp"
 }
 
 $ArtifactDir = [IO.Path]::GetFullPath($ArtifactDir)
@@ -25,15 +25,15 @@ foreach ($required in @(
     'luci-app-xray-3.7.1-r10.apk'
 )) {
     if (-not (Test-Path -LiteralPath (Join-Path $ArtifactDir $required) -PathType Leaf)) {
-        throw "В каталоге артефакта отсутствует $required"
+        throw "Required artifact file is missing: $required"
     }
 }
 
 if (-not (Test-Path -LiteralPath $KeyPath -PathType Leaf)) {
-    throw "SSH-ключ не найден: $KeyPath"
+    throw "SSH key was not found: $KeyPath"
 }
 if (-not (Test-Path -LiteralPath $KnownHostsFile -PathType Leaf)) {
-    throw "Файл known_hosts не найден: $KnownHostsFile. Сначала один раз подтвердите ключ хоста обычным ssh-подключением."
+    throw "known_hosts was not found: $KnownHostsFile. Confirm the host key once with a normal ssh connection first."
 }
 
 $sshOptions = @(
@@ -48,30 +48,30 @@ $target = "root@$RaspberryIp"
 $stamp = [DateTimeOffset]::UtcNow.ToString('yyyyMMddTHHmmss')
 $remoteDir = "/tmp/xray-r10-update-$stamp"
 
-Write-Host "Проверяю SSH и создаю временный каталог $remoteDir ..."
+Write-Host "Checking SSH and creating temporary directory $remoteDir ..."
 & ssh.exe @sshOptions $target "test `$(id -u) -eq 0 && install -d -m 0700 '$remoteDir' && echo SSH_READY"
-if ($LASTEXITCODE -ne 0) { throw 'SSH-проверка не пройдена' }
+if ($LASTEXITCODE -ne 0) { throw 'SSH verification failed' }
 
 $files = @(Get-ChildItem -LiteralPath $ArtifactDir -File)
-if ($files.Count -eq 0) { throw 'Каталог артефакта пуст' }
+if ($files.Count -eq 0) { throw 'Artifact directory is empty' }
 $scpArgs = @('-O', '-q') + $sshOptions + @($files.FullName) + @("${target}:$remoteDir/")
 
-Write-Host "Передаю $($files.Count) файлов в RAM Raspberry ..."
+Write-Host "Copying $($files.Count) files to Raspberry RAM ..."
 & scp.exe @scpArgs
-if ($LASTEXITCODE -ne 0) { throw 'Передача артефакта завершилась ошибкой' }
+if ($LASTEXITCODE -ne 0) { throw 'Artifact transfer failed' }
 
-Write-Host 'Запускаю проверенную офлайн-установку с backup и восстановлением активных профилей ...'
+Write-Host 'Starting verified offline installation with backup and active-profile restoration ...'
 $installOutput = @(& ssh.exe @sshOptions $target "cd '$remoteDir' && sh ./install_and_smoke_r10.sh" 2>&1)
 $installOutput | ForEach-Object { Write-Host $_ }
 $installExit = $LASTEXITCODE
 
 if ($installExit -ne 0 -or $installOutput -notcontains 'R10_INSTALL_AND_HARDWARE_SMOKE_OK') {
-    throw "Установка не подтверждена. Временный каталог оставлен для диагностики: $remoteDir"
+    throw "Installation was not confirmed. Temporary files were kept for diagnostics: $remoteDir"
 }
 
 & ssh.exe @sshOptions $target "rm -rf '$remoteDir'"
 if ($LASTEXITCODE -ne 0) {
-    Write-Warning "Обновление успешно, но временный каталог не удалён: $remoteDir"
+    Write-Warning "Update succeeded, but the temporary directory could not be removed: $remoteDir"
 }
 
-Write-Host 'ОБНОВЛЕНИЕ УСПЕШНО: Xray 26.9.30, пакет R10 и активные профили проверены.' -ForegroundColor Green
+Write-Host 'UPDATE SUCCEEDED: Xray 26.9.30, R10 package, and active profiles were verified.' -ForegroundColor Green
