@@ -23,7 +23,7 @@ echo 'another unrelated message'
 EOF
 chmod 0755 "${TMP_DIR}/bin/logread"
 
-PATH="${TMP_DIR}/bin:${PATH}" "${UCODE_BIN}" \
+PATH="${TMP_DIR}/bin:${PATH}" "${UCODE_BIN}" -- \
     "${ROOT_DIR}/core/root/usr/libexec/rpcd/xray_profiles" \
     --mock-dir "${TMP_DIR}/root" call logs '{"limit":25}' > "${TMP_DIR}/result.json"
 
@@ -44,7 +44,7 @@ assert data["lines"][-1].endswith("bounded diagnostic line 40")
 assert all("unrelated" not in line for line in data["lines"])
 PY
 
-PATH="${TMP_DIR}/bin:${PATH}" "${UCODE_BIN}" \
+PATH="${TMP_DIR}/bin:${PATH}" "${UCODE_BIN}" -- \
     "${ROOT_DIR}/core/root/usr/libexec/rpcd/xray_profiles" \
     --mock-dir "${TMP_DIR}/root" call logs '{"limit":9999}' > "${TMP_DIR}/clamped.json"
 
