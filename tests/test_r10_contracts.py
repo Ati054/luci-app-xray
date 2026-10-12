@@ -344,6 +344,10 @@ def main() -> int:
     deploy_script_bytes = deploy_script_path.read_bytes()
     require(all(byte < 0x80 for byte in deploy_script_bytes),
             "Windows deployment script is ASCII-safe for Windows PowerShell 5.1")
+    deploy_script = deploy_script_bytes.decode("ascii")
+    require("[string]$ArtifactDir = $PSScriptRoot" not in deploy_script and
+            "$ArtifactDir = Split-Path -Parent $MyInvocation.MyCommand.Path" in deploy_script,
+            "Windows deployment script resolves its default artifact directory at runtime")
 
     watchdog = read("core/root/usr/libexec/xray-profile-watchdog")
     require("DISCONNECT_GRACE_SECONDS" in watchdog and "CONNECTED_REARM_SECONDS" in watchdog and

@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)]
-    [string]$ArtifactDir = $PSScriptRoot,
+    [string]$ArtifactDir,
 
     [string]$RaspberryIp = '192.168.102.254',
 
@@ -11,6 +11,10 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+
+if ([string]::IsNullOrWhiteSpace($ArtifactDir)) {
+    $ArtifactDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+}
 
 if ($RaspberryIp -notmatch '^(?:\d{1,3}\.){3}\d{1,3}$') {
     throw "Invalid Raspberry IPv4 address: $RaspberryIp"
