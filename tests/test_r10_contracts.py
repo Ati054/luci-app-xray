@@ -200,6 +200,10 @@ def main() -> int:
             "installer verifies dependency APK metadata and approved source provenance")
     require("timeout 5" in installer and "call list '{}'" in installer and "</dev/null" in installer,
             "installer bounds explicit-empty-object backend invocation with closed stdin")
+    require("/etc/init.d/rpcd restart" in installer and
+            "timeout 5 ubus wait_for session" in installer and
+            installer.index("/etc/init.d/rpcd restart") > installer.index("apk add --force-reinstall --no-network"),
+            "installer reloads rpcd ACL definitions after the offline package transaction")
     require("command -v ss" in installer and "installed traffic metrics dependency kmod-netlink-diag" in installer and
             "/usr/libexec/xray-sockstats" in installer,
             "installer verifies the native and fallback traffic metrics runtime after the offline transaction")

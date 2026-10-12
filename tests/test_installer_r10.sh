@@ -78,6 +78,13 @@ grep -q '^apk add --simulate --force-reinstall --no-network --allow-untrusted ./
     exit 1
 }
 
+RPCD_RESTART_LINE="$(grep -n '^/etc/init.d/rpcd restart$' "${INSTALLER}" | cut -d: -f1)"
+[ -n "${RPCD_RESTART_LINE}" ] && [ "${INSTALL_LINE}" -lt "${RPCD_RESTART_LINE}" ] && \
+    grep -q '^timeout 5 ubus wait_for session >/dev/null$' "${INSTALLER}" || {
+    echo "FAIL: installer does not reload rpcd ACLs after the package transaction" >&2
+    exit 1
+}
+
 SNAPSHOT_LINE="$(grep -n 'profiles-before.json' "${INSTALLER}" | head -n 1 | cut -d: -f1)"
 BACKUP_READY_LINE="$(grep -n '^BACKUP_READY=1$' "${INSTALLER}" | cut -d: -f1)"
 SMOKE_LINE="$(grep -n '^sh "${SCRIPT_DIR}/profile_mode_smoke.sh"$' "${INSTALLER}" | cut -d: -f1)"

@@ -726,6 +726,14 @@ apk info --exists kmod-netlink-diag >/dev/null 2>&1 || {
     exit 1
 }
 
+[ -x /etc/init.d/rpcd ] || {
+    echo "ERROR: rpcd init script is unavailable after package installation" >&2
+    exit 1
+}
+/etc/init.d/rpcd restart
+timeout 5 ubus wait_for session >/dev/null
+console "rpcd restarted with the installed LuCI ACL definitions"
+
 for executable_path in \
     /etc/init.d/xray_core \
     /etc/init.d/xray_profiles \
