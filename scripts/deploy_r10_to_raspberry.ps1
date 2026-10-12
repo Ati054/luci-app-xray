@@ -53,7 +53,7 @@ $stamp = [DateTimeOffset]::UtcNow.ToString('yyyyMMddTHHmmss')
 $remoteDir = "/tmp/xray-r10-update-$stamp"
 
 Write-Host "Checking SSH and creating temporary directory $remoteDir ..."
-& ssh.exe @sshOptions $target "test `$(id -u) -eq 0 && install -d -m 0700 '$remoteDir' && echo SSH_READY"
+& ssh.exe @sshOptions $target "test `$(id -u) -eq 0 && umask 077 && mkdir -p '$remoteDir' && chmod 0700 '$remoteDir' && echo SSH_READY"
 if ($LASTEXITCODE -ne 0) { throw 'SSH verification failed' }
 
 $files = @(Get-ChildItem -LiteralPath $ArtifactDir -File)

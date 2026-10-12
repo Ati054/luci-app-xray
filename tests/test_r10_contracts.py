@@ -348,6 +348,10 @@ def main() -> int:
     require("[string]$ArtifactDir = $PSScriptRoot" not in deploy_script and
             "$ArtifactDir = Split-Path -Parent $MyInvocation.MyCommand.Path" in deploy_script,
             "Windows deployment script resolves its default artifact directory at runtime")
+    require("install -d" not in deploy_script and
+            "mkdir -p '$remoteDir'" in deploy_script and
+            "chmod 0700 '$remoteDir'" in deploy_script,
+            "Windows deployment script stages files with clean OpenWrt BusyBox commands")
 
     watchdog = read("core/root/usr/libexec/xray-profile-watchdog")
     require("DISCONNECT_GRACE_SECONDS" in watchdog and "CONNECTED_REARM_SECONDS" in watchdog and
