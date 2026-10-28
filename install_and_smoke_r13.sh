@@ -1,14 +1,14 @@
 #!/bin/sh
-# One-command, fail-closed OpenWrt 25.12.5 offline installer for R12.
+# One-command, fail-closed OpenWrt 25.12.5 offline installer for R13.
 
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-CHECKSUM_FILE="${SCRIPT_DIR}/SHA256SUMS-R12.txt"
+CHECKSUM_FILE="${SCRIPT_DIR}/SHA256SUMS-R13.txt"
 XRAY_BIN="/opt/xray/current/xray"
 BUNDLED_XRAY="${SCRIPT_DIR}/xray-core-26.10.21-linux-arm64"
-DIAG_LOG="/tmp/xray-r12-install-$(date +%Y%m%dT%H%M%S)-$$.log"
-BACKUP_DIR="/tmp/xray-r12-backup-$(date +%Y%m%dT%H%M%S)-$$"
+DIAG_LOG="/tmp/xray-r13-install-$(date +%Y%m%dT%H%M%S)-$$.log"
+BACKUP_DIR="/tmp/xray-r13-backup-$(date +%Y%m%dT%H%M%S)-$$"
 BACKUP_READY=0
 PACKAGE_TRANSACTION_STARTED=0
 SUCCESS=0
@@ -66,85 +66,85 @@ disable_service_strict() {
     }
 }
 
-# BEGIN R12_TARGET_PORTABILITY_HELPERS
-r12_file_size_bytes() {
-    r12_size_path="$1"
-    [ -f "${r12_size_path}" ] && [ ! -L "${r12_size_path}" ] && [ -r "${r12_size_path}" ] || return 1
-    r12_size_value="$(LC_ALL=C wc -c < "${r12_size_path}")" || return 1
-    case "${r12_size_value}" in
+# BEGIN R13_TARGET_PORTABILITY_HELPERS
+r13_file_size_bytes() {
+    r13_size_path="$1"
+    [ -f "${r13_size_path}" ] && [ ! -L "${r13_size_path}" ] && [ -r "${r13_size_path}" ] || return 1
+    r13_size_value="$(LC_ALL=C wc -c < "${r13_size_path}")" || return 1
+    case "${r13_size_value}" in
         ''|*[!0-9]*) return 1 ;;
     esac
-    [ -f "${r12_size_path}" ] && [ ! -L "${r12_size_path}" ] && [ -r "${r12_size_path}" ] || return 1
-    printf '%s\n' "${r12_size_value}"
+    [ -f "${r13_size_path}" ] && [ ! -L "${r13_size_path}" ] && [ -r "${r13_size_path}" ] || return 1
+    printf '%s\n' "${r13_size_value}"
 }
 
-r12_verify_exact_file_size() {
-    r12_expected_bytes="$2"
-    case "${r12_expected_bytes}" in
+r13_verify_exact_file_size() {
+    r13_expected_bytes="$2"
+    case "${r13_expected_bytes}" in
         ''|*[!0-9]*) return 1 ;;
     esac
-    r12_actual_bytes="$(r12_file_size_bytes "$1")" || return 1
-    [ "${r12_actual_bytes}" = "${r12_expected_bytes}" ]
+    r13_actual_bytes="$(r13_file_size_bytes "$1")" || return 1
+    [ "${r13_actual_bytes}" = "${r13_expected_bytes}" ]
 }
-# END R12_TARGET_PORTABILITY_HELPERS
+# END R13_TARGET_PORTABILITY_HELPERS
 
-# BEGIN R12_APK_HELP_COMPATIBILITY_HELPERS
-r12_capture_apk_help() {
-    r12_help_output_path="$1"
+# BEGIN R13_APK_HELP_COMPATIBILITY_HELPERS
+r13_capture_apk_help() {
+    r13_help_output_path="$1"
     shift
     [ "$#" -gt 0 ] || {
         echo "ERROR: apk help command is missing" >&2
         return 1
     }
 
-    if "$@" --help > "${r12_help_output_path}" 2>&1; then
-        r12_help_rc=0
+    if "$@" --help > "${r13_help_output_path}" 2>&1; then
+        r13_help_rc=0
     else
-        r12_help_rc=$?
+        r13_help_rc=$?
     fi
 
-    case "${r12_help_rc}" in
+    case "${r13_help_rc}" in
         0|1) ;;
         *)
-            echo "ERROR: apk help command failed with exit ${r12_help_rc}: $*" >&2
+            echo "ERROR: apk help command failed with exit ${r13_help_rc}: $*" >&2
             return 1
             ;;
     esac
 
-    [ -s "${r12_help_output_path}" ] || {
+    [ -s "${r13_help_output_path}" ] || {
         echo "ERROR: apk help command produced no output: $*" >&2
         return 1
     }
 }
-# END R12_APK_HELP_COMPATIBILITY_HELPERS
+# END R13_APK_HELP_COMPATIBILITY_HELPERS
 
-# BEGIN R12_UCODE_MODULE_COMPATIBILITY_HELPERS
-r12_compile_ucode_source() {
-    r12_ucode_bin="$1"
-    r12_module_path="$2"
-    r12_import_wrapper="$3"
-    r12_compile_stderr="$4"
-    r12_compile_source="${r12_module_path}"
+# BEGIN R13_UCODE_MODULE_COMPATIBILITY_HELPERS
+r13_compile_ucode_source() {
+    r13_ucode_bin="$1"
+    r13_module_path="$2"
+    r13_import_wrapper="$3"
+    r13_compile_stderr="$4"
+    r13_compile_source="${r13_module_path}"
 
-    case "${r12_module_path}" in
+    case "${r13_module_path}" in
         *.mjs)
-            r12_escaped_module="$(printf '%s' "${r12_module_path}" | sed 's/[\\"]/\\&/g')"
+            r13_escaped_module="$(printf '%s' "${r13_module_path}" | sed 's/[\\"]/\\&/g')"
             printf 'import * as module_under_test from "%s";\n' \
-                "${r12_escaped_module}" > "${r12_import_wrapper}"
-            r12_compile_source="${r12_import_wrapper}"
+                "${r13_escaped_module}" > "${r13_import_wrapper}"
+            r13_compile_source="${r13_import_wrapper}"
             ;;
     esac
 
-    : > "${r12_compile_stderr}"
-    if "${r12_ucode_bin}" -cdynlink=ubus -o /dev/null "${r12_compile_source}" \
-        > /dev/null 2> "${r12_compile_stderr}"; then
-        r12_compile_rc=0
+    : > "${r13_compile_stderr}"
+    if "${r13_ucode_bin}" -cdynlink=ubus -o /dev/null "${r13_compile_source}" \
+        > /dev/null 2> "${r13_compile_stderr}"; then
+        r13_compile_rc=0
     else
-        r12_compile_rc=$?
+        r13_compile_rc=$?
     fi
-    return "${r12_compile_rc}"
+    return "${r13_compile_rc}"
 }
-# END R12_UCODE_MODULE_COMPATIBILITY_HELPERS
+# END R13_UCODE_MODULE_COMPATIBILITY_HELPERS
 
 manifest_source_allowed() {
     case "$1" in
@@ -261,7 +261,7 @@ failure_handler() {
     rm -f "${BACKUP_DIR}.metadata.json"
     rm -f "${BACKUP_DIR}.profiles.list"
     [ -z "${XRAY_STAGE_PATH:-}" ] || rm -f "${XRAY_STAGE_PATH}"
-    console "R12 installation failed; diagnostic log: ${DIAG_LOG}"
+    console "R13 installation failed; diagnostic log: ${DIAG_LOG}"
     echo "PRIMARY_EXIT_CODE=${primary_rc}"
 
     if [ "${BACKUP_READY}" -eq 0 ]; then
@@ -291,7 +291,7 @@ trap failure_handler EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-console "R12 offline installation started; diagnostic log: ${DIAG_LOG}"
+console "R13 offline installation started; diagnostic log: ${DIAG_LOG}"
 
 [ "$(id -u)" -eq 0 ] || {
     echo "ERROR: installer must run as root" >&2
@@ -346,7 +346,7 @@ for required_command in awk find grep jsonfilter modprobe pidof sed sha256sum so
     }
 done
 
-# BEGIN R12_APK_HELP_COMPATIBILITY_PREFLIGHT
+# BEGIN R13_APK_HELP_COMPATIBILITY_PREFLIGHT
 APK_GLOBAL_HELP_PATH="${BACKUP_DIR}.apk-global-help"
 APK_INFO_HELP_PATH="${BACKUP_DIR}.apk-info-help"
 APK_ADD_HELP_PATH="${BACKUP_DIR}.apk-add-help"
@@ -355,11 +355,11 @@ APK_LIST_HELP_PATH="${BACKUP_DIR}.apk-list-help"
 APK_NO_NETWORK_PROBE_PATH="${BACKUP_DIR}.apk-no-network-probe"
 
 apk --version
-r12_capture_apk_help "${APK_GLOBAL_HELP_PATH}" apk
-r12_capture_apk_help "${APK_INFO_HELP_PATH}" apk info
-r12_capture_apk_help "${APK_ADD_HELP_PATH}" apk add
-r12_capture_apk_help "${APK_ADBDUMP_HELP_PATH}" apk adbdump
-r12_capture_apk_help "${APK_LIST_HELP_PATH}" apk list
+r13_capture_apk_help "${APK_GLOBAL_HELP_PATH}" apk
+r13_capture_apk_help "${APK_INFO_HELP_PATH}" apk info
+r13_capture_apk_help "${APK_ADD_HELP_PATH}" apk add
+r13_capture_apk_help "${APK_ADBDUMP_HELP_PATH}" apk adbdump
+r13_capture_apk_help "${APK_LIST_HELP_PATH}" apk list
 cat "${APK_GLOBAL_HELP_PATH}" "${APK_INFO_HELP_PATH}" "${APK_ADD_HELP_PATH}" \
     "${APK_ADBDUMP_HELP_PATH}" "${APK_LIST_HELP_PATH}"
 
@@ -414,7 +414,7 @@ grep -q -- '--installed' "${APK_LIST_HELP_PATH}" || {
 }
 rm -f "${APK_GLOBAL_HELP_PATH}" "${APK_INFO_HELP_PATH}" "${APK_ADD_HELP_PATH}" \
     "${APK_ADBDUMP_HELP_PATH}" "${APK_LIST_HELP_PATH}" "${APK_NO_NETWORK_PROBE_PATH}"
-# END R12_APK_HELP_COMPATIBILITY_PREFLIGHT
+# END R13_APK_HELP_COMPATIBILITY_PREFLIGHT
 
 for required_package in kmod-nf-tproxy kmod-nft-tproxy firewall4 luci-base dnsmasq ca-bundle; do
     apk info --exists "${required_package}" >/dev/null 2>&1 || {
@@ -424,7 +424,7 @@ for required_package in kmod-nf-tproxy kmod-nft-tproxy firewall4 luci-base dnsma
 done
 
 [ -s "${CHECKSUM_FILE}" ] || {
-    echo "ERROR: SHA256SUMS-R12.txt is missing or empty" >&2
+    echo "ERROR: SHA256SUMS-R13.txt is missing or empty" >&2
     exit 1
 }
 cd "${SCRIPT_DIR}"
@@ -434,7 +434,7 @@ if find . -maxdepth 1 -type f -size 0 -print | grep -q .; then
 fi
 
 for required_bundle_file in \
-    install_and_smoke_r12.sh \
+    install_and_smoke_r13.sh \
     profile_mode_smoke.sh \
     profile-smoke-a.json \
     profile-smoke-b.json \
@@ -444,8 +444,8 @@ for required_bundle_file in \
     BUILD-INFO-openwrt-25.12.5-all.txt \
     xray-sockstats-aarch64 \
     xray-core-26.10.21-linux-arm64 \
-    deploy_r12_to_raspberry.ps1 \
-    ROLLBACK-R12.txt; do
+    deploy_r13_to_raspberry.ps1 \
+    ROLLBACK-R13.txt; do
     [ -s "${required_bundle_file}" ] || {
         echo "ERROR: required bundle file is missing or empty: ${required_bundle_file}" >&2
         exit 1
@@ -510,14 +510,14 @@ for apk_file in "$@"; do
     esac
     case "${apk_package}" in
         luci-app-xray)
-            [ "${apk_version}" = "3.7.1-r12" ] || {
+            [ "${apk_version}" = "3.7.1-r13" ] || {
                 echo "ERROR: core APK has unexpected version ${apk_version}" >&2
                 exit 1
             }
             CORE_APK_COUNT=$((CORE_APK_COUNT + 1))
             ;;
         luci-app-xray-status)
-            [ "${apk_version}" = "3.7.1-r12" ] || {
+            [ "${apk_version}" = "3.7.1-r13" ] || {
                 echo "ERROR: status APK has unexpected version ${apk_version}" >&2
                 exit 1
             }
@@ -543,7 +543,7 @@ for apk_file in "$@"; do
             [ "${manifest_package}" = "${apk_package}" ] && \
                 [ "${manifest_full_version}" = "${apk_version}" ] && \
                 [ "${manifest_arch}" = "${apk_arch}" ] && \
-                r12_verify_exact_file_size "${apk_file}" "${manifest_bytes}" && \
+                r13_verify_exact_file_size "${apk_file}" "${manifest_bytes}" && \
                 [ "${manifest_sha256}" = "$(sha256sum "${apk_file}" | awk '{ print $1 }')" ] || {
                 echo "ERROR: manifest metadata does not match ${dependency_filename}" >&2
                 exit 1
@@ -575,7 +575,7 @@ for apk_file in "$@"; do
 done
 rm -f "${BACKUP_DIR}.metadata.json"
 [ "${CORE_APK_COUNT}" -eq 1 ] && [ "${STATUS_APK_COUNT}" -eq 1 ] || {
-    echo "ERROR: bundle must contain exactly one core and one status R12 APK" >&2
+    echo "ERROR: bundle must contain exactly one core and one status R13 APK" >&2
     exit 1
 }
 
@@ -586,7 +586,7 @@ awk -F ';' 'NR > 1 { print $1 }' OFFLINE-PACKAGES-MANIFEST.txt | while IFS= read
     }
 done
 
-sha256sum -c SHA256SUMS-R12.txt
+sha256sum -c SHA256SUMS-R13.txt
 
 chmod 0700 "${BUNDLED_XRAY}"
 BUNDLED_XRAY_VERSION_LINE="$("${BUNDLED_XRAY}" version 2>&1 | sed -n '1p')"
@@ -675,7 +675,7 @@ if [ "$(cat "${BACKUP_DIR}/xray_profiles.running")" = "0" ] && [ -s "${BACKUP_DI
     exit 1
 fi
 BACKUP_READY=1
-console "R12 target backup completed: ${BACKUP_DIR}"
+console "R13 target backup completed: ${BACKUP_DIR}"
 
 stop_service_strict xray_core
 stop_service_strict xray_profiles
@@ -718,12 +718,12 @@ case "${XRAY_VERSION_LINE}" in
 esac
 console "Xray core atomically updated to 26.10.21"
 
-apk list --installed luci-app-xray | grep -Eq '^luci-app-xray-3\.7\.1-r12([[:space:]]|$)' || {
-    echo "ERROR: luci-app-xray 3.7.1-r12 is not installed" >&2
+apk list --installed luci-app-xray | grep -Eq '^luci-app-xray-3\.7\.1-r13([[:space:]]|$)' || {
+    echo "ERROR: luci-app-xray 3.7.1-r13 is not installed" >&2
     exit 1
 }
-apk list --installed luci-app-xray-status | grep -Eq '^luci-app-xray-status-3\.7\.1-r12([[:space:]]|$)' || {
-    echo "ERROR: luci-app-xray-status 3.7.1-r12 is not installed" >&2
+apk list --installed luci-app-xray-status | grep -Eq '^luci-app-xray-status-3\.7\.1-r13([[:space:]]|$)' || {
+    echo "ERROR: luci-app-xray-status 3.7.1-r13 is not installed" >&2
     exit 1
 }
 command -v timeout >/dev/null 2>&1 || {
@@ -797,7 +797,7 @@ UCODE_PARSE_STDERR="${BACKUP_DIR}/ucode-parse.stderr"
 : > "${UCODE_PARSE_STDERR}"
 find /usr/share/xray -type f \( -name '*.uc' -o -name '*.mjs' \) -print | sort > "${UCODE_MODULE_LIST}"
 while IFS= read -r module_path; do
-    if ! r12_compile_ucode_source "${UCODE_BIN}" "${module_path}" \
+    if ! r13_compile_ucode_source "${UCODE_BIN}" "${module_path}" \
         "${UCODE_IMPORT_WRAPPER}" "${UCODE_COMPILE_STDERR}"; then
         {
             echo "ERROR: installed ucode source did not compile: ${module_path}"
@@ -847,5 +847,5 @@ console "Pre-update Xray service and active-profile state restored"
 
 SUCCESS=1
 trap - EXIT INT TERM
-console "R12_INSTALL_AND_HARDWARE_SMOKE_OK"
+console "R13_INSTALL_AND_HARDWARE_SMOKE_OK"
 exit 0

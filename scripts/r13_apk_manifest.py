@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Create and verify the canonical R12 dependency manifest from real APK files."""
+"""Create and verify the canonical R13 dependency manifest from real APK files."""
 
 from __future__ import annotations
 

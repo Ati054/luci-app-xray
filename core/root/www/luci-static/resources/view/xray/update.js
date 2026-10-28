@@ -31,6 +31,7 @@ return view.extend({
 	render: function(initial) {
 		var current = initial || {};
 		var pending = false;
+		var refreshInFlight = null;
 		var localError = '';
 		var statusBox = E('div', { 'class': 'cbi-section' });
 		var releaseBox = E('div', { 'class': 'cbi-section' });
@@ -109,10 +110,19 @@ return view.extend({
 				message.textContent = '';
 		}
 
-		function refresh() {
-			return command('status').then(display).catch(function(error) {
+		function refresh(force) {
+			if (pending && !force)
+				return Promise.resolve();
+			if (refreshInFlight)
+				return refreshInFlight;
+			var request = command('status').then(display).catch(function(error) {
 				if (!pending)
 					message.textContent = String(error);
+			});
+			refreshInFlight = request;
+			return request.finally(function() {
+				if (refreshInFlight === request)
+					refreshInFlight = null;
 			});
 		}
 
@@ -120,7 +130,7 @@ return view.extend({
 			pending = true;
 			localError = '';
 			display(current);
-			return command(action).then(refresh).catch(function(error) {
+			return command(action).then(function() { return refresh(true); }).catch(function(error) {
 				localError = String(error);
 			}).finally(function() {
 				pending = false;
@@ -138,7 +148,6 @@ return view.extend({
 			'class': 'btn cbi-button cbi-button-positive',
 			'click': function() { return run('github-start'); }
 		}, _('Скачать и установить'));
-
 		display(current);
 		poll.add(refresh, 3);
 

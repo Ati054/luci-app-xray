@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
 
-echo "=== R12 installer ucode module compatibility ==="
+echo "=== R13 installer ucode module compatibility ==="
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
-INSTALLER="${ROOT_DIR}/install_and_smoke_r12.sh"
+INSTALLER="${ROOT_DIR}/install_and_smoke_r13.sh"
 MASTER_RUNNER="${ROOT_DIR}/tests/run_tests.sh"
 TMP_DIR="$(mktemp -d)"
 
@@ -20,13 +20,13 @@ grep -Fq 'sh "${SCRIPT_DIR}/test_installer_ucode_compatibility.sh"' "${MASTER_RU
 }
 
 HELPERS="${TMP_DIR}/ucode-helpers.sh"
-sed -n '/^# BEGIN R12_UCODE_MODULE_COMPATIBILITY_HELPERS$/,/^# END R12_UCODE_MODULE_COMPATIBILITY_HELPERS$/p' \
+sed -n '/^# BEGIN R13_UCODE_MODULE_COMPATIBILITY_HELPERS$/,/^# END R13_UCODE_MODULE_COMPATIBILITY_HELPERS$/p' \
     "${INSTALLER}" > "${HELPERS}"
-grep -q '^r12_compile_ucode_source()' "${HELPERS}" || {
+grep -q '^r13_compile_ucode_source()' "${HELPERS}" || {
     echo "FAIL: installer has no module-aware ucode compile helper" >&2
     exit 1
 }
-grep -Fq 'r12_compile_ucode_source "${UCODE_BIN}" "${module_path}"' "${INSTALLER}" || {
+grep -Fq 'r13_compile_ucode_source "${UCODE_BIN}" "${module_path}"' "${INSTALLER}" || {
     echo "FAIL: installed-source sweep does not use the module-aware compile helper" >&2
     exit 1
 }
@@ -39,7 +39,7 @@ BIN_DIR="${TMP_DIR}/bin"
 mkdir -p "${BIN_DIR}"
 cat > "${BIN_DIR}/ucode" <<'EOF'
 #!/bin/sh
-printf '%s\n' "$*" >> "${R12_FAKE_UCODE_LOG}"
+printf '%s\n' "$*" >> "${R13_FAKE_UCODE_LOG}"
 [ "$#" -eq 4 ] && [ "$1" = "-cdynlink=ubus" ] && \
     [ "$2" = "-o" ] && [ "$3" = "/dev/null" ] || {
     echo "unexpected compile arguments: $*" >&2
@@ -77,28 +77,28 @@ HARNESS="${TMP_DIR}/harness.sh"
 cat > "${HARNESS}" <<'EOF'
 #!/bin/sh
 set -eu
-. "${R12_HELPERS}"
+. "${R13_HELPERS}"
 
-r12_compile_ucode_source "${R12_UCODE_BIN}" "${R12_ENTRYPOINT}" \
-    "${R12_IMPORT_WRAPPER}" "${R12_COMPILE_STDERR}"
-[ ! -s "${R12_COMPILE_STDERR}" ] || {
+r13_compile_ucode_source "${R13_UCODE_BIN}" "${R13_ENTRYPOINT}" \
+    "${R13_IMPORT_WRAPPER}" "${R13_COMPILE_STDERR}"
+[ ! -s "${R13_COMPILE_STDERR}" ] || {
     echo "FAIL: direct .uc compile wrote to stderr" >&2
     exit 1
 }
 
-r12_compile_ucode_source "${R12_UCODE_BIN}" "${R12_MODULE}" \
-    "${R12_IMPORT_WRAPPER}" "${R12_COMPILE_STDERR}"
-[ ! -s "${R12_COMPILE_STDERR}" ] || {
+r13_compile_ucode_source "${R13_UCODE_BIN}" "${R13_MODULE}" \
+    "${R13_IMPORT_WRAPPER}" "${R13_COMPILE_STDERR}"
+[ ! -s "${R13_COMPILE_STDERR}" ] || {
     echo "FAIL: imported .mjs compile wrote to stderr" >&2
     exit 1
 }
-grep -Fq "import * as module_under_test from \"${R12_MODULE}\";" "${R12_IMPORT_WRAPPER}" || {
+grep -Fq "import * as module_under_test from \"${R13_MODULE}\";" "${R13_IMPORT_WRAPPER}" || {
     echo "FAIL: .mjs source was not compiled through an import wrapper" >&2
     exit 1
 }
 
-if r12_compile_ucode_source "${R12_UCODE_BIN}" "${R12_BROKEN_MODULE}" \
-    "${R12_IMPORT_WRAPPER}" "${R12_COMPILE_STDERR}"; then
+if r13_compile_ucode_source "${R13_UCODE_BIN}" "${R13_BROKEN_MODULE}" \
+    "${R13_IMPORT_WRAPPER}" "${R13_COMPILE_STDERR}"; then
     echo "FAIL: broken imported module was accepted" >&2
     exit 1
 else
@@ -108,21 +108,21 @@ fi
     echo "FAIL: broken module exit ${compile_rc}, expected 255" >&2
     exit 1
 }
-grep -Fq 'synthetic module parse failure' "${R12_COMPILE_STDERR}" || {
+grep -Fq 'synthetic module parse failure' "${R13_COMPILE_STDERR}" || {
     echo "FAIL: broken module diagnostic was not preserved" >&2
     exit 1
 }
 EOF
 chmod 0755 "${HARNESS}"
 
-R12_HELPERS="${HELPERS}" \
-R12_UCODE_BIN="${BIN_DIR}/ucode" \
-R12_ENTRYPOINT="${ENTRYPOINT}" \
-R12_MODULE="${MODULE}" \
-R12_BROKEN_MODULE="${BROKEN_MODULE}" \
-R12_IMPORT_WRAPPER="${IMPORT_WRAPPER}" \
-R12_COMPILE_STDERR="${COMPILE_STDERR}" \
-R12_FAKE_UCODE_LOG="${UCODE_LOG}" \
+R13_HELPERS="${HELPERS}" \
+R13_UCODE_BIN="${BIN_DIR}/ucode" \
+R13_ENTRYPOINT="${ENTRYPOINT}" \
+R13_MODULE="${MODULE}" \
+R13_BROKEN_MODULE="${BROKEN_MODULE}" \
+R13_IMPORT_WRAPPER="${IMPORT_WRAPPER}" \
+R13_COMPILE_STDERR="${COMPILE_STDERR}" \
+R13_FAKE_UCODE_LOG="${UCODE_LOG}" \
 /bin/sh "${HARNESS}"
 
 grep -Fq -- "-cdynlink=ubus -o /dev/null ${ENTRYPOINT}" "${UCODE_LOG}" || {
@@ -136,4 +136,4 @@ fi
 
 echo "PASS: installer compiles .uc entrypoints directly and .mjs modules through imports."
 echo "PASS: imported module failures preserve the target exit code and diagnostic."
-echo "R12_UCODE_MODULE_IMPORT_SWEEP_OK"
+echo "R13_UCODE_MODULE_IMPORT_SWEEP_OK"

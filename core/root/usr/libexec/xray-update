@@ -1,19 +1,21 @@
 #!/bin/sh
-# Signed, RAM-staged GitHub updater for the complete Raspberry Pi R12 bundle.
+# Signed, RAM-staged GitHub updater for the complete Raspberry Pi R13 bundle.
 set -eu
 
-PACKAGE=luci-app-xray
+PACKAGE=${XRAY_UPDATE_PACKAGE:-luci-app-xray}
 REPOSITORY=Ati054/luci-app-xray
 TARGET_ARCH=aarch64_cortex-a53
 TARGET_OPENWRT=25.12.5
-STATE=/var/run/xray-update
+STATE=${XRAY_UPDATE_STATE:-/var/run/xray-update}
 BUSY=${STATE}/busy
 PHASE=${STATE}/phase
 REMOTE_PHASE=${STATE}/remote-phase
-RUNNER=/tmp/.xray-update-runner
-CANDIDATE=/tmp/.xray-update-bundle.tar.gz
-EXTRACTED=/tmp/xray-r12-update-bundle
-PUBLIC_KEY=/usr/share/xray/update-keys/release-rsa.pem
+RUNNER=${XRAY_UPDATE_RUNNER:-/tmp/.xray-update-runner}
+CANDIDATE=${XRAY_UPDATE_CANDIDATE:-/tmp/.xray-update-bundle.tar.gz}
+EXTRACTED=${XRAY_UPDATE_EXTRACTED:-/tmp/xray-r13-update-bundle}
+PUBLIC_KEY=${XRAY_UPDATE_PUBLIC_KEY:-/usr/share/xray/update-keys/release-rsa.pem}
+HELPER_SOURCE=${XRAY_UPDATE_HELPER_SOURCE:-/usr/libexec/xray-update}
+XRAY_BIN=${XRAY_UPDATE_XRAY_BIN:-/opt/xray/current/xray}
 MANIFEST_URL=https://github.com/${REPOSITORY}/releases/latest/download/release.json
 SIGNATURE_URL=https://github.com/${REPOSITORY}/releases/latest/download/release.json.sig
 MAX_MANIFEST=16384
@@ -32,7 +34,7 @@ installed_field() {
 }
 
 xray_version() {
-	/opt/xray/current/xray version 2>/dev/null |
+	"${XRAY_BIN}" version 2>/dev/null |
 		sed -n '1s/^Xray \([0-9][0-9.]*\).*/\1/p'
 }
 
@@ -216,7 +218,7 @@ install_worker() {
 	if (cd "${EXTRACTED}" && sh "./${old_installer}") > "${STATE}/install.log" 2>&1; then
 		grep -Fxq "${old_success_marker}" "${STATE}/install.log" || die "Установщик завершился без контрольного маркера релиза"
 	else
-		die "Установка R12 завершилась ошибкой: $(last_error "${STATE}/install.log")"
+		die "Установка R13 завершилась ошибкой: $(last_error "${STATE}/install.log")"
 	fi
 	echo completed > "${REMOTE_PHASE}"
 	write_phase completed
@@ -295,24 +297,29 @@ start_async() {
 	trap 'rm -f "${BUSY}" "${RUNNER}"' EXIT
 	printf '%s\n' "$(installed_field version)" > "${STATE}/installed-version"
 	printf '%s\n' "$(xray_version)" > "${STATE}/installed-xray"
-	cp /usr/libexec/xray-update "${RUNNER}"
+	cp "${HELPER_SOURCE}" "${RUNNER}"
 	chmod 0700 "${RUNNER}"
+	command -v start-stop-daemon >/dev/null 2>&1 || die "start-stop-daemon недоступен"
+	ssd_help=$(start-stop-daemon --help 2>&1 || :)
+	printf '%s\n' "${ssd_help}" | grep -q -- '-O' || die "start-stop-daemon не поддерживает перенаправление журнала"
 	case "${action}" in
 		check)
 			: > "${STATE}/remote.log"
 			echo checking > "${REMOTE_PHASE}"
 			write_phase checking
-			/bin/sh "${RUNNER}" check-worker </dev/null > "${STATE}/worker.log" 2>&1 &
+			worker_action=check-worker
 			;;
 		github-start)
 			check_fresh_offer
 			: > "${STATE}/install.log"
 			echo preparing > "${REMOTE_PHASE}"
 			write_phase preparing
-			/bin/sh "${RUNNER}" install-worker </dev/null > "${STATE}/worker.log" 2>&1 &
+			worker_action=install-worker
 			;;
 	esac
-	printf '%s\n' "$!" > "${STATE}/worker.pid"
+	rm -f "${STATE}/worker.pid"
+	start-stop-daemon -S -b -m -p "${STATE}/worker.pid" \
+		-x /bin/sh -O "${STATE}/worker.log" -- "${RUNNER}" "${worker_action}"
 	trap - EXIT
 	echo started=pending
 }
@@ -321,7 +328,7 @@ case "${1:-}" in
 	status) status;;
 	check) start_async check;;
 	github-start) start_async github-start;;
-	check-worker) [ -f "${BUSY}" ] || die "Нет активной проверки"; check_worker;;
-	install-worker) [ -f "${BUSY}" ] || die "Нет активной установки"; install_worker;;
+	check-worker) exec </dev/null; [ -f "${BUSY}" ] || die "Нет активной проверки"; check_worker;;
+	install-worker) exec </dev/null; [ -f "${BUSY}" ] || die "Нет активной установки"; install_worker;;
 	*) die "Usage: xray-update {status|check|github-start}";;
 esac

@@ -18,6 +18,8 @@ requireText("command('status')", 'the UI loads update state without changing the
 requireText("run('check')", 'the UI exposes an asynchronous signed-release check');
 requireText("run('github-start')", 'the UI exposes the verified download/install action');
 requireText("poll.add(refresh, 3)", 'the UI polls RAM-backed progress');
+requireText('refreshInFlight', 'the UI coalesces overlapping status polls');
+requireText('pending && !force', 'the UI pauses polling while an action RPC is pending');
 requireText('Профили сохраняются', 'the UI states the profile preservation contract');
 requireText('подпись релиза, архитектура, размер и SHA-256', 'the UI explains the verification boundary');
 

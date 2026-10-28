@@ -58,28 +58,28 @@ require_command() {
     }
 }
 
-# BEGIN R12_TARGET_PORTABILITY_HELPERS
-r12_permission_field() {
-    r12_mode_listing="$(LC_ALL=C ls -ld "$1")" || return 1
-    r12_mode_field="${r12_mode_listing%% *}"
-    [ -n "${r12_mode_field}" ] || return 1
-    printf '%s\n' "${r12_mode_field}"
+# BEGIN R13_TARGET_PORTABILITY_HELPERS
+r13_permission_field() {
+    r13_mode_listing="$(LC_ALL=C ls -ld "$1")" || return 1
+    r13_mode_field="${r13_mode_listing%% *}"
+    [ -n "${r13_mode_field}" ] || return 1
+    printf '%s\n' "${r13_mode_field}"
 }
 
-r12_exact_private_directory() {
-    r12_mode_path="$1"
-    [ -d "${r12_mode_path}" ] && [ ! -L "${r12_mode_path}" ] || return 1
-    r12_verified_mode="$(r12_permission_field "${r12_mode_path}")" || return 1
-    [ -d "${r12_mode_path}" ] && [ ! -L "${r12_mode_path}" ] && [ "${r12_verified_mode}" = "drwx------" ]
+r13_exact_private_directory() {
+    r13_mode_path="$1"
+    [ -d "${r13_mode_path}" ] && [ ! -L "${r13_mode_path}" ] || return 1
+    r13_verified_mode="$(r13_permission_field "${r13_mode_path}")" || return 1
+    [ -d "${r13_mode_path}" ] && [ ! -L "${r13_mode_path}" ] && [ "${r13_verified_mode}" = "drwx------" ]
 }
 
-r12_exact_private_regular_file() {
-    r12_mode_path="$1"
-    [ -f "${r12_mode_path}" ] && [ ! -L "${r12_mode_path}" ] || return 1
-    r12_verified_mode="$(r12_permission_field "${r12_mode_path}")" || return 1
-    [ -f "${r12_mode_path}" ] && [ ! -L "${r12_mode_path}" ] && [ "${r12_verified_mode}" = "-rw-------" ]
+r13_exact_private_regular_file() {
+    r13_mode_path="$1"
+    [ -f "${r13_mode_path}" ] && [ ! -L "${r13_mode_path}" ] || return 1
+    r13_verified_mode="$(r13_permission_field "${r13_mode_path}")" || return 1
+    [ -f "${r13_mode_path}" ] && [ ! -L "${r13_mode_path}" ] && [ "${r13_verified_mode}" = "-rw-------" ]
 }
-# END R12_TARGET_PORTABILITY_HELPERS
+# END R13_TARGET_PORTABILITY_HELPERS
 
 for command_name in awk cat find grep ip jsonfilter ls mktemp nft sed sha256sum sort ss timeout tr ubus uci; do
     require_command "${command_name}"
@@ -127,7 +127,7 @@ for service_script in /etc/init.d/xray_core /etc/init.d/xray_profiles; do
     }
 done
 
-TMP_DIR="$(mktemp -d /tmp/xray-r12-smoke.XXXXXX)"
+TMP_DIR="$(mktemp -d /tmp/xray-r13-smoke.XXXXXX)"
 chmod 0700 "${TMP_DIR}"
 IMPORTED_A=0
 IMPORTED_B=0
@@ -360,12 +360,12 @@ fi
 IMPORTED_B=1
 
 set_smoke_phase "verify private profile storage"
-r12_exact_private_directory "${PROFILES_DIR}" || {
+r13_exact_private_directory "${PROFILES_DIR}" || {
     echo "ERROR: profile directory mode is not 0700" >&2
     exit 1
 }
 for profile_file in "${PROFILES_DIR}/smoke-a.json" "${PROFILES_DIR}/smoke-b.json"; do
-    r12_exact_private_regular_file "${profile_file}" || {
+    r13_exact_private_regular_file "${profile_file}" || {
         echo "ERROR: profile file mode is not 0600: ${profile_file}" >&2
         exit 1
     }
@@ -387,7 +387,7 @@ fi
 for runtime_profile in \
     "${RUNTIME_PROFILES_DIR}/profile_smoke_a.json" \
     "${RUNTIME_PROFILES_DIR}/profile_smoke_b.json"; do
-    r12_exact_private_regular_file "${runtime_profile}" || {
+    r13_exact_private_regular_file "${runtime_profile}" || {
         echo "ERROR: BBR runtime profile is missing or not private: ${runtime_profile}" >&2
         exit 1
     }

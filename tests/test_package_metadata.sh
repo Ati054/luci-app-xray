@@ -35,21 +35,21 @@ assert_equal "0" "${HAS_XRAY_CORE_DEP}" "core/Makefile must not depend on +xray-
 HAS_OPT_SYMLINK=$(grep -c "LN.*opt/xray/current/xray" "${CORE_MAKEFILE}" || true)
 assert_equal "1" "$((HAS_OPT_SYMLINK > 0))" "core/Makefile must install symlink pointing to /opt/xray/current/xray"
 
-# Test 3: PKG_RELEASE must be 12 across core, status, and geodata Makefiles
+# Test 3: PKG_RELEASE must be 13 across core, status, and geodata Makefiles
 CORE_REL=$(grep "^PKG_RELEASE:=" "${CORE_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 STATUS_REL=$(grep "^PKG_RELEASE:=" "${STATUS_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 GEODATA_REL=$(grep "^PKG_RELEASE:=" "${GEODATA_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 
-assert_equal "12" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=12"
-assert_equal "12" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=12"
-assert_equal "12" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=12"
+assert_equal "13" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=13"
+assert_equal "13" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=13"
+assert_equal "13" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=13"
 
 # The OpenWrt 23.05 luci.mk helper drops PKG_RELEASE from the package VERSION.
-# Use package.mk directly so both legacy IPK and modern APK builders encode R12.
+# Use package.mk directly so both legacy IPK and modern APK builders encode R13.
 HAS_NATIVE_PACKAGE_MK=$(grep -Fc 'include $(INCLUDE_DIR)/package.mk' "${CORE_MAKEFILE}" || true)
 HAS_LUCI_MK=$(grep -Fc 'feeds/luci/luci.mk' "${CORE_MAKEFILE}" || true)
 HAS_BUILD_PACKAGE=$(grep -Fc '$(eval $(call BuildPackage,$(PKG_NAME)))' "${CORE_MAKEFILE}" || true)
-assert_equal "1" "$((HAS_NATIVE_PACKAGE_MK > 0))" "core/Makefile uses package.mk so IPK preserves release 12"
+assert_equal "1" "$((HAS_NATIVE_PACKAGE_MK > 0))" "core/Makefile uses package.mk so IPK preserves release 13"
 assert_equal "0" "${HAS_LUCI_MK}" "core/Makefile does not use luci.mk version override"
 assert_equal "1" "$((HAS_BUILD_PACKAGE > 0))" "core/Makefile evaluates its package definition"
 

@@ -9,7 +9,7 @@ from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("r12_apk_manifest", ROOT / "scripts/r12_apk_manifest.py")
+SPEC = importlib.util.spec_from_file_location("r13_apk_manifest", ROOT / "scripts/r13_apk_manifest.py")
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
@@ -22,7 +22,7 @@ def require(condition: bool, message: str) -> None:
 
 
 def main() -> int:
-    require(MODULE.split_version("1.2.3-r12") == ("1.2.3", "r12"), "APK r-release splits canonically")
+    require(MODULE.split_version("1.2.3-r13") == ("1.2.3", "r13"), "APK r-release splits canonically")
     require(MODULE.split_version("2026.08-2") == ("2026.08", "2"), "numeric package release splits canonically")
     require(not MODULE.is_forbidden_kernel_package("kmod-netlink-diag"),
             "metrics kernel module is explicitly allowed in the offline artifact")
@@ -77,7 +77,7 @@ def main() -> int:
             raise AssertionError("ambiguous APK provenance was accepted")
         print("PASS: ambiguous APK provenance fails closed")
 
-    print("All R12 APK manifest unit tests passed.")
+    print("All R13 APK manifest unit tests passed.")
     return 0
 
 

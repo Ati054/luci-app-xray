@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
 
-echo "=== R12 target portability without stat ==="
+echo "=== R13 target portability without stat ==="
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
-INSTALLER="${ROOT_DIR}/install_and_smoke_r12.sh"
+INSTALLER="${ROOT_DIR}/install_and_smoke_r13.sh"
 HARDWARE_SMOKE="${ROOT_DIR}/tests/hardware/profile_mode_smoke.sh"
 MASTER_RUNNER="${ROOT_DIR}/tests/run_tests.sh"
 TMP_DIR="$(mktemp -d)"
@@ -25,7 +25,7 @@ assert_no_target_stat() {
     echo "PASS: ${script_name} has no target stat invocation."
 }
 
-assert_no_target_stat "${INSTALLER}" "install_and_smoke_r12.sh"
+assert_no_target_stat "${INSTALLER}" "install_and_smoke_r13.sh"
 assert_no_target_stat "${HARDWARE_SMOKE}" "tests/hardware/profile_mode_smoke.sh"
 grep -Fq 'sh "${SCRIPT_DIR}/test_target_portability.sh"' "${MASTER_RUNNER}" || {
     echo "FAIL: target portability regression is not wired into the master runner" >&2
@@ -34,11 +34,11 @@ grep -Fq 'sh "${SCRIPT_DIR}/test_target_portability.sh"' "${MASTER_RUNNER}" || {
 echo "PASS: target portability regression is wired into the CI master runner."
 
 HELPERS="${TMP_DIR}/portability-helpers.sh"
-sed -n '/^# BEGIN R12_TARGET_PORTABILITY_HELPERS$/,/^# END R12_TARGET_PORTABILITY_HELPERS$/p' \
+sed -n '/^# BEGIN R13_TARGET_PORTABILITY_HELPERS$/,/^# END R13_TARGET_PORTABILITY_HELPERS$/p' \
     "${INSTALLER}" "${HARDWARE_SMOKE}" > "${HELPERS}"
 
-for helper_name in r12_file_size_bytes r12_verify_exact_file_size \
-    r12_exact_private_directory r12_exact_private_regular_file; do
+for helper_name in r13_file_size_bytes r13_verify_exact_file_size \
+    r13_exact_private_directory r13_exact_private_regular_file; do
     grep -q "^${helper_name}()" "${HELPERS}" || {
         echo "FAIL: runtime portability helper is missing: ${helper_name}" >&2
         exit 1
@@ -56,7 +56,7 @@ REAL_WC="$(command -v wc)"
 
 cat > "${BIN_DIR}/wc" <<EOF
 #!/bin/sh
-case "\${R12_TEST_WC_MODE:-normal}" in
+case "\${R13_TEST_WC_MODE:-normal}" in
     fail) exit 1 ;;
     malformed) printf '%s\n' not-a-number; exit 0 ;;
 esac
@@ -72,7 +72,7 @@ cat > "${BIN_DIR}/chmod" <<'EOF'
 mode="$1"
 shift
 for mode_path in "$@"; do
-    printf '%s|%s\n' "${mode}" "${mode_path}" >> "${R12_TEST_MODE_DB}"
+    printf '%s|%s\n' "${mode}" "${mode_path}" >> "${R13_TEST_MODE_DB}"
 done
 EOF
 "${HOST_CHMOD}" 0755 "${BIN_DIR}/chmod"
@@ -81,14 +81,14 @@ cat > "${BIN_DIR}/ls" <<'EOF'
 #!/bin/sh
 [ "$#" -eq 2 ] && [ "$1" = "-ld" ] || exit 2
 mode_path="$2"
-if [ "${R12_TEST_LS_MODE:-normal}" = "malformed" ]; then
+if [ "${R13_TEST_LS_MODE:-normal}" = "malformed" ]; then
     printf '%s\n' malformed-permission-output
     exit 0
 fi
 recorded_mode=""
 while IFS='|' read -r candidate_mode candidate_path; do
     [ "${candidate_path}" = "${mode_path}" ] && recorded_mode="${candidate_mode}"
-done < "${R12_TEST_MODE_DB}"
+done < "${R13_TEST_MODE_DB}"
 case "${recorded_mode}" in
     0700|700) permission_bits='rwx------' ;;
     0755|755) permission_bits='rwxr-xr-x' ;;
@@ -142,103 +142,103 @@ cat > "${HARNESS}" <<'EOF'
 #!/bin/sh
 set -eu
 
-. "${R12_HELPERS}"
+. "${R13_HELPERS}"
 
 command -v stat >/dev/null 2>&1 && {
     echo "FAIL: stat unexpectedly exists in restricted target PATH" >&2
     exit 1
 }
 
-chmod 0700 "${R12_PRIVATE_DIR}"
-chmod 0600 "${R12_PRIVATE_FILE}"
+chmod 0700 "${R13_PRIVATE_DIR}"
+chmod 0600 "${R13_PRIVATE_FILE}"
 
-r12_verify_exact_file_size "${R12_APK_FILE}" 6 || {
+r13_verify_exact_file_size "${R13_APK_FILE}" 6 || {
     echo "FAIL: correct APK byte size was rejected" >&2
     exit 1
 }
 echo "PASS: correct APK byte size is accepted without stat."
 
-if r12_verify_exact_file_size "${R12_APK_FILE}" 7; then
+if r13_verify_exact_file_size "${R13_APK_FILE}" 7; then
     echo "FAIL: incorrect APK byte size was accepted" >&2
     exit 1
 fi
 echo "PASS: incorrect APK byte size is rejected."
 
-if r12_verify_exact_file_size "${R12_MISSING_APK}" 0; then
+if r13_verify_exact_file_size "${R13_MISSING_APK}" 0; then
     echo "FAIL: missing APK was accepted" >&2
     exit 1
 fi
 echo "PASS: missing APK is rejected."
 
-R12_TEST_WC_MODE=fail
-export R12_TEST_WC_MODE
-if r12_verify_exact_file_size "${R12_UNREADABLE_APK}" 7; then
+R13_TEST_WC_MODE=fail
+export R13_TEST_WC_MODE
+if r13_verify_exact_file_size "${R13_UNREADABLE_APK}" 7; then
     echo "FAIL: unreadable APK was accepted" >&2
     exit 1
 fi
-unset R12_TEST_WC_MODE
+unset R13_TEST_WC_MODE
 echo "PASS: unreadable APK is rejected."
 
-R12_TEST_WC_MODE=malformed
-export R12_TEST_WC_MODE
-if r12_file_size_bytes "${R12_APK_FILE}" >/dev/null; then
+R13_TEST_WC_MODE=malformed
+export R13_TEST_WC_MODE
+if r13_file_size_bytes "${R13_APK_FILE}" >/dev/null; then
     echo "FAIL: malformed byte-count output was accepted" >&2
     exit 1
 fi
-unset R12_TEST_WC_MODE
+unset R13_TEST_WC_MODE
 echo "PASS: malformed byte-count output is rejected fail-closed."
 
-r12_exact_private_directory "${R12_PRIVATE_DIR}" || {
+r13_exact_private_directory "${R13_PRIVATE_DIR}" || {
     echo "FAIL: directory mode 0700 was rejected" >&2
     exit 1
 }
 echo "PASS: real directory mode 0700 is accepted."
 
-chmod 0755 "${R12_PRIVATE_DIR}"
-if r12_exact_private_directory "${R12_PRIVATE_DIR}"; then
+chmod 0755 "${R13_PRIVATE_DIR}"
+if r13_exact_private_directory "${R13_PRIVATE_DIR}"; then
     echo "FAIL: directory mode 0755 was accepted" >&2
     exit 1
 fi
-chmod 0700 "${R12_PRIVATE_DIR}"
+chmod 0700 "${R13_PRIVATE_DIR}"
 echo "PASS: directory mode 0755 is rejected."
 
-if r12_exact_private_directory "${R12_PRIVATE_DIR_LINK}"; then
+if r13_exact_private_directory "${R13_PRIVATE_DIR_LINK}"; then
     echo "FAIL: directory symlink was accepted" >&2
     exit 1
 fi
 echo "PASS: directory symlink is rejected."
 
-r12_exact_private_regular_file "${R12_PRIVATE_FILE}" || {
+r13_exact_private_regular_file "${R13_PRIVATE_FILE}" || {
     echo "FAIL: regular file mode 0600 was rejected" >&2
     exit 1
 }
 echo "PASS: real regular file mode 0600 is accepted."
 
-chmod 0644 "${R12_PRIVATE_FILE}"
-if r12_exact_private_regular_file "${R12_PRIVATE_FILE}"; then
+chmod 0644 "${R13_PRIVATE_FILE}"
+if r13_exact_private_regular_file "${R13_PRIVATE_FILE}"; then
     echo "FAIL: regular file mode 0644 was accepted" >&2
     exit 1
 fi
-chmod 0600 "${R12_PRIVATE_FILE}"
+chmod 0600 "${R13_PRIVATE_FILE}"
 echo "PASS: regular file mode 0644 is rejected."
 
-if r12_exact_private_regular_file "${R12_PRIVATE_FILE_LINK}"; then
+if r13_exact_private_regular_file "${R13_PRIVATE_FILE_LINK}"; then
     echo "FAIL: file symlink was accepted" >&2
     exit 1
 fi
 echo "PASS: file symlink is rejected."
 
-R12_TEST_LS_MODE=malformed
-export R12_TEST_LS_MODE
-if r12_exact_private_directory "${R12_PRIVATE_DIR}" || \
-    r12_exact_private_regular_file "${R12_PRIVATE_FILE}"; then
+R13_TEST_LS_MODE=malformed
+export R13_TEST_LS_MODE
+if r13_exact_private_directory "${R13_PRIVATE_DIR}" || \
+    r13_exact_private_regular_file "${R13_PRIVATE_FILE}"; then
     echo "FAIL: malformed permission output was accepted" >&2
     exit 1
 fi
-unset R12_TEST_LS_MODE
+unset R13_TEST_LS_MODE
 echo "PASS: malformed permission output is rejected fail-closed."
 
-[ ! -e "${R12_PACKAGE_MARKER}" ] || {
+[ ! -e "${R13_PACKAGE_MARKER}" ] || {
     echo "FAIL: package command ran during portability preflight" >&2
     exit 1
 }
@@ -248,15 +248,15 @@ echo "TARGET_PORTABILITY_WITHOUT_STAT_OK"
 EOF
 chmod 0755 "${HARNESS}"
 
-R12_HELPERS="${HELPERS}" \
-R12_APK_FILE="${APK_FILE}" \
-R12_UNREADABLE_APK="${UNREADABLE_APK}" \
-R12_MISSING_APK="${MISSING_APK}" \
-R12_PRIVATE_DIR="${PRIVATE_DIR}" \
-R12_PRIVATE_DIR_LINK="${TMP_DIR}/profiles-link" \
-R12_PRIVATE_FILE="${PRIVATE_FILE}" \
-R12_PRIVATE_FILE_LINK="${TMP_DIR}/profile-link.json" \
-R12_PACKAGE_MARKER="${PACKAGE_MARKER}" \
-R12_TEST_MODE_DB="${MODE_DB}" \
+R13_HELPERS="${HELPERS}" \
+R13_APK_FILE="${APK_FILE}" \
+R13_UNREADABLE_APK="${UNREADABLE_APK}" \
+R13_MISSING_APK="${MISSING_APK}" \
+R13_PRIVATE_DIR="${PRIVATE_DIR}" \
+R13_PRIVATE_DIR_LINK="${TMP_DIR}/profiles-link" \
+R13_PRIVATE_FILE="${PRIVATE_FILE}" \
+R13_PRIVATE_FILE_LINK="${TMP_DIR}/profile-link.json" \
+R13_PACKAGE_MARKER="${PACKAGE_MARKER}" \
+R13_TEST_MODE_DB="${MODE_DB}" \
 PATH="${BIN_DIR}" \
 /bin/sh "${HARNESS}"
