@@ -1,14 +1,14 @@
 #!/bin/sh
-# One-command, fail-closed OpenWrt 25.12.5 offline installer for R11.
+# One-command, fail-closed OpenWrt 25.12.5 offline installer for R12.
 
 set -eu
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
-CHECKSUM_FILE="${SCRIPT_DIR}/SHA256SUMS-R11.txt"
+CHECKSUM_FILE="${SCRIPT_DIR}/SHA256SUMS-R12.txt"
 XRAY_BIN="/opt/xray/current/xray"
 BUNDLED_XRAY="${SCRIPT_DIR}/xray-core-26.10.21-linux-arm64"
-DIAG_LOG="/tmp/xray-r11-install-$(date +%Y%m%dT%H%M%S)-$$.log"
-BACKUP_DIR="/tmp/xray-r11-backup-$(date +%Y%m%dT%H%M%S)-$$"
+DIAG_LOG="/tmp/xray-r12-install-$(date +%Y%m%dT%H%M%S)-$$.log"
+BACKUP_DIR="/tmp/xray-r12-backup-$(date +%Y%m%dT%H%M%S)-$$"
 BACKUP_READY=0
 PACKAGE_TRANSACTION_STARTED=0
 SUCCESS=0
@@ -66,85 +66,85 @@ disable_service_strict() {
     }
 }
 
-# BEGIN R11_TARGET_PORTABILITY_HELPERS
-r11_file_size_bytes() {
-    r11_size_path="$1"
-    [ -f "${r11_size_path}" ] && [ ! -L "${r11_size_path}" ] && [ -r "${r11_size_path}" ] || return 1
-    r11_size_value="$(LC_ALL=C wc -c < "${r11_size_path}")" || return 1
-    case "${r11_size_value}" in
+# BEGIN R12_TARGET_PORTABILITY_HELPERS
+r12_file_size_bytes() {
+    r12_size_path="$1"
+    [ -f "${r12_size_path}" ] && [ ! -L "${r12_size_path}" ] && [ -r "${r12_size_path}" ] || return 1
+    r12_size_value="$(LC_ALL=C wc -c < "${r12_size_path}")" || return 1
+    case "${r12_size_value}" in
         ''|*[!0-9]*) return 1 ;;
     esac
-    [ -f "${r11_size_path}" ] && [ ! -L "${r11_size_path}" ] && [ -r "${r11_size_path}" ] || return 1
-    printf '%s\n' "${r11_size_value}"
+    [ -f "${r12_size_path}" ] && [ ! -L "${r12_size_path}" ] && [ -r "${r12_size_path}" ] || return 1
+    printf '%s\n' "${r12_size_value}"
 }
 
-r11_verify_exact_file_size() {
-    r11_expected_bytes="$2"
-    case "${r11_expected_bytes}" in
+r12_verify_exact_file_size() {
+    r12_expected_bytes="$2"
+    case "${r12_expected_bytes}" in
         ''|*[!0-9]*) return 1 ;;
     esac
-    r11_actual_bytes="$(r11_file_size_bytes "$1")" || return 1
-    [ "${r11_actual_bytes}" = "${r11_expected_bytes}" ]
+    r12_actual_bytes="$(r12_file_size_bytes "$1")" || return 1
+    [ "${r12_actual_bytes}" = "${r12_expected_bytes}" ]
 }
-# END R11_TARGET_PORTABILITY_HELPERS
+# END R12_TARGET_PORTABILITY_HELPERS
 
-# BEGIN R11_APK_HELP_COMPATIBILITY_HELPERS
-r11_capture_apk_help() {
-    r11_help_output_path="$1"
+# BEGIN R12_APK_HELP_COMPATIBILITY_HELPERS
+r12_capture_apk_help() {
+    r12_help_output_path="$1"
     shift
     [ "$#" -gt 0 ] || {
         echo "ERROR: apk help command is missing" >&2
         return 1
     }
 
-    if "$@" --help > "${r11_help_output_path}" 2>&1; then
-        r11_help_rc=0
+    if "$@" --help > "${r12_help_output_path}" 2>&1; then
+        r12_help_rc=0
     else
-        r11_help_rc=$?
+        r12_help_rc=$?
     fi
 
-    case "${r11_help_rc}" in
+    case "${r12_help_rc}" in
         0|1) ;;
         *)
-            echo "ERROR: apk help command failed with exit ${r11_help_rc}: $*" >&2
+            echo "ERROR: apk help command failed with exit ${r12_help_rc}: $*" >&2
             return 1
             ;;
     esac
 
-    [ -s "${r11_help_output_path}" ] || {
+    [ -s "${r12_help_output_path}" ] || {
         echo "ERROR: apk help command produced no output: $*" >&2
         return 1
     }
 }
-# END R11_APK_HELP_COMPATIBILITY_HELPERS
+# END R12_APK_HELP_COMPATIBILITY_HELPERS
 
-# BEGIN R11_UCODE_MODULE_COMPATIBILITY_HELPERS
-r11_compile_ucode_source() {
-    r11_ucode_bin="$1"
-    r11_module_path="$2"
-    r11_import_wrapper="$3"
-    r11_compile_stderr="$4"
-    r11_compile_source="${r11_module_path}"
+# BEGIN R12_UCODE_MODULE_COMPATIBILITY_HELPERS
+r12_compile_ucode_source() {
+    r12_ucode_bin="$1"
+    r12_module_path="$2"
+    r12_import_wrapper="$3"
+    r12_compile_stderr="$4"
+    r12_compile_source="${r12_module_path}"
 
-    case "${r11_module_path}" in
+    case "${r12_module_path}" in
         *.mjs)
-            r11_escaped_module="$(printf '%s' "${r11_module_path}" | sed 's/[\\"]/\\&/g')"
+            r12_escaped_module="$(printf '%s' "${r12_module_path}" | sed 's/[\\"]/\\&/g')"
             printf 'import * as module_under_test from "%s";\n' \
-                "${r11_escaped_module}" > "${r11_import_wrapper}"
-            r11_compile_source="${r11_import_wrapper}"
+                "${r12_escaped_module}" > "${r12_import_wrapper}"
+            r12_compile_source="${r12_import_wrapper}"
             ;;
     esac
 
-    : > "${r11_compile_stderr}"
-    if "${r11_ucode_bin}" -cdynlink=ubus -o /dev/null "${r11_compile_source}" \
-        > /dev/null 2> "${r11_compile_stderr}"; then
-        r11_compile_rc=0
+    : > "${r12_compile_stderr}"
+    if "${r12_ucode_bin}" -cdynlink=ubus -o /dev/null "${r12_compile_source}" \
+        > /dev/null 2> "${r12_compile_stderr}"; then
+        r12_compile_rc=0
     else
-        r11_compile_rc=$?
+        r12_compile_rc=$?
     fi
-    return "${r11_compile_rc}"
+    return "${r12_compile_rc}"
 }
-# END R11_UCODE_MODULE_COMPATIBILITY_HELPERS
+# END R12_UCODE_MODULE_COMPATIBILITY_HELPERS
 
 manifest_source_allowed() {
     case "$1" in
@@ -261,7 +261,7 @@ failure_handler() {
     rm -f "${BACKUP_DIR}.metadata.json"
     rm -f "${BACKUP_DIR}.profiles.list"
     [ -z "${XRAY_STAGE_PATH:-}" ] || rm -f "${XRAY_STAGE_PATH}"
-    console "R11 installation failed; diagnostic log: ${DIAG_LOG}"
+    console "R12 installation failed; diagnostic log: ${DIAG_LOG}"
     echo "PRIMARY_EXIT_CODE=${primary_rc}"
 
     if [ "${BACKUP_READY}" -eq 0 ]; then
@@ -291,7 +291,7 @@ trap failure_handler EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-console "R11 offline installation started; diagnostic log: ${DIAG_LOG}"
+console "R12 offline installation started; diagnostic log: ${DIAG_LOG}"
 
 [ "$(id -u)" -eq 0 ] || {
     echo "ERROR: installer must run as root" >&2
@@ -339,14 +339,14 @@ command -v apk >/dev/null 2>&1 || {
     echo "ERROR: OpenWrt apk is unavailable" >&2
     exit 1
 }
-for required_command in awk find grep jsonfilter pidof sed sha256sum sort sync wc; do
+for required_command in awk find grep jsonfilter modprobe pidof sed sha256sum sort sync wc; do
     command -v "${required_command}" >/dev/null 2>&1 || {
         echo "ERROR: required target command is unavailable: ${required_command}" >&2
         exit 1
     }
 done
 
-# BEGIN R11_APK_HELP_COMPATIBILITY_PREFLIGHT
+# BEGIN R12_APK_HELP_COMPATIBILITY_PREFLIGHT
 APK_GLOBAL_HELP_PATH="${BACKUP_DIR}.apk-global-help"
 APK_INFO_HELP_PATH="${BACKUP_DIR}.apk-info-help"
 APK_ADD_HELP_PATH="${BACKUP_DIR}.apk-add-help"
@@ -355,11 +355,11 @@ APK_LIST_HELP_PATH="${BACKUP_DIR}.apk-list-help"
 APK_NO_NETWORK_PROBE_PATH="${BACKUP_DIR}.apk-no-network-probe"
 
 apk --version
-r11_capture_apk_help "${APK_GLOBAL_HELP_PATH}" apk
-r11_capture_apk_help "${APK_INFO_HELP_PATH}" apk info
-r11_capture_apk_help "${APK_ADD_HELP_PATH}" apk add
-r11_capture_apk_help "${APK_ADBDUMP_HELP_PATH}" apk adbdump
-r11_capture_apk_help "${APK_LIST_HELP_PATH}" apk list
+r12_capture_apk_help "${APK_GLOBAL_HELP_PATH}" apk
+r12_capture_apk_help "${APK_INFO_HELP_PATH}" apk info
+r12_capture_apk_help "${APK_ADD_HELP_PATH}" apk add
+r12_capture_apk_help "${APK_ADBDUMP_HELP_PATH}" apk adbdump
+r12_capture_apk_help "${APK_LIST_HELP_PATH}" apk list
 cat "${APK_GLOBAL_HELP_PATH}" "${APK_INFO_HELP_PATH}" "${APK_ADD_HELP_PATH}" \
     "${APK_ADBDUMP_HELP_PATH}" "${APK_LIST_HELP_PATH}"
 
@@ -414,7 +414,7 @@ grep -q -- '--installed' "${APK_LIST_HELP_PATH}" || {
 }
 rm -f "${APK_GLOBAL_HELP_PATH}" "${APK_INFO_HELP_PATH}" "${APK_ADD_HELP_PATH}" \
     "${APK_ADBDUMP_HELP_PATH}" "${APK_LIST_HELP_PATH}" "${APK_NO_NETWORK_PROBE_PATH}"
-# END R11_APK_HELP_COMPATIBILITY_PREFLIGHT
+# END R12_APK_HELP_COMPATIBILITY_PREFLIGHT
 
 for required_package in kmod-nf-tproxy kmod-nft-tproxy firewall4 luci-base dnsmasq ca-bundle; do
     apk info --exists "${required_package}" >/dev/null 2>&1 || {
@@ -424,7 +424,7 @@ for required_package in kmod-nf-tproxy kmod-nft-tproxy firewall4 luci-base dnsma
 done
 
 [ -s "${CHECKSUM_FILE}" ] || {
-    echo "ERROR: SHA256SUMS-R11.txt is missing or empty" >&2
+    echo "ERROR: SHA256SUMS-R12.txt is missing or empty" >&2
     exit 1
 }
 cd "${SCRIPT_DIR}"
@@ -434,7 +434,7 @@ if find . -maxdepth 1 -type f -size 0 -print | grep -q .; then
 fi
 
 for required_bundle_file in \
-    install_and_smoke_r11.sh \
+    install_and_smoke_r12.sh \
     profile_mode_smoke.sh \
     profile-smoke-a.json \
     profile-smoke-b.json \
@@ -444,8 +444,8 @@ for required_bundle_file in \
     BUILD-INFO-openwrt-25.12.5-all.txt \
     xray-sockstats-aarch64 \
     xray-core-26.10.21-linux-arm64 \
-    deploy_r11_to_raspberry.ps1 \
-    ROLLBACK-R11.txt; do
+    deploy_r12_to_raspberry.ps1 \
+    ROLLBACK-R12.txt; do
     [ -s "${required_bundle_file}" ] || {
         echo "ERROR: required bundle file is missing or empty: ${required_bundle_file}" >&2
         exit 1
@@ -510,14 +510,14 @@ for apk_file in "$@"; do
     esac
     case "${apk_package}" in
         luci-app-xray)
-            [ "${apk_version}" = "3.7.1-r11" ] || {
+            [ "${apk_version}" = "3.7.1-r12" ] || {
                 echo "ERROR: core APK has unexpected version ${apk_version}" >&2
                 exit 1
             }
             CORE_APK_COUNT=$((CORE_APK_COUNT + 1))
             ;;
         luci-app-xray-status)
-            [ "${apk_version}" = "3.7.1-r11" ] || {
+            [ "${apk_version}" = "3.7.1-r12" ] || {
                 echo "ERROR: status APK has unexpected version ${apk_version}" >&2
                 exit 1
             }
@@ -543,7 +543,7 @@ for apk_file in "$@"; do
             [ "${manifest_package}" = "${apk_package}" ] && \
                 [ "${manifest_full_version}" = "${apk_version}" ] && \
                 [ "${manifest_arch}" = "${apk_arch}" ] && \
-                r11_verify_exact_file_size "${apk_file}" "${manifest_bytes}" && \
+                r12_verify_exact_file_size "${apk_file}" "${manifest_bytes}" && \
                 [ "${manifest_sha256}" = "$(sha256sum "${apk_file}" | awk '{ print $1 }')" ] || {
                 echo "ERROR: manifest metadata does not match ${dependency_filename}" >&2
                 exit 1
@@ -552,7 +552,7 @@ for apk_file in "$@"; do
                 echo "ERROR: manifest source is not an approved OpenWrt 25.12.5 repository: ${manifest_source}" >&2
                 exit 1
             }
-            if [ "${apk_package}" = "kmod-netlink-diag" ]; then
+            if [ "${apk_package}" = "kmod-netlink-diag" ] || [ "${apk_package}" = "kmod-tcp-bbr" ]; then
                 installed_kernel_version="$(apk list --installed kernel | sed -n 's/^kernel-\([^[:space:]]*\).*/\1/p' | head -n 1)"
                 [ -n "${installed_kernel_version}" ] || {
                     echo "ERROR: installed kernel package version is unavailable" >&2
@@ -561,7 +561,7 @@ for apk_file in "$@"; do
                 case " ${manifest_dependencies} " in
                     *" kernel=${installed_kernel_version} "*) ;;
                     *)
-                    echo "ERROR: kmod-netlink-diag does not match the installed kernel ABI" >&2
+                    echo "ERROR: ${apk_package} does not match the installed kernel ABI" >&2
                     exit 1
                     ;;
                 esac
@@ -575,7 +575,7 @@ for apk_file in "$@"; do
 done
 rm -f "${BACKUP_DIR}.metadata.json"
 [ "${CORE_APK_COUNT}" -eq 1 ] && [ "${STATUS_APK_COUNT}" -eq 1 ] || {
-    echo "ERROR: bundle must contain exactly one core and one status R11 APK" >&2
+    echo "ERROR: bundle must contain exactly one core and one status R12 APK" >&2
     exit 1
 }
 
@@ -586,7 +586,7 @@ awk -F ';' 'NR > 1 { print $1 }' OFFLINE-PACKAGES-MANIFEST.txt | while IFS= read
     }
 done
 
-sha256sum -c SHA256SUMS-R11.txt
+sha256sum -c SHA256SUMS-R12.txt
 
 chmod 0700 "${BUNDLED_XRAY}"
 BUNDLED_XRAY_VERSION_LINE="$("${BUNDLED_XRAY}" version 2>&1 | sed -n '1p')"
@@ -675,7 +675,7 @@ if [ "$(cat "${BACKUP_DIR}/xray_profiles.running")" = "0" ] && [ -s "${BACKUP_DI
     exit 1
 fi
 BACKUP_READY=1
-console "R11 target backup completed: ${BACKUP_DIR}"
+console "R12 target backup completed: ${BACKUP_DIR}"
 
 stop_service_strict xray_core
 stop_service_strict xray_profiles
@@ -718,12 +718,12 @@ case "${XRAY_VERSION_LINE}" in
 esac
 console "Xray core atomically updated to 26.10.21"
 
-apk list --installed luci-app-xray | grep -Eq '^luci-app-xray-3\.7\.1-r11([[:space:]]|$)' || {
-    echo "ERROR: luci-app-xray 3.7.1-r11 is not installed" >&2
+apk list --installed luci-app-xray | grep -Eq '^luci-app-xray-3\.7\.1-r12([[:space:]]|$)' || {
+    echo "ERROR: luci-app-xray 3.7.1-r12 is not installed" >&2
     exit 1
 }
-apk list --installed luci-app-xray-status | grep -Eq '^luci-app-xray-status-3\.7\.1-r11([[:space:]]|$)' || {
-    echo "ERROR: luci-app-xray-status 3.7.1-r11 is not installed" >&2
+apk list --installed luci-app-xray-status | grep -Eq '^luci-app-xray-status-3\.7\.1-r12([[:space:]]|$)' || {
+    echo "ERROR: luci-app-xray-status 3.7.1-r12 is not installed" >&2
     exit 1
 }
 command -v timeout >/dev/null 2>&1 || {
@@ -736,6 +736,18 @@ command -v ss >/dev/null 2>&1 || {
 }
 apk info --exists kmod-netlink-diag >/dev/null 2>&1 || {
     echo "ERROR: installed traffic metrics dependency kmod-netlink-diag is missing" >&2
+    exit 1
+}
+apk info --exists kmod-tcp-bbr >/dev/null 2>&1 || {
+    echo "ERROR: installed reverse throughput dependency kmod-tcp-bbr is missing" >&2
+    exit 1
+}
+modprobe tcp_bbr >/dev/null 2>&1 || {
+    echo "ERROR: installed tcp_bbr kernel module cannot be loaded" >&2
+    exit 1
+}
+grep -qw bbr /proc/sys/net/ipv4/tcp_available_congestion_control || {
+    echo "ERROR: BBR is unavailable after loading kmod-tcp-bbr" >&2
     exit 1
 }
 
@@ -754,6 +766,7 @@ for executable_path in \
     /usr/libexec/rpcd/xray_profiles \
     /usr/libexec/xray-sockstats \
     /usr/share/xray/gen_config.uc \
+    /usr/share/xray/profile_runtime.uc \
     /usr/share/xray/default_gateway.uc \
     /usr/share/xray/dnsmasq_include.ut \
     /usr/share/xray/firewall_include.ut; do
@@ -784,7 +797,7 @@ UCODE_PARSE_STDERR="${BACKUP_DIR}/ucode-parse.stderr"
 : > "${UCODE_PARSE_STDERR}"
 find /usr/share/xray -type f \( -name '*.uc' -o -name '*.mjs' \) -print | sort > "${UCODE_MODULE_LIST}"
 while IFS= read -r module_path; do
-    if ! r11_compile_ucode_source "${UCODE_BIN}" "${module_path}" \
+    if ! r12_compile_ucode_source "${UCODE_BIN}" "${module_path}" \
         "${UCODE_IMPORT_WRAPPER}" "${UCODE_COMPILE_STDERR}"; then
         {
             echo "ERROR: installed ucode source did not compile: ${module_path}"
@@ -834,5 +847,5 @@ console "Pre-update Xray service and active-profile state restored"
 
 SUCCESS=1
 trap - EXIT INT TERM
-console "R11_INSTALL_AND_HARDWARE_SMOKE_OK"
+console "R12_INSTALL_AND_HARDWARE_SMOKE_OK"
 exit 0

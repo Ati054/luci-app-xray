@@ -39,7 +39,7 @@ grep -Fq 'update-keys/release-rsa.pem' "${MAKEFILE}"
 grep -Fq 'XRAY_RELEASE_SIGNING_KEY_PEM' "${WORKFLOW}"
 grep -Fq 'openssl dgst -sha256 -sign' "${WORKFLOW}"
 grep -Fq 'openssl dgst -sha256 \' "${WORKFLOW}"
-grep -Fq 'luci-app-xray-3.7.1-r11-openwrt-25.12.5-aarch64_cortex-a53.tar.gz' "${WORKFLOW}"
+grep -Fq 'luci-app-xray-3.7.1-r12-openwrt-25.12.5-aarch64_cortex-a53.tar.gz' "${WORKFLOW}"
 grep -Fq '"xray_version": "26.10.21"' "${WORKFLOW}"
 
 echo 'XRAY_SIGNED_GITHUB_UPDATE_OK'

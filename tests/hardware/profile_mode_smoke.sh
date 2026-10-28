@@ -7,6 +7,7 @@ SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 XRAY_BIN="/opt/xray/current/xray"
 RPCD_BACKEND="/usr/libexec/rpcd/xray_profiles"
 PROFILES_DIR="/opt/xray/profiles"
+RUNTIME_PROFILES_DIR="/var/run/xray-profiles"
 
 resolve_fixture() {
     fixture_name="$1"
@@ -57,32 +58,38 @@ require_command() {
     }
 }
 
-# BEGIN R11_TARGET_PORTABILITY_HELPERS
-r11_permission_field() {
-    r11_mode_listing="$(LC_ALL=C ls -ld "$1")" || return 1
-    r11_mode_field="${r11_mode_listing%% *}"
-    [ -n "${r11_mode_field}" ] || return 1
-    printf '%s\n' "${r11_mode_field}"
+# BEGIN R12_TARGET_PORTABILITY_HELPERS
+r12_permission_field() {
+    r12_mode_listing="$(LC_ALL=C ls -ld "$1")" || return 1
+    r12_mode_field="${r12_mode_listing%% *}"
+    [ -n "${r12_mode_field}" ] || return 1
+    printf '%s\n' "${r12_mode_field}"
 }
 
-r11_exact_private_directory() {
-    r11_mode_path="$1"
-    [ -d "${r11_mode_path}" ] && [ ! -L "${r11_mode_path}" ] || return 1
-    r11_verified_mode="$(r11_permission_field "${r11_mode_path}")" || return 1
-    [ -d "${r11_mode_path}" ] && [ ! -L "${r11_mode_path}" ] && [ "${r11_verified_mode}" = "drwx------" ]
+r12_exact_private_directory() {
+    r12_mode_path="$1"
+    [ -d "${r12_mode_path}" ] && [ ! -L "${r12_mode_path}" ] || return 1
+    r12_verified_mode="$(r12_permission_field "${r12_mode_path}")" || return 1
+    [ -d "${r12_mode_path}" ] && [ ! -L "${r12_mode_path}" ] && [ "${r12_verified_mode}" = "drwx------" ]
 }
 
-r11_exact_private_regular_file() {
-    r11_mode_path="$1"
-    [ -f "${r11_mode_path}" ] && [ ! -L "${r11_mode_path}" ] || return 1
-    r11_verified_mode="$(r11_permission_field "${r11_mode_path}")" || return 1
-    [ -f "${r11_mode_path}" ] && [ ! -L "${r11_mode_path}" ] && [ "${r11_verified_mode}" = "-rw-------" ]
+r12_exact_private_regular_file() {
+    r12_mode_path="$1"
+    [ -f "${r12_mode_path}" ] && [ ! -L "${r12_mode_path}" ] || return 1
+    r12_verified_mode="$(r12_permission_field "${r12_mode_path}")" || return 1
+    [ -f "${r12_mode_path}" ] && [ ! -L "${r12_mode_path}" ] && [ "${r12_verified_mode}" = "-rw-------" ]
 }
-# END R11_TARGET_PORTABILITY_HELPERS
+# END R12_TARGET_PORTABILITY_HELPERS
 
 for command_name in awk cat find grep ip jsonfilter ls mktemp nft sed sha256sum sort ss timeout tr ubus uci; do
     require_command "${command_name}"
 done
+
+SYSTEM_TCP_CC_BEFORE="$(cat /proc/sys/net/ipv4/tcp_congestion_control)"
+grep -qw bbr /proc/sys/net/ipv4/tcp_available_congestion_control || {
+    echo "ERROR: BBR is unavailable to reverse profile sockets" >&2
+    exit 1
+}
 
 [ -r /etc/openwrt_release ] || {
     echo "ERROR: /etc/openwrt_release is unavailable" >&2
@@ -120,7 +127,7 @@ for service_script in /etc/init.d/xray_core /etc/init.d/xray_profiles; do
     }
 done
 
-TMP_DIR="$(mktemp -d /tmp/xray-r11-smoke.XXXXXX)"
+TMP_DIR="$(mktemp -d /tmp/xray-r12-smoke.XXXXXX)"
 chmod 0700 "${TMP_DIR}"
 IMPORTED_A=0
 IMPORTED_B=0
@@ -353,12 +360,12 @@ fi
 IMPORTED_B=1
 
 set_smoke_phase "verify private profile storage"
-r11_exact_private_directory "${PROFILES_DIR}" || {
+r12_exact_private_directory "${PROFILES_DIR}" || {
     echo "ERROR: profile directory mode is not 0700" >&2
     exit 1
 }
 for profile_file in "${PROFILES_DIR}/smoke-a.json" "${PROFILES_DIR}/smoke-b.json"; do
-    r11_exact_private_regular_file "${profile_file}" || {
+    r12_exact_private_regular_file "${profile_file}" || {
         echo "ERROR: profile file mode is not 0600: ${profile_file}" >&2
         exit 1
     }
@@ -373,6 +380,28 @@ if ! START_B_RESULT="$(backend_call start '{"id":"smoke_b"}')"; then
     echo "ERROR: profile B start RPC failed: ${START_B_RESULT:-no response}" >&2
     exit 1
 fi
+[ "$(cat /proc/sys/net/ipv4/tcp_congestion_control)" = "${SYSTEM_TCP_CC_BEFORE}" ] || {
+    echo "ERROR: starting reverse profiles changed the system TCP congestion algorithm" >&2
+    exit 1
+}
+for runtime_profile in \
+    "${RUNTIME_PROFILES_DIR}/profile_smoke_a.json" \
+    "${RUNTIME_PROFILES_DIR}/profile_smoke_b.json"; do
+    r12_exact_private_regular_file "${runtime_profile}" || {
+        echo "ERROR: BBR runtime profile is missing or not private: ${runtime_profile}" >&2
+        exit 1
+    }
+    [ "$(jsonfilter -i "${runtime_profile}" -e '@.outbounds[@.settings.reverse].streamSettings.sockopt.tcpcongestion')" = "bbr" ] || {
+        echo "ERROR: runtime profile does not select BBR: ${runtime_profile}" >&2
+        exit 1
+    }
+done
+for stored_profile in "${PROFILES_DIR}/smoke-a.json" "${PROFILES_DIR}/smoke-b.json"; do
+    [ -z "$(jsonfilter -i "${stored_profile}" -e '@.outbounds[@.settings.reverse].streamSettings.sockopt.tcpcongestion' 2>/dev/null)" ] || {
+        echo "ERROR: stored profile was modified with a runtime-only BBR setting: ${stored_profile}" >&2
+        exit 1
+    }
+done
 if ! RUNNING_LIST="$(backend_call list '{}')"; then
     echo "ERROR: unable to list running smoke profiles" >&2
     exit 1

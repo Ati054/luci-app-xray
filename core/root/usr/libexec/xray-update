@@ -1,5 +1,5 @@
 #!/bin/sh
-# Signed, RAM-staged GitHub updater for the complete Raspberry Pi R11 bundle.
+# Signed, RAM-staged GitHub updater for the complete Raspberry Pi R12 bundle.
 set -eu
 
 PACKAGE=luci-app-xray
@@ -12,7 +12,7 @@ PHASE=${STATE}/phase
 REMOTE_PHASE=${STATE}/remote-phase
 RUNNER=/tmp/.xray-update-runner
 CANDIDATE=/tmp/.xray-update-bundle.tar.gz
-EXTRACTED=/tmp/xray-r11-update-bundle
+EXTRACTED=/tmp/xray-r12-update-bundle
 PUBLIC_KEY=/usr/share/xray/update-keys/release-rsa.pem
 MANIFEST_URL=https://github.com/${REPOSITORY}/releases/latest/download/release.json
 SIGNATURE_URL=https://github.com/${REPOSITORY}/releases/latest/download/release.json.sig
@@ -216,7 +216,7 @@ install_worker() {
 	if (cd "${EXTRACTED}" && sh "./${old_installer}") > "${STATE}/install.log" 2>&1; then
 		grep -Fxq "${old_success_marker}" "${STATE}/install.log" || die "Установщик завершился без контрольного маркера релиза"
 	else
-		die "Установка R11 завершилась ошибкой: $(last_error "${STATE}/install.log")"
+		die "Установка R12 завершилась ошибкой: $(last_error "${STATE}/install.log")"
 	fi
 	echo completed > "${REMOTE_PHASE}"
 	write_phase completed

@@ -12,6 +12,64 @@ XRAY_BIN="${XRAY_BIN:-/opt/xray/current/xray}"
 XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET:-/opt/xray/current}"
 XRAY_RUN_DIR="${XRAY_RUN_DIR:-/var/run}"
 WATCHDOG_BIN="${XRAY_WATCHDOG_BIN:-/usr/libexec/xray-profile-watchdog}"
+RUNTIME_CONFIG_BIN="${XRAY_RUNTIME_CONFIG_BIN:-/usr/share/xray/profile_runtime.uc}"
+RUNTIME_CONFIG_DIR="${XRAY_PROFILE_RUNTIME_DIR:-${XRAY_RUN_DIR}/xray-profiles}"
+TCP_AVAILABLE_CONGESTION_CONTROL="${XRAY_TCP_AVAILABLE_CONGESTION_CONTROL:-/proc/sys/net/ipv4/tcp_available_congestion_control}"
+MODPROBE_BIN="${XRAY_MODPROBE_BIN:-modprobe}"
+
+ensure_bbr_available() {
+    if [ -r "$TCP_AVAILABLE_CONGESTION_CONTROL" ] && \
+       grep -qw bbr "$TCP_AVAILABLE_CONGESTION_CONTROL" 2>/dev/null; then
+        return 0
+    fi
+
+    if command -v "$MODPROBE_BIN" >/dev/null 2>&1; then
+        "$MODPROBE_BIN" tcp_bbr >/dev/null 2>&1 || true
+    fi
+
+    if [ -r "$TCP_AVAILABLE_CONGESTION_CONTROL" ] && \
+       grep -qw bbr "$TCP_AVAILABLE_CONGESTION_CONTROL" 2>/dev/null; then
+        return 0
+    fi
+
+    logger -st "${NAME}[$$]" -p3 "BBR is unavailable; install/load the matching kmod-tcp-bbr package"
+    return 1
+}
+
+prepare_runtime_profile() {
+    local cfg="$1"
+    local profile_file="$2"
+    local runtime_file="${RUNTIME_CONFIG_DIR}/profile_${cfg}.json"
+    local runtime_tmp="${runtime_file}.tmp.$$"
+
+    [ -x "$RUNTIME_CONFIG_BIN" ] || {
+        logger -st "${NAME}[$$]" -p3 "Runtime profile generator missing or not executable: $RUNTIME_CONFIG_BIN"
+        return 1
+    }
+
+    ensure_bbr_available || return 1
+
+    mkdir -p "$RUNTIME_CONFIG_DIR" || return 1
+    chmod 0700 "$RUNTIME_CONFIG_DIR" 2>/dev/null || true
+    rm -f "$runtime_tmp"
+
+    if ! ucode "$RUNTIME_CONFIG_BIN" "$profile_file" >"$runtime_tmp"; then
+        rm -f "$runtime_tmp"
+        logger -st "${NAME}[$$]" -p3 "Failed to prepare BBR runtime profile: $profile_file"
+        return 1
+    fi
+
+    chmod 0600 "$runtime_tmp" || {
+        rm -f "$runtime_tmp"
+        return 1
+    }
+    mv -f "$runtime_tmp" "$runtime_file" || {
+        rm -f "$runtime_tmp"
+        return 1
+    }
+
+    printf '%s\n' "$runtime_file"
+}
 
 start_watchdog_instance() {
     if [ ! -x "$WATCHDOG_BIN" ]; then
@@ -60,14 +118,19 @@ start_profile_instance() {
         return 1
     fi
 
-    # Pre-start validation with real Xray binary
+    # Pre-start validation with real Xray binary and a private runtime-only
+    # profile. Stored JSON remains untouched; only VLESS Reverse sockets get BBR.
     if [ ! -x "$XRAY_BIN" ]; then
         logger -st "${NAME}[$$]" -p3 "Xray binary missing or not executable: $XRAY_BIN"
         return 1
     fi
 
-    if ! XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET}" "$XRAY_BIN" run -test -config "$profile_file" >/dev/null 2>&1; then
+    local runtime_profile
+    runtime_profile="$(prepare_runtime_profile "$cfg" "$profile_file")" || return 1
+
+    if ! XRAY_LOCATION_ASSET="${XRAY_LOCATION_ASSET}" "$XRAY_BIN" run -test -config "$runtime_profile" >/dev/null 2>&1; then
         logger -st "${NAME}[$$]" -p3 "Validation failed for profile: $name ($filename) - skipping"
+        rm -f "$runtime_profile"
         return 1
     fi
 
@@ -78,7 +141,7 @@ start_profile_instance() {
     procd_set_param command "$XRAY_BIN"
     procd_append_param command run
     procd_append_param command -config
-    procd_append_param command "$profile_file"
+    procd_append_param command "$runtime_profile"
 
     local rlimit_nofile=""
     if [ -s /usr/share/xray/rlimit_nofile ]; then
@@ -109,6 +172,8 @@ start_service() {
     local target_id="$1"
     mkdir -p "${PROFILES_DIR}"
     chmod 0700 "${PROFILES_DIR}" 2>/dev/null || true
+    mkdir -p "${RUNTIME_CONFIG_DIR}"
+    chmod 0700 "${RUNTIME_CONFIG_DIR}" 2>/dev/null || true
 
     config_load "${UCI_PACKAGE}"
     start_watchdog_instance || true
@@ -144,6 +209,9 @@ stop_service() {
     if [ -n "$target_id" ]; then
         # Stop specific procd instance via targeted delete
         ubus call service delete "{\"name\": \"${NAME}\", \"instance\": \"profile_${target_id}\"}" >/dev/null 2>&1 || true
+        rm -f "${RUNTIME_CONFIG_DIR}/profile_${target_id}.json"
+    else
+        rm -rf "${RUNTIME_CONFIG_DIR}"
     fi
     # If no target_id, procd automatically stops all instances of xray_profiles
 }
@@ -151,6 +219,8 @@ stop_service() {
 reload_service() {
     mkdir -p "${PROFILES_DIR}"
     chmod 0700 "${PROFILES_DIR}" 2>/dev/null || true
+    mkdir -p "${RUNTIME_CONFIG_DIR}"
+    chmod 0700 "${RUNTIME_CONFIG_DIR}" 2>/dev/null || true
 
     config_load "${UCI_PACKAGE}"
     start_watchdog_instance || true

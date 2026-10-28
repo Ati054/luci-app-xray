@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-xray
 PKG_VERSION:=3.7.1
-PKG_RELEASE:=11
+PKG_RELEASE:=12
 PKGARCH:=$(ARCH_PACKAGES)
 
 PKG_LICENSE:=MPL-2.0
@@ -18,7 +18,7 @@ PKG_CONFIG_DEPENDS:= \
 
 LUCI_TITLE:=LuCI Xray client with modern VLESS Reverse
 LUCI_DESCRIPTION:=LuCI client for Xray with modern VLESS Reverse support and optional transparent proxy features.
-LUCI_DEPENDS:=+ucode +ucode-mod-uci +ucode-mod-fs +coreutils-base64 +coreutils-timeout +ca-bundle +uclient-fetch +openssl-util +ip-full +ss +kmod-nft-tproxy +firewall4 +dnsmasq
+LUCI_DEPENDS:=+ucode +ucode-mod-uci +ucode-mod-fs +coreutils-base64 +coreutils-timeout +ca-bundle +uclient-fetch +openssl-util +ip-full +ss +kmod-tcp-bbr +kmod-nft-tproxy +firewall4 +dnsmasq
 LUCI_PKGARCH:=$(ARCH_PACKAGES)
 
 include $(INCLUDE_DIR)/package.mk
@@ -166,6 +166,7 @@ endif
 	$(INSTALL_BIN) ./root/usr/share/xray/firewall_include.ut $(1)/usr/share/xray/firewall_include.ut
 	$(INSTALL_DATA) ./root/usr/share/xray/gen_config.mjs $(1)/usr/share/xray/gen_config.mjs
 	$(INSTALL_BIN) ./root/usr/share/xray/gen_config.uc $(1)/usr/share/xray/gen_config.uc
+	$(INSTALL_BIN) ./root/usr/share/xray/profile_runtime.uc $(1)/usr/share/xray/profile_runtime.uc
 	$(INSTALL_DIR) $(1)/usr/share/xray/common
 	$(INSTALL_DATA) ./root/usr/share/xray/common/config.mjs $(1)/usr/share/xray/common/config.mjs
 	$(INSTALL_DATA) ./root/usr/share/xray/common/stream.mjs $(1)/usr/share/xray/common/stream.mjs

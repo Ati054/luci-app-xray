@@ -9,7 +9,7 @@ from unittest import mock
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("r11_apk_manifest", ROOT / "scripts/r11_apk_manifest.py")
+SPEC = importlib.util.spec_from_file_location("r12_apk_manifest", ROOT / "scripts/r12_apk_manifest.py")
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(MODULE)
@@ -22,7 +22,7 @@ def require(condition: bool, message: str) -> None:
 
 
 def main() -> int:
-    require(MODULE.split_version("1.2.3-r11") == ("1.2.3", "r11"), "APK r-release splits canonically")
+    require(MODULE.split_version("1.2.3-r12") == ("1.2.3", "r12"), "APK r-release splits canonically")
     require(MODULE.split_version("2026.08-2") == ("2026.08", "2"), "numeric package release splits canonically")
 
     completed = subprocess.CompletedProcess(args=[], returncode=0,
@@ -69,7 +69,7 @@ def main() -> int:
             raise AssertionError("ambiguous APK provenance was accepted")
         print("PASS: ambiguous APK provenance fails closed")
 
-    print("All R11 APK manifest unit tests passed.")
+    print("All R12 APK manifest unit tests passed.")
     return 0
 
 

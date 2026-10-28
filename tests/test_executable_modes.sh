@@ -11,6 +11,7 @@ for f in core/root/etc/init.d/xray_core \
          core/root/usr/libexec/xray-profile-watchdog \
          core/root/usr/libexec/xray-update \
          core/root/usr/share/xray/gen_config.uc \
+         core/root/usr/share/xray/profile_runtime.uc \
          core/root/usr/share/xray/default_gateway.uc \
          core/root/usr/share/xray/dnsmasq_include.ut \
          core/root/usr/share/xray/firewall_include.ut; do

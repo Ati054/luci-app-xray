@@ -312,6 +312,9 @@ EOF
     echo '{"outbounds":[{"protocol":"vless","settings":{"reverse":{"tag":"rev-in"}}}]}' > "${PROFILES_DIR}/profile2.json"
     printf '%s\n' '#!/bin/sh' 'exit 0' > "${MOCK_DIR}/profile-watchdog"
     chmod 0755 "${MOCK_DIR}/profile-watchdog"
+    printf '%s\n' '#!/usr/bin/ucode' > "${MOCK_DIR}/profile-runtime.uc"
+    chmod 0755 "${MOCK_DIR}/profile-runtime.uc"
+    printf '%s\n' 'reno cubic bbr' > "${MOCK_DIR}/tcp_available_congestion_control"
 
     # Mock ubus
     cat << EOF > "${MOCK_DIR}/bin/ubus"
@@ -362,6 +365,9 @@ EOF
         PROFILES_DIR="${PROFILES_DIR}"
         XRAY_BIN="${MOCK_DIR}/opt/xray/current/xray"
         XRAY_WATCHDOG_BIN="${MOCK_DIR}/profile-watchdog"
+        XRAY_RUNTIME_CONFIG_BIN="${MOCK_DIR}/profile-runtime.uc"
+        XRAY_PROFILE_RUNTIME_DIR="${MOCK_DIR}/var/run/xray-profiles"
+        XRAY_TCP_AVAILABLE_CONGESTION_CONTROL="${MOCK_DIR}/tcp_available_congestion_control"
         NAME="xray_profiles"
         UCI_PACKAGE="xray_core"
         . "${PROFILES_INIT}"

@@ -35,21 +35,21 @@ assert_equal "0" "${HAS_XRAY_CORE_DEP}" "core/Makefile must not depend on +xray-
 HAS_OPT_SYMLINK=$(grep -c "LN.*opt/xray/current/xray" "${CORE_MAKEFILE}" || true)
 assert_equal "1" "$((HAS_OPT_SYMLINK > 0))" "core/Makefile must install symlink pointing to /opt/xray/current/xray"
 
-# Test 3: PKG_RELEASE must be 11 across core, status, and geodata Makefiles
+# Test 3: PKG_RELEASE must be 12 across core, status, and geodata Makefiles
 CORE_REL=$(grep "^PKG_RELEASE:=" "${CORE_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 STATUS_REL=$(grep "^PKG_RELEASE:=" "${STATUS_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 GEODATA_REL=$(grep "^PKG_RELEASE:=" "${GEODATA_MAKEFILE}" | cut -d= -f2 | tr -d ' \r\n' || true)
 
-assert_equal "11" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=11"
-assert_equal "11" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=11"
-assert_equal "11" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=11"
+assert_equal "12" "${CORE_REL}" "core/Makefile has PKG_RELEASE:=12"
+assert_equal "12" "${STATUS_REL}" "status/Makefile has PKG_RELEASE:=12"
+assert_equal "12" "${GEODATA_REL}" "geodata/Makefile has PKG_RELEASE:=12"
 
 # The OpenWrt 23.05 luci.mk helper drops PKG_RELEASE from the package VERSION.
-# Use package.mk directly so both legacy IPK and modern APK builders encode R11.
+# Use package.mk directly so both legacy IPK and modern APK builders encode R12.
 HAS_NATIVE_PACKAGE_MK=$(grep -Fc 'include $(INCLUDE_DIR)/package.mk' "${CORE_MAKEFILE}" || true)
 HAS_LUCI_MK=$(grep -Fc 'feeds/luci/luci.mk' "${CORE_MAKEFILE}" || true)
 HAS_BUILD_PACKAGE=$(grep -Fc '$(eval $(call BuildPackage,$(PKG_NAME)))' "${CORE_MAKEFILE}" || true)
-assert_equal "1" "$((HAS_NATIVE_PACKAGE_MK > 0))" "core/Makefile uses package.mk so IPK preserves release 11"
+assert_equal "1" "$((HAS_NATIVE_PACKAGE_MK > 0))" "core/Makefile uses package.mk so IPK preserves release 12"
 assert_equal "0" "${HAS_LUCI_MK}" "core/Makefile does not use luci.mk version override"
 assert_equal "1" "$((HAS_BUILD_PACKAGE > 0))" "core/Makefile evaluates its package definition"
 
@@ -58,9 +58,11 @@ LUCI_DEP_LINE=$(grep "^[[:space:]]*LUCI_DEPENDS:=" "${CORE_MAKEFILE}" || true)
 HAS_FW4=$(echo "${LUCI_DEP_LINE}" | grep -c "+firewall4" || true)
 HAS_DNSMASQ=$(echo "${LUCI_DEP_LINE}" | grep -c "+dnsmasq" || true)
 HAS_SS=$(echo "${LUCI_DEP_LINE}" | grep -E -c '(^|[[:space:]])\+ss([[:space:]]|$)' || true)
+HAS_TCP_BBR=$(echo "${LUCI_DEP_LINE}" | grep -E -c '(^|[[:space:]])\+kmod-tcp-bbr([[:space:]]|$)' || true)
 assert_equal "1" "$((HAS_FW4 > 0))" "core/Makefile contains +firewall4 in LUCI_DEPENDS"
 assert_equal "1" "$((HAS_DNSMASQ > 0))" "core/Makefile contains +dnsmasq in LUCI_DEPENDS"
 assert_equal "1" "$((HAS_SS > 0))" "core/Makefile contains +ss in LUCI_DEPENDS"
+assert_equal "1" "$((HAS_TCP_BBR > 0))" "core/Makefile contains +kmod-tcp-bbr in LUCI_DEPENDS"
 
 # Test 4: core/Makefile installs xray_profiles init script and rpcd backend
 HAS_PROFILES_INIT=$(grep -c "init.d/xray_profiles" "${CORE_MAKEFILE}" || true)
@@ -69,6 +71,7 @@ HAS_PROFILES_VIEW=$(grep -c "view/xray/profiles.js" "${CORE_MAKEFILE}" || true)
 HAS_LOGS_VIEW=$(grep -c "view/xray/logs.js" "${CORE_MAKEFILE}" || true)
 HAS_UPDATE_VIEW=$(grep -c "view/xray/update.js" "${CORE_MAKEFILE}" || true)
 HAS_GEN_MJS=$(grep -c "gen_config.mjs" "${CORE_MAKEFILE}" || true)
+HAS_PROFILE_RUNTIME=$(grep -c "profile_runtime.uc" "${CORE_MAKEFILE}" || true)
 HAS_SOCKSTATS=$(grep -c "usr/libexec/xray-sockstats" "${CORE_MAKEFILE}" || true)
 HAS_PROFILE_WATCHDOG=$(grep -c "usr/libexec/xray-profile-watchdog" "${CORE_MAKEFILE}" || true)
 HAS_UPDATE_HELPER=$(grep -c "usr/libexec/xray-update" "${CORE_MAKEFILE}" || true)
@@ -81,6 +84,7 @@ assert_equal "1" "$((HAS_PROFILES_VIEW > 0))" "core/Makefile installs view/xray/
 assert_equal "1" "$((HAS_LOGS_VIEW > 0))" "core/Makefile installs the bounded RAM log view"
 assert_equal "1" "$((HAS_UPDATE_VIEW > 0))" "core/Makefile installs the signed GitHub update view"
 assert_equal "1" "$((HAS_GEN_MJS > 0))" "core/Makefile installs gen_config.mjs"
+assert_equal "1" "$((HAS_PROFILE_RUNTIME > 0))" "core/Makefile installs the runtime-only BBR profile overlay"
 assert_equal "1" "$((HAS_SOCKSTATS > 0))" "core/Makefile installs the native read-only socket collector"
 assert_equal "1" "$((HAS_PROFILE_WATCHDOG > 0))" "core/Makefile installs the per-profile connection watchdog"
 assert_equal "1" "$((HAS_UPDATE_HELPER > 0))" "core/Makefile installs the signed GitHub update helper"

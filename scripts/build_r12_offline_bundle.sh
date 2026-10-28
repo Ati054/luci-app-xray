@@ -34,6 +34,7 @@ USERLAND_ROOTS=(
     ip-full
     openssl-util
     ss
+    kmod-tcp-bbr
     uclient-fetch
     wget
     ucode
@@ -241,11 +242,11 @@ for apk_file in "${SEED_APKS[@]}"; do
         echo "ERROR: zero-byte seed APK: ${apk_file}" >&2
         exit 1
     }
-    PACKAGE_NAME="$(python3 "${WORKSPACE}/scripts/r11_apk_manifest.py" \
+    PACKAGE_NAME="$(python3 "${WORKSPACE}/scripts/r12_apk_manifest.py" \
         --apk-bin "${APK_HOST}" --inspect "${apk_file}" --field name)"
-    PACKAGE_DEPS="$(python3 "${WORKSPACE}/scripts/r11_apk_manifest.py" \
+    PACKAGE_DEPS="$(python3 "${WORKSPACE}/scripts/r12_apk_manifest.py" \
         --apk-bin "${APK_HOST}" --inspect "${apk_file}" --field depends)"
-    PACKAGE_VERSION="$(python3 "${WORKSPACE}/scripts/r11_apk_manifest.py" \
+    PACKAGE_VERSION="$(python3 "${WORKSPACE}/scripts/r12_apk_manifest.py" \
         --apk-bin "${APK_HOST}" --inspect "${apk_file}" --field version)"
     if [[ "${PACKAGE_NAME}" == kmod-* ]]; then
         KMOD_COUNT=$((KMOD_COUNT + 1))
@@ -297,12 +298,12 @@ printf '%s\n' "${REPOSITORIES[@]}" "${KMOD_REPOSITORY}" > "${REPOSITORY_FILE}"
     fetch "${RECURSIVE_OPTION}" --output "${TMP_ROOT}/deps" "${USERLAND_ROOTS[@]}"
 
 # The exact kmod repository is needed to solve ss. Bundle only its verified
-# kmod-netlink-diag runtime requirement; all other kernel packages remain
+# kmod-netlink-diag and kmod-tcp-bbr runtime requirements; all other kernel packages remain
 # target preconditions and never enter the artifact.
 for apk_file in "${TMP_ROOT}/deps"/*.apk; do
-    PACKAGE_NAME="$(python3 "${WORKSPACE}/scripts/r11_apk_manifest.py" \
+    PACKAGE_NAME="$(python3 "${WORKSPACE}/scripts/r12_apk_manifest.py" \
         --apk-bin "${APK_HOST}" --inspect "${apk_file}" --field name)"
-    if [[ ( "${PACKAGE_NAME}" == kmod-* && "${PACKAGE_NAME}" != kmod-netlink-diag ) || "${PACKAGE_NAME}" == kernel ]]; then
+    if [[ ( "${PACKAGE_NAME}" == kmod-* && "${PACKAGE_NAME}" != kmod-netlink-diag && "${PACKAGE_NAME}" != kmod-tcp-bbr ) || "${PACKAGE_NAME}" == kernel ]]; then
         rm -f "${apk_file}"
     fi
 done
@@ -313,7 +314,7 @@ mapfile -t DEPENDENCY_APKS < <(find "${TMP_ROOT}/deps" -maxdepth 1 -type f -name
     exit 1
 }
 
-python3 "${WORKSPACE}/scripts/r11_apk_manifest.py" \
+python3 "${WORKSPACE}/scripts/r12_apk_manifest.py" \
     --apk-bin "${APK_HOST}" \
     --apk-dir "${TMP_ROOT}/deps" \
     --urls "${TMP_ROOT}/dependency-urls.txt" \
@@ -397,19 +398,19 @@ fi
     --repositories-file /dev/null \
     list --installed luci-app-xray luci-app-xray-status >> "${OFFLINE_LOG}"
 
-grep -q '^luci-app-xray-3\.7\.1-r11' "${OFFLINE_LOG}" || {
-    echo "ERROR: offline root does not contain core R11" >&2
+grep -q '^luci-app-xray-3\.7\.1-r12' "${OFFLINE_LOG}" || {
+    echo "ERROR: offline root does not contain core R12" >&2
     exit 1
 }
-grep -q '^luci-app-xray-status-3\.7\.1-r11' "${OFFLINE_LOG}" || {
-    echo "ERROR: offline root does not contain status R11" >&2
+grep -q '^luci-app-xray-status-3\.7\.1-r12' "${OFFLINE_LOG}" || {
+    echo "ERROR: offline root does not contain status R12" >&2
     exit 1
 }
-echo "R11_OFFLINE_TRANSACTION_OK" >> "${OFFLINE_LOG}"
+echo "R12_OFFLINE_TRANSACTION_OK" >> "${OFFLINE_LOG}"
 
 if find "${OUTPUT_DIR}" -maxdepth 1 -type f -size 0 -print | grep -q .; then
     echo "ERROR: zero-byte file found in offline bundle output" >&2
     exit 1
 fi
 
-echo "R11 offline dependency closure and transaction proof completed successfully."
+echo "R12 offline dependency closure and transaction proof completed successfully."

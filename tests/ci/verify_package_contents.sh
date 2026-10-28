@@ -95,6 +95,7 @@ case "$(basename "${PACKAGE}")" in
             usr/share/rpcd/acl.d/luci-app-xray.json
             usr/share/xray/gen_config.uc
             usr/share/xray/gen_config.mjs
+            usr/share/xray/profile_runtime.uc
             usr/share/xray/update-keys/release-rsa.pem
             usr/share/xray/common/config.mjs
             usr/share/xray/common/stream.mjs
@@ -140,6 +141,7 @@ case "$(basename "${PACKAGE}")" in
             usr/libexec/xray-update \
             usr/libexec/xray-sockstats \
             usr/share/xray/gen_config.uc \
+            usr/share/xray/profile_runtime.uc \
             usr/share/xray/default_gateway.uc \
             usr/share/xray/dnsmasq_include.ut \
             usr/share/xray/firewall_include.ut; do
