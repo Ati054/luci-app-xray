@@ -333,7 +333,7 @@ command -v apk >/dev/null 2>&1 || {
     echo "ERROR: OpenWrt apk is unavailable" >&2
     exit 1
 }
-for required_command in awk find grep jsonfilter pidof sed sha256sum sort wc; do
+for required_command in awk find grep jsonfilter pidof sed sha256sum sort sync wc; do
     command -v "${required_command}" >/dev/null 2>&1 || {
         echo "ERROR: required target command is unavailable: ${required_command}" >&2
         exit 1
@@ -694,7 +694,14 @@ case "${STAGED_XRAY_VERSION_LINE}" in
         exit 1
         ;;
 esac
+# The executable lives on persistent storage. Flush the fully validated staged
+# file before the atomic rename, then flush the directory entry afterwards so a
+# sudden power loss cannot leave an acknowledged update pointing at unwritten
+# data. BusyBox sync is deliberately used because OpenWrt does not guarantee a
+# standalone fsync utility.
+sync
 mv -f "${XRAY_STAGE_PATH}" "${XRAY_BIN}"
+sync
 XRAY_VERSION_LINE="$("${XRAY_BIN}" version 2>&1 | sed -n '1p')"
 case "${XRAY_VERSION_LINE}" in
     "Xray 26.10.21"*) ;;

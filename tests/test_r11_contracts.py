@@ -223,9 +223,13 @@ def main() -> int:
     require("xray-core-26.10.21-linux-arm64" in installer and
             "Xray 26.10.21 and all stored profiles passed preflight before backup" in installer and
             'mv -f "${XRAY_STAGE_PATH}" "${XRAY_BIN}"' in installer and
+            "for required_command in awk find grep jsonfilter pidof sed sha256sum sort sync wc" in installer and
+            installer.count("\nsync\n") >= 2 and
+            installer.index("\nsync\n") < installer.index('mv -f "${XRAY_STAGE_PATH}" "${XRAY_BIN}"') and
+            installer.index("\nsync\n", installer.index('mv -f "${XRAY_STAGE_PATH}" "${XRAY_BIN}"')) > installer.index('mv -f "${XRAY_STAGE_PATH}" "${XRAY_BIN}"') and
             "build metadata does not pin Xray core 26.10.21" in installer and
             installer.index("all stored profiles passed preflight") < installer.index("BACKUP_READY=1"),
-            "installer validates Xray 26.10.21 against stored profiles before an atomic core replacement")
+            "installer validates Xray 26.10.21 and durably flushes it before and after the atomic core replacement")
     require("profiles-before.json" in installer and "running-profile-ids.txt" in installer and
             "unsafe running profile ID" in installer and
             installer.index("profiles-before.json") < installer.index("BACKUP_READY=1"),
@@ -401,6 +405,23 @@ def main() -> int:
             "profile_watchdog" in profile_init and "restart()" in profile_init and
             'stop_service "$target_id"' in profile_init,
             "package installs and procd supervises the profile watchdog")
+
+    reverse_runtime = "\n".join((
+        profile_init,
+        read("core/root/usr/libexec/rpcd/xray_profiles"),
+        watchdog,
+        update_helper,
+    ))
+    for forbidden_network_owner in (
+        "/etc/init.d/firewall", "fw4 ", "nft ", "ip rule", "ip route",
+        "/etc/init.d/dnsmasq",
+    ):
+        require(forbidden_network_owner not in reverse_runtime,
+                f"reverse profile and update runtime never owns {forbidden_network_owner.strip()}")
+    default_config = read("core/root/etc/config/xray_core")
+    require("option reverse_only '1'" in default_config and
+            "option transparent_proxy_enable '0'" in default_config,
+            "package defaults keep legacy transparent firewall ownership disabled")
 
     active_release_files = (
         ".github/workflows/build-release.yml",
