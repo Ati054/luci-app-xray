@@ -409,8 +409,9 @@ def main() -> int:
             "streamSettings.sockopt.tcpUserTimeout" in watchdog and
             "USER_TIMEOUT_MARGIN_SECONDS" in watchdog and
             'peer_port($5) != target_port' in watchdog and
-            'index($0, "timer:(on,")' in watchdog and "stalled * 2" in watchdog,
-            "watchdog evaluates endpoint-specific sockets and detects stale established tunnels")
+            'if [ "$connections" -gt 0 ]; then' in watchdog and
+            "retransmission timers are never treated as an" in watchdog,
+            "watchdog evaluates endpoint-specific sockets without load-induced restarts")
     require('"$INIT_SCRIPT" restart "$id"' in watchdog and "clear_profile_state" in watchdog,
             "watchdog restarts only one isolated profile and clears intent after manual stop")
     profile_init = read("core/root/etc/init.d/xray_profiles")

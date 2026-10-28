@@ -2,8 +2,9 @@
 
 # Connection-aware recovery for independent Xray Reverse profiles.
 # A profile is restarted only after its endpoint-specific TCP connection has
-# been absent or persistently retransmitting for several samples and the last
-# observed peer is reachable again.
+# been absent for several samples and the last observed peer is reachable
+# again. Send-queue pressure and retransmission timers are never treated as an
+# outage: both are normal while a high-latency link is saturated.
 # One restart is allowed per outage, including an outage already present at
 # boot; a stable connection is required before another restart can be armed.
 
@@ -291,7 +292,7 @@ mark_disconnected() {
 }
 
 check_profile() {
-    local id="$1" service_json="$2" now="$3" running pid previous_pid endpoint address endpoint_settings port tcp_user_timeout grace_seconds user_timeout_seconds snapshot connections remainder peer stalled
+    local id="$1" service_json="$2" now="$3" running pid previous_pid endpoint address endpoint_settings port tcp_user_timeout grace_seconds user_timeout_seconds snapshot connections remainder peer
     valid_profile_id "$id" || return 0
 
     running="$(get_instance_value "$service_json" "$id" running)"
@@ -326,9 +327,8 @@ check_profile() {
     connections="${snapshot%%|*}"
     remainder="${snapshot#*|}"
     peer="${remainder%|*}"
-    stalled="${remainder##*|}"
-    is_uint "$connections" && is_uint "$stalled" || return 0
-    if [ "$connections" -gt 0 ] && [ $((stalled * 2)) -lt "$connections" ]; then
+    is_uint "$connections" || return 0
+    if [ "$connections" -gt 0 ]; then
         mark_connected "$id" "$now" "$peer"
     else
         mark_disconnected "$id" "$now" "$peer" "$grace_seconds"

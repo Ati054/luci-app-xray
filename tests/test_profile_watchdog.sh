@@ -219,9 +219,9 @@ run_once 40013
 run_once 40029
 assert_restart_count 3 "stable recovery rearms exactly one restart for a later outage"
 
-# A single backpressured endpoint socket must not restart an otherwise healthy
-# multi-socket Reverse tunnel. A persistent retransmission majority is a stale
-# kernel ESTABLISHED state and becomes recoverable once the peer is reachable.
+# Backpressure and retransmission timers must never restart an established
+# Reverse tunnel. Under a speed test every endpoint socket may temporarily
+# carry a send queue, especially on a high-latency path.
 rm -f "${STATE_DIR}"/*
 : > "${TMP_DIR}/restarts"
 printf '%s\n' 7000 > "${TMP_DIR}/pid"
@@ -232,15 +232,25 @@ run_once 50000
 run_once 50011
 assert_restart_count 0 "a minority of backpressured tunnel sockets causes no false restart"
 printf '%s\n' 2 > "${TMP_DIR}/tunnel-stalled"
-printf '%s\n' 0 > "${TMP_DIR}/peer-reachable"
 run_once 50012
 run_once 50028
-assert_restart_count 0 "stale established sockets stay quiet while the server is unreachable"
-printf '%s\n' 1 > "${TMP_DIR}/peer-reachable"
-run_once 50029
-assert_restart_count 1 "stale established tunnel sockets trigger one restart when the server returns"
+assert_restart_count 0 "a retransmitting majority causes no false restart"
+printf '%s\n' 3 > "${TMP_DIR}/tunnel-stalled"
 run_once 60000
-assert_restart_count 1 "stale established outage cannot create a restart loop"
+assert_restart_count 0 "a fully backpressured speed test causes no false restart"
+
+# A real outage has no established endpoint connection. It stays quiet while
+# the peer is unreachable and gets one recovery attempt when the peer returns.
+printf '%s\n' 0 > "${TMP_DIR}/tunnel-connections"
+printf '%s\n' 0 > "${TMP_DIR}/peer-reachable"
+run_once 60001
+run_once 60017
+assert_restart_count 0 "a real outage stays quiet while the server is unreachable"
+printf '%s\n' 1 > "${TMP_DIR}/peer-reachable"
+run_once 60018
+assert_restart_count 1 "a real outage triggers one restart when the server returns"
+run_once 61000
+assert_restart_count 1 "a real outage cannot create a restart loop"
 
 # Explicit JSON socket policy remains authoritative. The fallback watchdog
 # must not restart the process before Xray's configured TCP user timeout plus
@@ -248,8 +258,8 @@ assert_restart_count 1 "stale established outage cannot create a restart loop"
 rm -f "${STATE_DIR}"/*
 : > "${TMP_DIR}/restarts"
 printf '%s\n' 8000 > "${TMP_DIR}/pid"
-printf '%s\n' 3 > "${TMP_DIR}/tunnel-connections"
-printf '%s\n' 2 > "${TMP_DIR}/tunnel-stalled"
+printf '%s\n' 0 > "${TMP_DIR}/tunnel-connections"
+printf '%s\n' 0 > "${TMP_DIR}/tunnel-stalled"
 printf '%s\n' 1 > "${TMP_DIR}/peer-reachable"
 printf '%s\n' 60000 > "${TMP_DIR}/tcp-user-timeout"
 run_once 70000
