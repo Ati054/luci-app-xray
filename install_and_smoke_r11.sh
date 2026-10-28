@@ -41,13 +41,19 @@ profile_backend_call() {
 stop_service_strict() {
     service_name="$1"
     service_exists "${service_name}" || return 0
-    if service_running "${service_name}"; then
-        "/etc/init.d/${service_name}" stop
-        ! service_running "${service_name}" || {
-            echo "ERROR: failed to stop ${service_name}" >&2
-            return 1
-        }
-    fi
+    # Always send the stop request. A service restored by the hardware smoke
+    # can still be between procd declaration and its first observable status;
+    # skipping stop in that window lets it appear after a fail-closed exit.
+    "/etc/init.d/${service_name}" stop
+    stop_wait=0
+    while service_running "${service_name}" && [ "${stop_wait}" -lt 5 ]; do
+        stop_wait=$((stop_wait + 1))
+        sleep 1
+    done
+    ! service_running "${service_name}" || {
+        echo "ERROR: failed to stop ${service_name}" >&2
+        return 1
+    }
 }
 
 disable_service_strict() {

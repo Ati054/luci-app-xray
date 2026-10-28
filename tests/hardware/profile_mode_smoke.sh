@@ -127,6 +127,12 @@ IMPORTED_B=0
 UCI_SAVED=0
 SERVICES_SAVED=0
 CLEANUP_DONE=0
+SMOKE_PHASE="initialization"
+
+set_smoke_phase() {
+    SMOKE_PHASE="$1"
+    echo "Hardware smoke phase: ${SMOKE_PHASE}" >&2
+}
 
 service_enabled() {
     "/etc/init.d/$1" enabled >/dev/null 2>&1
@@ -146,6 +152,12 @@ json_get() {
     json_document="$1"
     json_expression="$2"
     printf '%s\n' "${json_document}" | jsonfilter -e "${json_expression}"
+}
+
+json_get_optional() {
+    json_document="$1"
+    json_expression="$2"
+    printf '%s\n' "${json_document}" | jsonfilter -e "${json_expression}" 2>/dev/null || :
 }
 
 json_payload() {
@@ -254,7 +266,7 @@ failure_cleanup() {
     primary_rc=$?
     [ "${CLEANUP_DONE}" -eq 1 ] && return "${primary_rc}"
     set +e
-    echo "Hardware smoke failed; restoring test state" >&2
+    echo "Hardware smoke failed during phase '${SMOKE_PHASE}'; restoring test state" >&2
     stop_test_instances || :
     purge_test_profiles || :
     restore_uci || :
@@ -266,6 +278,7 @@ trap failure_cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
+set_smoke_phase "capture initial target state"
 capture_network_state "${TMP_DIR}/before"
 uci export xray_core > "${TMP_DIR}/xray_core.uci"
 UCI_SAVED=1
@@ -276,6 +289,7 @@ if service_running xray_core; then echo 1; else echo 0; fi > "${TMP_DIR}/xray_co
 if service_running xray_profiles; then echo 1; else echo 0; fi > "${TMP_DIR}/xray_profiles.running"
 SERVICES_SAVED=1
 
+set_smoke_phase "stop production services"
 /etc/init.d/xray_core stop >/dev/null 2>&1
 /etc/init.d/xray_profiles stop >/dev/null 2>&1
 ! service_running xray_core && ! service_running xray_profiles || {
@@ -284,6 +298,7 @@ SERVICES_SAVED=1
 }
 capture_network_state "${TMP_DIR}/profile-baseline"
 
+set_smoke_phase "inspect reserved smoke profile IDs"
 INITIAL_LIST="$(backend_call list '{}')"
 for reserved_id in smoke_a smoke_b; do
     if existing_id="$(json_get "${INITIAL_LIST}" "@.profiles[@.id=\"${reserved_id}\"].id" 2>/dev/null)"; then
@@ -301,9 +316,11 @@ done
     exit 1
 }
 
+set_smoke_phase "validate smoke fixtures"
 XRAY_LOCATION_ASSET=/opt/xray/current "${XRAY_BIN}" run -test -config "${FIXTURE_A}"
 XRAY_LOCATION_ASSET=/opt/xray/current "${XRAY_BIN}" run -test -config "${FIXTURE_B}"
 
+set_smoke_phase "verify Reverse policy rejection"
 INVALID_PAYLOAD="$(json_payload Invalid profile-invalid.json "${FIXTURE_INVALID}")"
 if INVALID_RESULT="$(backend_call validate "${INVALID_PAYLOAD}")"; then
     echo "ERROR: invalid inbound fixture passed Reverse profile policy" >&2
@@ -314,20 +331,28 @@ fi
     exit 1
 }
 
-IMPORT_A_RESULT="$(backend_call import "$(json_payload 'Smoke A' smoke-a.json "${FIXTURE_A}")")"
+set_smoke_phase "import isolated smoke profiles"
+if ! IMPORT_A_RESULT="$(backend_call import "$(json_payload 'Smoke A' smoke-a.json "${FIXTURE_A}")")"; then
+    echo "ERROR: profile A import RPC failed: ${IMPORT_A_RESULT:-no response}" >&2
+    exit 1
+fi
 [ "$(json_get "${IMPORT_A_RESULT}" '@.ok')" = "true" ] || {
     echo "ERROR: failed to import profile A" >&2
     exit 1
 }
 IMPORTED_A=1
 
-IMPORT_B_RESULT="$(backend_call import "$(json_payload 'Smoke B' smoke-b.json "${FIXTURE_B}")")"
+if ! IMPORT_B_RESULT="$(backend_call import "$(json_payload 'Smoke B' smoke-b.json "${FIXTURE_B}")")"; then
+    echo "ERROR: profile B import RPC failed: ${IMPORT_B_RESULT:-no response}" >&2
+    exit 1
+fi
 [ "$(json_get "${IMPORT_B_RESULT}" '@.ok')" = "true" ] || {
     echo "ERROR: failed to import profile B" >&2
     exit 1
 }
 IMPORTED_B=1
 
+set_smoke_phase "verify private profile storage"
 r11_exact_private_directory "${PROFILES_DIR}" || {
     echo "ERROR: profile directory mode is not 0700" >&2
     exit 1
@@ -339,9 +364,19 @@ for profile_file in "${PROFILES_DIR}/smoke-a.json" "${PROFILES_DIR}/smoke-b.json
     }
 done
 
-backend_call start '{"id":"smoke_a"}' >/dev/null
-backend_call start '{"id":"smoke_b"}' >/dev/null
-RUNNING_LIST="$(backend_call list '{}')"
+set_smoke_phase "start isolated smoke profiles"
+if ! START_A_RESULT="$(backend_call start '{"id":"smoke_a"}')"; then
+    echo "ERROR: profile A start RPC failed: ${START_A_RESULT:-no response}" >&2
+    exit 1
+fi
+if ! START_B_RESULT="$(backend_call start '{"id":"smoke_b"}')"; then
+    echo "ERROR: profile B start RPC failed: ${START_B_RESULT:-no response}" >&2
+    exit 1
+fi
+if ! RUNNING_LIST="$(backend_call list '{}')"; then
+    echo "ERROR: unable to list running smoke profiles" >&2
+    exit 1
+fi
 PID_A="$(json_get "${RUNNING_LIST}" '@.profiles[@.id="smoke_a"].pid')"
 PID_B="$(json_get "${RUNNING_LIST}" '@.profiles[@.id="smoke_b"].pid')"
 STACK_A="$(json_get "${RUNNING_LIST}" '@.profiles[@.id="smoke_a"].protocol_stack')"
@@ -356,22 +391,43 @@ case "${PID_B}" in ''|*[!0-9]*|0) echo "ERROR: invalid PID for profile B: ${PID_
     echo "ERROR: protocol stack labels are incorrect: A=${STACK_A}; B=${STACK_B}" >&2
     exit 1
 }
-for profile_id in smoke_a smoke_b; do
-    TRAFFIC_AVAILABLE="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.available")"
-    TRAFFIC_BYTES_AVAILABLE="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.bytes_available")"
-    TRAFFIC_RETRANS_AVAILABLE="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.retrans_available")"
-    TRAFFIC_RETRANS_BYTES="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.retrans_bytes")"
-    TRAFFIC_SOURCE="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.source")"
-    TRAFFIC_UPTIME="$(json_get "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.uptime_seconds")"
-    [ "${TRAFFIC_AVAILABLE}" = "true" ] && [ "${TRAFFIC_BYTES_AVAILABLE}" = "true" ] && \
-        [ "${TRAFFIC_RETRANS_AVAILABLE}" = "true" ] && [ "${TRAFFIC_SOURCE}" = "pidfd_tcp_info" ] || {
-        echo "ERROR: native TCP_INFO traffic metrics are unavailable for ${profile_id}" >&2
-        exit 1
-    }
-    case "${TRAFFIC_RETRANS_BYTES}" in ''|*[!0-9]*) echo "ERROR: invalid retransmitted byte count for ${profile_id}: ${TRAFFIC_RETRANS_BYTES}" >&2; exit 1;; esac
-    case "${TRAFFIC_UPTIME}" in ''|*[!0-9]*) echo "ERROR: invalid uptime for ${profile_id}: ${TRAFFIC_UPTIME}" >&2; exit 1;; esac
+set_smoke_phase "wait for native TCP_INFO metrics"
+TRAFFIC_READY=0
+TRAFFIC_ATTEMPT=0
+while [ "${TRAFFIC_ATTEMPT}" -lt 15 ]; do
+    TRAFFIC_ATTEMPT=$((TRAFFIC_ATTEMPT + 1))
+    if RUNNING_LIST="$(backend_call list '{}')"; then
+        TRAFFIC_READY=1
+        for profile_id in smoke_a smoke_b; do
+            TRAFFIC_AVAILABLE="$(json_get_optional "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.available")"
+            TRAFFIC_BYTES_AVAILABLE="$(json_get_optional "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.bytes_available")"
+            TRAFFIC_RETRANS_AVAILABLE="$(json_get_optional "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.retrans_available")"
+            TRAFFIC_RETRANS_BYTES="$(json_get_optional "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.retrans_bytes")"
+            TRAFFIC_SOURCE="$(json_get_optional "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.source")"
+            TRAFFIC_UPTIME="$(json_get_optional "${RUNNING_LIST}" "@.profiles[@.id=\"${profile_id}\"].traffic.uptime_seconds")"
+            if [ "${TRAFFIC_AVAILABLE}" != "true" ] || \
+                [ "${TRAFFIC_BYTES_AVAILABLE}" != "true" ] || \
+                [ "${TRAFFIC_RETRANS_AVAILABLE}" != "true" ] || \
+                [ "${TRAFFIC_SOURCE}" != "pidfd_tcp_info" ]; then
+                TRAFFIC_READY=0
+                break
+            fi
+            case "${TRAFFIC_RETRANS_BYTES}" in ''|*[!0-9]*) TRAFFIC_READY=0; break;; esac
+            case "${TRAFFIC_UPTIME}" in ''|*[!0-9]*) TRAFFIC_READY=0; break;; esac
+        done
+    else
+        TRAFFIC_READY=0
+    fi
+    [ "${TRAFFIC_READY}" -eq 1 ] && break
+    sleep 1
 done
+[ "${TRAFFIC_READY}" -eq 1 ] || {
+    echo "ERROR: native TCP_INFO traffic metrics are unavailable after 15 seconds" >&2
+    printf '%s\n' "${RUNNING_LIST:-no backend response}" >&2
+    exit 1
+}
 
+set_smoke_phase "verify network isolation"
 capture_network_state "${TMP_DIR}/during"
 for state_kind in ipv4 ipv6 nft dnsmasq-xray; do
     state_files_equal "${TMP_DIR}/profile-baseline.${state_kind}" "${TMP_DIR}/during.${state_kind}" || {
@@ -381,6 +437,7 @@ for state_kind in ipv4 ipv6 nft dnsmasq-xray; do
     }
 done
 
+set_smoke_phase "verify independent stop and restart"
 backend_call stop '{"id":"smoke_a"}' >/dev/null
 AFTER_STOP_LIST="$(backend_call list '{}')"
 if PID_A_AFTER="$(json_get "${AFTER_STOP_LIST}" '@.profiles[@.id="smoke_a"].pid' 2>/dev/null)"; then
@@ -407,6 +464,7 @@ case "${PID_B_NEW}" in ''|*[!0-9]*|0) echo "ERROR: invalid restarted PID for B: 
     exit 1
 }
 
+set_smoke_phase "restore production state"
 stop_test_instances
 assert_no_smoke_processes
 purge_test_profiles
@@ -442,6 +500,7 @@ for removed_id in smoke_a smoke_b; do
     }
 done
 
+set_smoke_phase "verify exact target restoration"
 capture_network_state "${TMP_DIR}/after"
 for state_kind in ipv4 ipv6 nft dnsmasq-xray; do
     state_files_equal "${TMP_DIR}/before.${state_kind}" "${TMP_DIR}/after.${state_kind}" || {

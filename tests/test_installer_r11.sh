@@ -73,6 +73,11 @@ grep -q 'BLOCKED: POST_TRANSACTION_HARDWARE_FAILURE' "${INSTALLER}" || {
     echo "FAIL: installer omits the exact post-transaction hard-stop marker" >&2
     exit 1
 }
+grep -q '^    "/etc/init.d/${service_name}" stop$' "${INSTALLER}" && \
+    grep -q 'between procd declaration and its first observable status' "${INSTALLER}" || {
+    echo "FAIL: post-transaction shutdown can still skip a service in the procd startup race" >&2
+    exit 1
+}
 grep -q '^apk add --simulate --force-reinstall --no-network --allow-untrusted ./\*\.apk$' "${INSTALLER}" || {
     echo "FAIL: installer does not force a verified reinstall of same-release hotfix packages" >&2
     exit 1
