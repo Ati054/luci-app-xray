@@ -24,6 +24,14 @@ def require(condition: bool, message: str) -> None:
 def main() -> int:
     require(MODULE.split_version("1.2.3-r12") == ("1.2.3", "r12"), "APK r-release splits canonically")
     require(MODULE.split_version("2026.08-2") == ("2026.08", "2"), "numeric package release splits canonically")
+    require(not MODULE.is_forbidden_kernel_package("kmod-netlink-diag"),
+            "metrics kernel module is explicitly allowed in the offline artifact")
+    require(not MODULE.is_forbidden_kernel_package("kmod-tcp-bbr"),
+            "reverse BBR kernel module is explicitly allowed in the offline artifact")
+    require(MODULE.is_forbidden_kernel_package("kmod-unrelated"),
+            "unrelated kernel modules remain forbidden")
+    require(MODULE.is_forbidden_kernel_package("kernel"),
+            "kernel image remains forbidden")
 
     completed = subprocess.CompletedProcess(args=[], returncode=0,
         stdout='{"info":{"name":"demo","version":"1.0-r2","arch":"all","depends":["libc","zlib"]}}',

@@ -12,6 +12,15 @@ import subprocess
 import sys
 
 
+ALLOWED_KMOD_PACKAGES = frozenset({"kmod-netlink-diag", "kmod-tcp-bbr"})
+
+
+def is_forbidden_kernel_package(package_name: str) -> bool:
+    return package_name == "kernel" or (
+        package_name.startswith("kmod-") and package_name not in ALLOWED_KMOD_PACKAGES
+    )
+
+
 def parse_metadata(apk_bin: pathlib.Path, apk_file: pathlib.Path) -> dict[str, str]:
     result = subprocess.run(
         [str(apk_bin), "adbdump", "--format", "json", str(apk_file)],
@@ -104,8 +113,7 @@ def main() -> int:
         if metadata["name"] in package_names:
             raise ValueError(f"duplicate package in dependency closure: {metadata['name']}")
         package_names.add(metadata["name"])
-        if ((metadata["name"].startswith("kmod-") and metadata["name"] != "kmod-netlink-diag")
-                or metadata["name"] == "kernel"):
+        if is_forbidden_kernel_package(metadata["name"]):
             raise ValueError(f"unapproved kernel package must not enter the artifact: {metadata['name']}")
         if metadata["arch"] not in {"aarch64_cortex-a53", "aarch64", "all", "noarch"}:
             raise ValueError(f"unexpected architecture {metadata['arch']} in {apk_file.name}")

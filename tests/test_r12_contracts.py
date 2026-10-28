@@ -154,6 +154,10 @@ def main() -> int:
             "kmod-tcp-bbr" in bundle_script and
             '"${PACKAGE_NAME}" != kmod-tcp-bbr' in bundle_script,
             "bundle includes the exact kernel dependencies required by metrics and reverse BBR")
+    manifest_builder = read("scripts/r12_apk_manifest.py")
+    require('"kmod-netlink-diag", "kmod-tcp-bbr"' in manifest_builder and
+            "is_forbidden_kernel_package" in manifest_builder,
+            "dependency manifest permits exactly the two approved runtime kernel modules")
     package_verifier = read("tests/ci/verify_package_contents.sh")
     require("extract --help" not in package_verifier and
             '"${SDK_APK}" --allow-untrusted extract' in package_verifier,
