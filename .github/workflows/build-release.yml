@@ -265,8 +265,10 @@ jobs:
               tar -czf "$BUNDLE_TEMP" -- "${BUNDLE_FILES[@]}"
             )
             mv "$BUNDLE_TEMP" "$DIST_DIR/$BUNDLE_NAME"
-            tar -tzf "$DIST_DIR/$BUNDLE_NAME" | grep -Fxq 'install_and_smoke_r11.sh'
-            tar -tzf "$DIST_DIR/$BUNDLE_NAME" | grep -Fxq 'SHA256SUMS-R11.txt'
+            BUNDLE_LIST="$RUNNER_TEMP/$BUNDLE_NAME.list"
+            tar -tzf "$DIST_DIR/$BUNDLE_NAME" > "$BUNDLE_LIST"
+            grep -Fxq 'install_and_smoke_r11.sh' "$BUNDLE_LIST"
+            grep -Fxq 'SHA256SUMS-R11.txt' "$BUNDLE_LIST"
           else
             (
               cd "$DIST_DIR"

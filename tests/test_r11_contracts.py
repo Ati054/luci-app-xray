@@ -137,6 +137,10 @@ def main() -> int:
     require("xray-sockstats-aarch64" in workflow and
             '"$APK_HOST" --allow-untrusted extract --no-chown' in workflow,
             "artifact carries the exact extracted aarch64 collector for pre-transaction probing")
+    require('tar -tzf "$DIST_DIR/$BUNDLE_NAME" > "$BUNDLE_LIST"' in workflow and
+            'grep -Fxq \'install_and_smoke_r11.sh\' "$BUNDLE_LIST"' in workflow and
+            'tar -tzf "$DIST_DIR/$BUNDLE_NAME" | grep' not in workflow,
+            "bundle verification avoids pipefail false failures from tar SIGPIPE")
     require("deploy_r11_to_raspberry.ps1" in workflow,
             "artifact carries the one-command Windows deployment helper")
     bundle_call = workflow.index('bash "$GITHUB_WORKSPACE/scripts/build_r11_offline_bundle.sh"')
