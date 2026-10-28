@@ -27,12 +27,12 @@ def require(condition: bool, message: str) -> None:
 
 
 def main() -> int:
-    print("=== R10 release, deployment, and CI contracts ===")
+    print("=== R11 release, deployment, and CI contracts ===")
 
     for makefile in ("core/Makefile", "status/Makefile", "geodata/Makefile"):
         content = read(makefile)
         require("PKG_VERSION:=3.7.1" in content, f"{makefile} keeps version 3.7.1")
-        require("PKG_RELEASE:=10" in content, f"{makefile} declares release 10")
+        require("PKG_RELEASE:=11" in content, f"{makefile} declares release 11")
         if makefile == "core/Makefile":
             require("PKGARCH:=$(ARCH_PACKAGES)" in content,
                     "core/Makefile declares the native target architecture")
@@ -62,27 +62,27 @@ def main() -> int:
     workflow_document = yaml.safe_load(workflow)
     print("PASS: workflow YAML parses")
     workflow_branches = workflow_document.get(True, {}).get("push", {}).get("branches", [])
-    require(workflow_branches == ["codex/r10-profile-metrics"],
-            "workflow is restricted to the dedicated R10 branch")
+    require(workflow_branches == ["codex/r11-profile-metrics"],
+            "workflow is restricted to the dedicated R11 branch")
     for package_name in (
-        "luci-app-xray_3.7.1-10_x86_64.ipk",
-        "luci-app-xray-status_3.7.1-10_all.ipk",
-        "luci-app-xray-3.7.1-r10.apk",
-        "luci-app-xray-status-3.7.1-r10.apk",
+        "luci-app-xray_3.7.1-11_x86_64.ipk",
+        "luci-app-xray-status_3.7.1-11_all.ipk",
+        "luci-app-xray-3.7.1-r11.apk",
+        "luci-app-xray-status-3.7.1-r11.apk",
     ):
-        require(package_name in workflow, f"workflow pins exact R10 artifact {package_name}")
-    require("package_release=10" in workflow,
-            "workflow records release 10 in build metadata")
+        require(package_name in workflow, f"workflow pins exact R11 artifact {package_name}")
+    require("package_release=11" in workflow,
+            "workflow records release 11 in build metadata")
     require("package_architecture=${{ matrix.target_arch }}" in workflow,
             "workflow records the compiled core target architecture")
-    require("v26.9.30" in workflow and "Xray-linux-arm64-v8a.zip" in workflow and
-            '"$DIST_DIR/xray-core-26.9.30-linux-arm64"' in workflow,
-            "artifact pins and carries the verified official Xray 26.9.30 ARM64 binary")
+    require("v26.10.21" in workflow and "Xray-linux-arm64-v8a.zip" in workflow and
+            '"$DIST_DIR/xray-core-26.10.21-linux-arm64"' in workflow,
+            "artifact pins and carries the verified official Xray 26.10.21 ARM64 binary")
     require("ARM_VERSION_OUTPUT" in workflow and
             "qemu-aarch64-static" in workflow and
             "qemu-aarch64-static \"$RUNNER_TEMP/xray-arm64/xray\" version 2>&1 | head" not in workflow,
             "ARM64 version proof avoids a pipefail/SIGPIPE false failure")
-    require('echo "xray_core_version=26.9.30"' in workflow and
+    require('echo "xray_core_version=26.10.21"' in workflow and
             'echo "xray_core_source_asset=Xray-linux-arm64-v8a.zip"' in workflow,
             "artifact metadata records the exact Xray core version and source asset")
     job_env_values = (
@@ -102,14 +102,14 @@ def main() -> int:
         "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/telephony/packages.adb",
         "https://downloads.openwrt.org/releases/25.12.5/packages/aarch64_cortex-a53/video/packages.adb",
     ]
-    bundle_script = read("scripts/build_r10_offline_bundle.sh")
-    for root_package in ("coreutils", "coreutils-base64", "coreutils-timeout", "ip-full", "ss"):
+    bundle_script = read("scripts/build_r11_offline_bundle.sh")
+    for root_package in ("coreutils", "coreutils-base64", "coreutils-timeout", "ip-full", "openssl-util", "ss", "uclient-fetch"):
         require(re.search(rf"^\s+{re.escape(root_package)}\s*$", bundle_script, re.MULTILINE) is not None,
                 f"offline resolver includes operational root {root_package}")
     for repository in exact_repositories:
         require(repository in bundle_script, f"offline resolver uses exact repository {repository}")
     require("APKINDEX.tar.gz" not in workflow + bundle_script, "resolver never searches Alpine APKINDEX.tar.gz")
-    require("apk manifest" not in workflow + bundle_script + read("install_and_smoke_r10.sh"),
+    require("apk manifest" not in workflow + bundle_script + read("install_and_smoke_r11.sh"),
             "APK metadata uses apk-tools v3 adbdump rather than file-checksum manifest output")
     require("--no-network" in bundle_script and "OFFLINE-TRANSACTION.log" in bundle_script,
             "bundle builder records a network-disabled transaction")
@@ -127,14 +127,19 @@ def main() -> int:
             "bundle builder uses apk usermode only while initializing the isolated database")
     require("strace" in bundle_script and "AF_INET" in bundle_script,
             "offline proof audits network syscalls")
-    require("SHA256SUMS-R10.txt" in workflow and "sha256sum -c SHA256SUMS-R10.txt" in workflow,
-            "bundle builder verifies complete R10 checksums")
+    require("SHA256SUMS-R11.txt" in workflow and "sha256sum -c SHA256SUMS-R11.txt" in workflow,
+            "bundle builder verifies complete R11 checksums")
+    require("luci-app-xray-3.7.1-r11-openwrt-25.12.5-aarch64_cortex-a53.tar.gz" in workflow and
+            "XRAY_RELEASE_SIGNING_KEY_PEM" in workflow and
+            "openssl dgst -sha256 -sign" in workflow and
+            "release-assets/release.json.sig" in workflow,
+            "tag releases publish a signed complete Raspberry update bundle")
     require("xray-sockstats-aarch64" in workflow and
             '"$APK_HOST" --allow-untrusted extract --no-chown' in workflow,
             "artifact carries the exact extracted aarch64 collector for pre-transaction probing")
-    require("deploy_r10_to_raspberry.ps1" in workflow,
+    require("deploy_r11_to_raspberry.ps1" in workflow,
             "artifact carries the one-command Windows deployment helper")
-    bundle_call = workflow.index('bash "$GITHUB_WORKSPACE/scripts/build_r10_offline_bundle.sh"')
+    bundle_call = workflow.index('bash "$GITHUB_WORKSPACE/scripts/build_r11_offline_bundle.sh"')
     collector_copy = workflow.index('"$DIST_DIR/xray-sockstats-aarch64"')
     require(bundle_call < collector_copy,
             "offline bundle receives an empty output directory before the collector is added")
@@ -173,8 +178,8 @@ def main() -> int:
             "target ucode proof reports entrypoint failures before cleanup")
     critical_paths = (
         ".github/workflows/build-release.yml",
-        "scripts/build_r10_offline_bundle.sh",
-        "install_and_smoke_r10.sh",
+        "scripts/build_r11_offline_bundle.sh",
+        "install_and_smoke_r11.sh",
         "tests/ci/checksum_lib.sh",
         "tests/ci/fetch_xray.sh",
         "tests/ci/run_target_ucode.sh",
@@ -184,14 +189,14 @@ def main() -> int:
     for critical_path in critical_paths:
         require("|| true" not in read(critical_path), f"{critical_path} contains no forbidden fail-open continuation")
 
-    installer = read("install_and_smoke_r10.sh")
-    require('R10_INSTALL_AND_HARDWARE_SMOKE_OK' in installer, "installer has the exact R10 success marker")
+    installer = read("install_and_smoke_r11.sh")
+    require('R11_INSTALL_AND_HARDWARE_SMOKE_OK' in installer, "installer has the exact R11 success marker")
     require('run -test -config' in installer and 'xray test -c' not in installer,
             "installer uses the required Xray validation form")
     for package in ("kmod-nf-tproxy", "kmod-nft-tproxy", "firewall4", "luci-base", "dnsmasq", "ca-bundle"):
         require(package in installer, f"installer checks target prerequisite {package}")
-    require("SHA256SUMS-R10.txt" in installer and "sha256sum -c" in installer,
-            "installer verifies R10 checksums before mutation")
+    require("SHA256SUMS-R11.txt" in installer and "sha256sum -c" in installer,
+            "installer verifies R11 checksums before mutation")
     require("--no-network" in installer and "--simulate" in installer and "--force-reinstall" in installer,
             "installer simulates and force-reinstalls same-release hotfixes offline")
     require("BLOCKED: POST_TRANSACTION_HARDWARE_FAILURE" in installer,
@@ -215,12 +220,12 @@ def main() -> int:
             "Native TCP_INFO collector preflight passed before backup" in installer and
             installer.index("COLLECTOR_PROBE_AVAILABLE") < installer.index("BACKUP_READY=1"),
             "installer proves pidfd/TCP_INFO compatibility before backup and package mutation")
-    require("xray-core-26.9.30-linux-arm64" in installer and
-            "Xray 26.9.30 and all stored profiles passed preflight before backup" in installer and
+    require("xray-core-26.10.21-linux-arm64" in installer and
+            "Xray 26.10.21 and all stored profiles passed preflight before backup" in installer and
             'mv -f "${XRAY_STAGE_PATH}" "${XRAY_BIN}"' in installer and
-            "build metadata does not pin Xray core 26.9.30" in installer and
+            "build metadata does not pin Xray core 26.10.21" in installer and
             installer.index("all stored profiles passed preflight") < installer.index("BACKUP_READY=1"),
-            "installer validates Xray 26.9.30 against stored profiles before an atomic core replacement")
+            "installer validates Xray 26.10.21 against stored profiles before an atomic core replacement")
     require("profiles-before.json" in installer and "running-profile-ids.txt" in installer and
             "unsafe running profile ID" in installer and
             installer.index("profiles-before.json") < installer.index("BACKUP_READY=1"),
@@ -229,7 +234,7 @@ def main() -> int:
     data_restore = installer.index("\nrestore_data_backup\n", smoke_call)
     service_restore = installer.index("\nrestore_pretransaction_services\n", data_restore)
     restored_verify = installer.index("\nverify_pretransaction_services_restored\n", service_restore)
-    success_marker = installer.index('console "R10_INSTALL_AND_HARDWARE_SMOKE_OK"', restored_verify)
+    success_marker = installer.index('console "R11_INSTALL_AND_HARDWARE_SMOKE_OK"', restored_verify)
     require(smoke_call < data_restore < service_restore < restored_verify < success_marker and
             "restored running profile count" in installer and
             "has invalid restored PID" in installer,
@@ -344,7 +349,28 @@ def main() -> int:
             '"logs"' in read("core/root/usr/share/rpcd/acl.d/luci-app-xray.json"),
             "LuCI menu and ACL expose the read-only log tab inside Xray Reverse")
 
-    deploy_script_path = ROOT / "scripts/deploy_r10_to_raspberry.ps1"
+    update_view = read("core/root/www/luci-static/resources/view/xray/update.js")
+    update_helper = read("core/root/usr/libexec/xray-update")
+    update_acl = read("core/root/usr/share/rpcd/acl.d/luci-app-xray.json")
+    require('"admin/services/xray_profiles/update"' in menu and '"xray/update"' in menu and
+            '"/usr/libexec/xray-update status"' in update_acl and
+            '"/usr/libexec/xray-update github-start"' in update_acl,
+            "LuCI menu and ACL expose the signed updater with exact commands")
+    require("openssl dgst -sha256 -verify" in update_helper and
+            "TARGET_ARCH=aarch64_cortex-a53" in update_helper and
+            "CHECK_TTL=900" in update_helper and
+            "validate_remote_release" in update_helper and
+            "asset-installer" in update_helper and "asset-success-marker" in update_helper,
+            "updater revalidates a fresh signed architecture-specific release and its installer contract")
+    require("STATE=/var/run/xray-update" in update_helper and
+            "CANDIDATE=/tmp/.xray-update-bundle.tar.gz" in update_helper and
+            "/etc/" not in update_helper and "api.github.com" not in update_helper,
+            "updater keeps mutable state in RAM and avoids API rate limits or persistent edits")
+    require("run('check')" in update_view and "run('github-start')" in update_view and
+            "poll.add(refresh, 3)" in update_view and "innerHTML" not in update_view,
+            "update view checks, installs, and polls without unsafe HTML injection")
+
+    deploy_script_path = ROOT / "scripts/deploy_r11_to_raspberry.ps1"
     deploy_script_bytes = deploy_script_path.read_bytes()
     require(all(byte < 0x80 for byte in deploy_script_bytes),
             "Windows deployment script is ASCII-safe for Windows PowerShell 5.1")
@@ -381,21 +407,21 @@ def main() -> int:
         "core/Makefile",
         "status/Makefile",
         "geodata/Makefile",
-        "install_and_smoke_r10.sh",
-        "ROLLBACK-R10.txt",
-        "scripts/build_r10_offline_bundle.sh",
-        "scripts/deploy_r10_to_raspberry.ps1",
-        "scripts/r10_apk_manifest.py",
+        "install_and_smoke_r11.sh",
+        "ROLLBACK-R11.txt",
+        "scripts/build_r11_offline_bundle.sh",
+        "scripts/deploy_r11_to_raspberry.ps1",
+        "scripts/r11_apk_manifest.py",
         "tests/run_tests.sh",
-        "tests/test_installer_r10.sh",
-        "tests/test_r10_manifest.py",
+        "tests/test_installer_r11.sh",
+        "tests/test_r11_manifest.py",
     )
-    stale_patterns = ("R9", "r9", "PKG_RELEASE:=9", "3.7.1-r9", "3.7.1-9", "package_release=9")
+    stale_patterns = ("R10", "r10", "PKG_RELEASE:=10", "3.7.1-r10", "3.7.1-10", "package_release=10")
     for active_file in active_release_files:
         require(not any(pattern in read(active_file) for pattern in stale_patterns),
-                f"{active_file} contains no stale R9 release identity")
+                f"{active_file} contains no stale R10 release identity")
 
-    print("All R10 contracts passed.")
+    print("All R11 contracts passed.")
     return 0
 
 

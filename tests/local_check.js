@@ -72,6 +72,7 @@ const jsFiles = [
     'core/root/www/luci-static/resources/view/xray/core.js',
     'core/root/www/luci-static/resources/view/xray/logs.js',
     'core/root/www/luci-static/resources/view/xray/profiles.js',
+    'core/root/www/luci-static/resources/view/xray/update.js',
     'core/root/www/luci-static/resources/view/xray/preview.js',
     'core/root/www/luci-static/resources/view/xray/protocol.js',
     'core/root/www/luci-static/resources/view/xray/shared.js',

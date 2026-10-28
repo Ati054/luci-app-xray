@@ -56,6 +56,19 @@
             ]
         }
     },
+    "admin/services/xray_profiles/update": {
+        "title": "Обновление",
+        "order": 30,
+        "action": {
+            "type": "view",
+            "path": "xray/update"
+        },
+        "depends": {
+            "acl": [
+                "luci-app-xray"
+            ]
+        }
+    },
     "admin/services/xray_preview": {
         "title": "Xray (preview)",
         "action": {

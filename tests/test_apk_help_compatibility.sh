@@ -1,11 +1,11 @@
 #!/bin/sh
 set -eu
 
-echo "=== R10 apk help exit-status compatibility ==="
+echo "=== R11 apk help exit-status compatibility ==="
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
 ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
-INSTALLER="${ROOT_DIR}/install_and_smoke_r10.sh"
+INSTALLER="${ROOT_DIR}/install_and_smoke_r11.sh"
 MASTER_RUNNER="${ROOT_DIR}/tests/run_tests.sh"
 TMP_DIR="$(mktemp -d)"
 
@@ -30,40 +30,40 @@ mkdir -p "${BIN_DIR}"
 cat > "${BIN_DIR}/apk" <<'EOF'
 #!/bin/sh
 command_name="global"
-help_rc="${R10_FAKE_GLOBAL_HELP_RC:-0}"
+help_rc="${R11_FAKE_GLOBAL_HELP_RC:-0}"
 case "$*" in
     --version)
         printf '%s\n' 'apk-tools 3.0.5, compiled for aarch64.'
         exit 0
         ;;
     "--no-network --version")
-        if [ "${R10_FAKE_EMPTY_NO_NETWORK_PROBE:-0}" -ne 1 ]; then
-            printf '%s\n' "${R10_FAKE_NO_NETWORK_PROBE_OUTPUT:-apk-tools 3.0.5, compiled for aarch64.}"
+        if [ "${R11_FAKE_EMPTY_NO_NETWORK_PROBE:-0}" -ne 1 ]; then
+            printf '%s\n' "${R11_FAKE_NO_NETWORK_PROBE_OUTPUT:-apk-tools 3.0.5, compiled for aarch64.}"
         fi
-        exit "${R10_FAKE_NO_NETWORK_PROBE_RC:-0}"
+        exit "${R11_FAKE_NO_NETWORK_PROBE_RC:-0}"
         ;;
     --help)
         command_name="global"
-        help_rc="${R10_FAKE_GLOBAL_HELP_RC:-0}"
+        help_rc="${R11_FAKE_GLOBAL_HELP_RC:-0}"
         ;;
     "info --help")
         command_name="info"
-        help_rc="${R10_FAKE_INFO_HELP_RC:-0}"
+        help_rc="${R11_FAKE_INFO_HELP_RC:-0}"
         ;;
     "add --help")
         command_name="add"
-        help_rc="${R10_FAKE_ADD_HELP_RC:-0}"
+        help_rc="${R11_FAKE_ADD_HELP_RC:-0}"
         ;;
     "adbdump --help")
         command_name="adbdump"
-        help_rc="${R10_FAKE_ADBDUMP_HELP_RC:-0}"
+        help_rc="${R11_FAKE_ADBDUMP_HELP_RC:-0}"
         ;;
     "list --help")
         command_name="list"
-        help_rc="${R10_FAKE_LIST_HELP_RC:-0}"
+        help_rc="${R11_FAKE_LIST_HELP_RC:-0}"
         ;;
     add*|fix*|upgrade*|install*)
-        printf '%s\n' "$*" > "${R10_PACKAGE_MARKER}"
+        printf '%s\n' "$*" > "${R11_PACKAGE_MARKER}"
         exit 99
         ;;
     *)
@@ -72,7 +72,7 @@ case "$*" in
         ;;
 esac
 
-if [ "${R10_FAKE_EMPTY_HELP:-}" != "${command_name}" ]; then
+if [ "${R11_FAKE_EMPTY_HELP:-}" != "${command_name}" ]; then
     case "${command_name}" in
         global)
             printf '%s\n' 'apk-tools 3.0.5, compiled for aarch64.'
@@ -80,14 +80,14 @@ if [ "${R10_FAKE_EMPTY_HELP:-}" != "${command_name}" ]; then
             ;;
         info)
             printf '%s\n' 'Usage: apk info [<OPTIONS>]'
-            [ "${R10_FAKE_MISSING_CAPABILITY:-}" = "exists" ] || printf '%s\n' '  --exists'
+            [ "${R11_FAKE_MISSING_CAPABILITY:-}" = "exists" ] || printf '%s\n' '  --exists'
             ;;
         add)
             printf '%s\n' 'Usage: apk add [<OPTIONS>]'
-            [ "${R10_FAKE_MISSING_CAPABILITY:-}" = "simulate" ] || printf '%s\n' '  --simulate'
-            [ "${R10_FAKE_MISSING_CAPABILITY:-}" = "force-reinstall" ] || printf '%s\n' '  --force-reinstall'
-            if [ "${R10_FAKE_MISSING_CAPABILITY:-}" != "no-network" ]; then
-                case "${R10_FAKE_NETWORK_HELP_STYLE:-explicit}" in
+            [ "${R11_FAKE_MISSING_CAPABILITY:-}" = "simulate" ] || printf '%s\n' '  --simulate'
+            [ "${R11_FAKE_MISSING_CAPABILITY:-}" = "force-reinstall" ] || printf '%s\n' '  --force-reinstall'
+            if [ "${R11_FAKE_MISSING_CAPABILITY:-}" != "no-network" ]; then
+                case "${R11_FAKE_NETWORK_HELP_STYLE:-explicit}" in
                     explicit) printf '%s\n' '  --no-network' ;;
                     boolean) printf '%s\n' '  --network[=BOOL]' ;;
                     *) echo "invalid fake network help style" >&2; exit 97 ;;
@@ -96,11 +96,11 @@ if [ "${R10_FAKE_EMPTY_HELP:-}" != "${command_name}" ]; then
             ;;
         adbdump)
             printf '%s\n' 'Usage: apk adbdump [<OPTIONS>]'
-            [ "${R10_FAKE_MISSING_CAPABILITY:-}" = "format" ] || printf '%s\n' '  --format FORMAT'
+            [ "${R11_FAKE_MISSING_CAPABILITY:-}" = "format" ] || printf '%s\n' '  --format FORMAT'
             ;;
         list)
             printf '%s\n' 'Usage: apk list [<OPTIONS>]'
-            [ "${R10_FAKE_MISSING_CAPABILITY:-}" = "installed" ] || printf '%s\n' '  --installed'
+            [ "${R11_FAKE_MISSING_CAPABILITY:-}" = "installed" ] || printf '%s\n' '  --installed'
             ;;
     esac
 fi
@@ -132,8 +132,8 @@ EOF
 "${HOST_CHMOD}" 0755 "${LEGACY_HARNESS}"
 
 LEGACY_OUTPUT="${TMP_DIR}/legacy.out"
-if R10_FAKE_GLOBAL_HELP_RC=1 \
-    R10_PACKAGE_MARKER="${TMP_DIR}/legacy-package-operation" \
+if R11_FAKE_GLOBAL_HELP_RC=1 \
+    R11_PACKAGE_MARKER="${TMP_DIR}/legacy-package-operation" \
     PATH="${BIN_DIR}" \
     /bin/sh "${LEGACY_HARNESS}" > "${LEGACY_OUTPUT}" 2>&1; then
     echo "FAIL: legacy bare apk --help unexpectedly accepted status 1" >&2
@@ -156,12 +156,12 @@ grep -Fq 'sh "${SCRIPT_DIR}/test_apk_help_compatibility.sh"' "${MASTER_RUNNER}" 
 
 HELPERS="${TMP_DIR}/apk-help-helpers.sh"
 PREFLIGHT="${TMP_DIR}/apk-help-preflight.sh"
-sed -n '/^# BEGIN R10_APK_HELP_COMPATIBILITY_HELPERS$/,/^# END R10_APK_HELP_COMPATIBILITY_HELPERS$/p' \
+sed -n '/^# BEGIN R11_APK_HELP_COMPATIBILITY_HELPERS$/,/^# END R11_APK_HELP_COMPATIBILITY_HELPERS$/p' \
     "${INSTALLER}" > "${HELPERS}"
-sed -n '/^# BEGIN R10_APK_HELP_COMPATIBILITY_PREFLIGHT$/,/^# END R10_APK_HELP_COMPATIBILITY_PREFLIGHT$/p' \
+sed -n '/^# BEGIN R11_APK_HELP_COMPATIBILITY_PREFLIGHT$/,/^# END R11_APK_HELP_COMPATIBILITY_PREFLIGHT$/p' \
     "${INSTALLER}" > "${PREFLIGHT}"
 
-grep -q '^r10_capture_apk_help()' "${HELPERS}" && [ -s "${PREFLIGHT}" ] || {
+grep -q '^r11_capture_apk_help()' "${HELPERS}" && [ -s "${PREFLIGHT}" ] || {
     echo "FAIL: old installer has no status-1-safe apk help compatibility logic" >&2
     exit 1
 }
@@ -170,10 +170,10 @@ HARNESS="${TMP_DIR}/harness.sh"
 cat > "${HARNESS}" <<'EOF'
 #!/bin/sh
 set -eu
-. "${R10_HELPERS}"
-BACKUP_DIR="${R10_CASE_DIR}/preflight"
-. "${R10_PREFLIGHT}"
-[ ! -e "${R10_PACKAGE_MARKER}" ] || {
+. "${R11_HELPERS}"
+BACKUP_DIR="${R11_CASE_DIR}/preflight"
+. "${R11_PREFLIGHT}"
+[ ! -e "${R11_PACKAGE_MARKER}" ] || {
     echo "FAIL: package operation executed during apk capability preflight" >&2
     exit 1
 }
@@ -191,10 +191,10 @@ run_case() (
     for assignment in "$@"; do
         export "${assignment}"
     done
-    export R10_HELPERS="${HELPERS}"
-    export R10_PREFLIGHT="${PREFLIGHT}"
-    export R10_CASE_DIR="${case_dir}"
-    export R10_PACKAGE_MARKER="${case_dir}/package-operation"
+    export R11_HELPERS="${HELPERS}"
+    export R11_PREFLIGHT="${PREFLIGHT}"
+    export R11_CASE_DIR="${case_dir}"
+    export R11_PACKAGE_MARKER="${case_dir}/package-operation"
     export PATH="${BIN_DIR}"
     case_output="${case_dir}/output"
     if /bin/sh "${HARNESS}" > "${case_output}" 2>&1; then
@@ -212,73 +212,73 @@ run_case() (
         cat "${case_output}" >&2
         exit 1
     }
-    [ ! -e "${R10_PACKAGE_MARKER}" ] || {
+    [ ! -e "${R11_PACKAGE_MARKER}" ] || {
         echo "FAIL: ${case_name} executed a package operation" >&2
         exit 1
     }
 )
 
 run_case global_status_0 0 APK_HELP_PREFLIGHT_REACHED_END \
-    R10_FAKE_GLOBAL_HELP_RC=0
+    R11_FAKE_GLOBAL_HELP_RC=0
 echo "PASS: valid global help status 0 is accepted."
 
 run_case global_status_1 0 APK_HELP_PREFLIGHT_REACHED_END \
-    R10_FAKE_GLOBAL_HELP_RC=1
+    R11_FAKE_GLOBAL_HELP_RC=1
 echo "PASS: valid global help status 1 is accepted under set -e."
 
 run_case subcommand_status_1 0 APK_HELP_PREFLIGHT_REACHED_END \
-    R10_FAKE_INFO_HELP_RC=1 R10_FAKE_ADD_HELP_RC=1 \
-    R10_FAKE_ADBDUMP_HELP_RC=1 R10_FAKE_LIST_HELP_RC=1
+    R11_FAKE_INFO_HELP_RC=1 R11_FAKE_ADD_HELP_RC=1 \
+    R11_FAKE_ADBDUMP_HELP_RC=1 R11_FAKE_LIST_HELP_RC=1
 echo "PASS: valid subcommand help status 1 is accepted."
 
 run_case network_boolean_help 0 APK_HELP_PREFLIGHT_REACHED_END \
-    R10_FAKE_NETWORK_HELP_STYLE=boolean
+    R11_FAKE_NETWORK_HELP_STYLE=boolean
 echo "PASS: target apk --network[=BOOL] help is accepted when --no-network parses successfully."
 
 run_case no_network_probe_failure 1 'ERROR: target apk --no-network probe failed with exit 2' \
-    R10_FAKE_NETWORK_HELP_STYLE=boolean R10_FAKE_NO_NETWORK_PROBE_RC=2
+    R11_FAKE_NETWORK_HELP_STYLE=boolean R11_FAKE_NO_NETWORK_PROBE_RC=2
 echo "PASS: an unexpected --no-network parsing failure is rejected explicitly."
 
 run_case empty_no_network_probe 1 'ERROR: target apk --no-network probe produced no output' \
-    R10_FAKE_NETWORK_HELP_STYLE=boolean R10_FAKE_EMPTY_NO_NETWORK_PROBE=1
+    R11_FAKE_NETWORK_HELP_STYLE=boolean R11_FAKE_EMPTY_NO_NETWORK_PROBE=1
 echo "PASS: empty --no-network probe output is rejected."
 
 run_case invalid_no_network_probe 1 'ERROR: target apk --no-network probe output is invalid' \
-    R10_FAKE_NETWORK_HELP_STYLE=boolean R10_FAKE_NO_NETWORK_PROBE_OUTPUT='unexpected output'
+    R11_FAKE_NETWORK_HELP_STYLE=boolean R11_FAKE_NO_NETWORK_PROBE_OUTPUT='unexpected output'
 echo "PASS: invalid --no-network probe output is rejected."
 
 run_case unexpected_status_2 1 'ERROR: apk help command failed with exit 2: apk' \
-    R10_FAKE_GLOBAL_HELP_RC=2
+    R11_FAKE_GLOBAL_HELP_RC=2
 echo "PASS: unexpected help status 2 is rejected with an explicit diagnostic."
 
 run_case empty_help 1 'ERROR: apk help command produced no output: apk' \
-    R10_FAKE_GLOBAL_HELP_RC=1 R10_FAKE_EMPTY_HELP=global
+    R11_FAKE_GLOBAL_HELP_RC=1 R11_FAKE_EMPTY_HELP=global
 echo "PASS: empty help output is rejected."
 
 run_case missing_exists 1 'ERROR: target apk does not support apk info --exists' \
-    R10_FAKE_MISSING_CAPABILITY=exists
+    R11_FAKE_MISSING_CAPABILITY=exists
 echo "PASS: missing apk info --exists is rejected."
 
 run_case missing_simulate 1 'ERROR: target apk does not support --simulate' \
-    R10_FAKE_MISSING_CAPABILITY=simulate
+    R11_FAKE_MISSING_CAPABILITY=simulate
 echo "PASS: missing apk add --simulate is rejected."
 
 run_case missing_force_reinstall 1 'ERROR: target apk does not support --force-reinstall' \
-    R10_FAKE_MISSING_CAPABILITY=force-reinstall
+    R11_FAKE_MISSING_CAPABILITY=force-reinstall
 echo "PASS: missing apk add --force-reinstall is rejected."
 
 run_case missing_no_network 1 'ERROR: target apk does not support --no-network' \
-    R10_FAKE_MISSING_CAPABILITY=no-network
+    R11_FAKE_MISSING_CAPABILITY=no-network
 echo "PASS: missing apk add --no-network is rejected."
 
 run_case missing_format 1 'ERROR: target apk adbdump lacks JSON format support' \
-    R10_FAKE_MISSING_CAPABILITY=format
+    R11_FAKE_MISSING_CAPABILITY=format
 echo "PASS: missing apk adbdump --format is rejected."
 
 run_case missing_installed 1 'ERROR: target apk list lacks --installed' \
-    R10_FAKE_MISSING_CAPABILITY=installed
+    R11_FAKE_MISSING_CAPABILITY=installed
 echo "PASS: missing apk list --installed is rejected."
 
 echo "PASS: no package add, fix, upgrade, or install operation ran during any preflight case."
-echo "R10_APK_NETWORK_BOOLEAN_HELP_OK"
-echo "R10_APK_HELP_COMPATIBILITY_OK"
+echo "R11_APK_NETWORK_BOOLEAN_HELP_OK"
+echo "R11_APK_HELP_COMPATIBILITY_OK"

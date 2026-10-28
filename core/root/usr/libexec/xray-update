@@ -1,0 +1,327 @@
+#!/bin/sh
+# Signed, RAM-staged GitHub updater for the complete Raspberry Pi R11 bundle.
+set -eu
+
+PACKAGE=luci-app-xray
+REPOSITORY=Ati054/luci-app-xray
+TARGET_ARCH=aarch64_cortex-a53
+TARGET_OPENWRT=25.12.5
+STATE=/var/run/xray-update
+BUSY=${STATE}/busy
+PHASE=${STATE}/phase
+REMOTE_PHASE=${STATE}/remote-phase
+RUNNER=/tmp/.xray-update-runner
+CANDIDATE=/tmp/.xray-update-bundle.tar.gz
+EXTRACTED=/tmp/xray-r11-update-bundle
+PUBLIC_KEY=/usr/share/xray/update-keys/release-rsa.pem
+MANIFEST_URL=https://github.com/${REPOSITORY}/releases/latest/download/release.json
+SIGNATURE_URL=https://github.com/${REPOSITORY}/releases/latest/download/release.json.sig
+MAX_MANIFEST=16384
+MAX_SIGNATURE=1024
+MAX_BUNDLE=134217728
+CHECK_TTL=900
+
+die() { echo "$*" >&2; exit 1; }
+note() { logger -t xray-update "$*" 2>/dev/null || :; }
+write_phase() { printf '%s\n' "$1" > "${PHASE}"; note "$1"; }
+last_error() { tail -n 20 "$1" 2>/dev/null | sed '/^[[:space:]]*$/d' | tail -n 1 | cut -c 1-240; }
+
+installed_field() {
+	apk query --fields name,version,arch --format json --installed "${PACKAGE}" 2>/dev/null |
+		sed -n "s/^[[:space:]]*\"$1\": \"\([^\"]*\)\".*/\1/p" | head -n 1
+}
+
+xray_version() {
+	/opt/xray/current/xray version 2>/dev/null |
+		sed -n '1s/^Xray \([0-9][0-9.]*\).*/\1/p'
+}
+
+fetch_bounded() {
+	url=$1
+	destination=$2
+	limit=$3
+	temporary="${destination}.part.$$"
+	rm -f "${temporary}"
+	if command -v uclient-fetch >/dev/null 2>&1; then
+		fetch_bin=uclient-fetch
+	else
+		fetch_bin=wget
+	fi
+	timeout 120 "${fetch_bin}" -q -O "${temporary}" "${url}" || {
+		rm -f "${temporary}"
+		die "Не удалось скачать данные GitHub; проверьте Интернет и время на роутере"
+	}
+	[ -f "${temporary}" ] && [ ! -L "${temporary}" ] || die "GitHub не вернул обычный файл"
+	size=$(wc -c < "${temporary}")
+	case "${size}" in ''|*[!0-9]*) rm -f "${temporary}"; die "Не удалось проверить размер загрузки";; esac
+	[ "${size}" -gt 0 ] && [ "${size}" -le "${limit}" ] || {
+		rm -f "${temporary}"
+		die "Ответ GitHub превышает допустимый размер"
+	}
+	mv -f "${temporary}" "${destination}"
+}
+
+json_field() {
+	jsonfilter -i "$1" -e "$2" 2>/dev/null | head -n 1
+}
+
+validate_remote_release() {
+	mkdir -p "${STATE}"
+	chmod 0700 "${STATE}"
+	manifest="${STATE}/release.download.json"
+	signature="${STATE}/release.download.sig"
+	fetch_bounded "${MANIFEST_URL}" "${manifest}" "${MAX_MANIFEST}"
+	fetch_bounded "${SIGNATURE_URL}" "${signature}" "${MAX_SIGNATURE}"
+	openssl dgst -sha256 -verify "${PUBLIC_KEY}" -signature "${signature}" "${manifest}" >/dev/null 2>&1 ||
+		die "Подпись release.json недействительна"
+
+	schema=$(json_field "${manifest}" '@.schema')
+	remote_version=$(json_field "${manifest}" '@.version')
+	remote_tag=$(json_field "${manifest}" '@.tag')
+	remote_xray=$(json_field "${manifest}" '@.xray_version')
+	asset_arch=$(json_field "${manifest}" '@.asset.arch')
+	asset_name=$(json_field "${manifest}" '@.asset.name')
+	asset_size=$(json_field "${manifest}" '@.asset.size')
+	asset_sha256=$(json_field "${manifest}" '@.asset.sha256')
+	asset_installer=$(json_field "${manifest}" '@.installer')
+	asset_success_marker=$(json_field "${manifest}" '@.success_marker')
+
+	[ "${schema}" = 1 ] || die "Неподдерживаемая схема release.json"
+	printf '%s' "${remote_version}" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+-r[1-9][0-9]*$' || die "Некорректная версия релиза"
+	[ "${remote_tag}" = "v${remote_version}" ] || die "Тег релиза не соответствует версии"
+	printf '%s' "${remote_xray}" | grep -Eq '^[0-9]+(\.[0-9]+){2}$' || die "Некорректная версия Xray в релизе"
+	[ "${asset_arch}" = "${TARGET_ARCH}" ] || die "Релиз собран для другой архитектуры"
+	expected_name="luci-app-xray-${remote_version}-openwrt-${TARGET_OPENWRT}-${TARGET_ARCH}.tar.gz"
+	[ "${asset_name}" = "${expected_name}" ] || die "Некорректное имя архива релиза"
+	release_number=${remote_version##*-r}
+	[ "${asset_installer}" = "install_and_smoke_r${release_number}.sh" ] || die "Некорректное имя установщика релиза"
+	[ "${asset_success_marker}" = "R${release_number}_INSTALL_AND_HARDWARE_SMOKE_OK" ] || die "Некорректный контрольный маркер релиза"
+	printf '%s' "${asset_size}" | grep -Eq '^[0-9]+$' || die "Некорректный размер архива релиза"
+	[ "${asset_size}" -gt 0 ] && [ "${asset_size}" -le "${MAX_BUNDLE}" ] || die "Размер архива релиза вне допустимых границ"
+	printf '%s' "${asset_sha256}" | grep -Eq '^[0-9a-f]{64}$' || die "Некорректный SHA-256 архива релиза"
+
+	installed_version=$(installed_field version)
+	installed_arch=$(installed_field arch)
+	[ -n "${installed_version}" ] || die "Не удалось определить установленную версию пакета"
+	[ "${installed_arch}" = "${TARGET_ARCH}" ] || die "Установленный пакет имеет неподдерживаемую архитектуру"
+	comparison=$(apk version -t "${remote_version}" "${installed_version}" 2>/dev/null) || die "Не удалось сравнить версии пакета"
+	case "${comparison}" in
+		'>') available=yes;;
+		'='|'<') available=no;;
+		*) die "apk вернул неизвестный результат сравнения версий";;
+	esac
+
+	checked_at=$(date +%s)
+	case "${checked_at}" in ''|*[!0-9]*) die "Системное время недоступно";; esac
+	printf '%s\n' "${remote_version}" > "${STATE}/available-version"
+	printf '%s\n' "${remote_tag}" > "${STATE}/available-tag"
+	printf '%s\n' "${remote_xray}" > "${STATE}/available-xray"
+	printf '%s\n' "${asset_name}" > "${STATE}/asset-name"
+	printf '%s\n' "${asset_size}" > "${STATE}/asset-size"
+	printf '%s\n' "${asset_sha256}" > "${STATE}/asset-sha256"
+	printf '%s\n' "${asset_installer}" > "${STATE}/asset-installer"
+	printf '%s\n' "${asset_success_marker}" > "${STATE}/asset-success-marker"
+	printf '%s\n' "${available}" > "${STATE}/available"
+	printf '%s\n' "${checked_at}" > "${STATE}/checked-at"
+	mv -f "${manifest}" "${STATE}/release.json"
+	rm -f "${signature}"
+}
+
+check_fresh_offer() {
+	for field in available-version available-tag available-xray asset-name asset-size asset-sha256 asset-installer asset-success-marker available checked-at release.json; do
+		[ -s "${STATE}/${field}" ] || die "Сначала выполните проверку обновлений"
+	done
+	[ "$(cat "${STATE}/available")" = yes ] || die "Более новой версии нет"
+	now=$(date +%s)
+	checked_at=$(cat "${STATE}/checked-at")
+	case "${now}:${checked_at}" in *[!0-9:]*) die "Время проверки обновления повреждено";; esac
+	[ "$((now - checked_at))" -ge 0 ] && [ "$((now - checked_at))" -le "${CHECK_TTL}" ] ||
+		die "Проверка устарела; проверьте обновления ещё раз"
+}
+
+check_tmp_space() {
+	asset_size=$1
+	available_kib=$(df -Pk /tmp | awk 'NR == 2 { print $4 }')
+	case "${available_kib}" in ''|*[!0-9]*) die "Не удалось проверить свободную RAM";; esac
+	required_kib=$((asset_size / 1024 * 3 + 65536))
+	[ "${available_kib}" -ge "${required_kib}" ] || die "Недостаточно свободной RAM для безопасного обновления"
+}
+
+check_archive_paths() {
+	tar -tzf "$1" > "${STATE}/archive-files" || die "Архив обновления повреждён"
+	[ -s "${STATE}/archive-files" ] || die "Архив обновления пуст"
+	awk '
+		/^\// || /(^|\/)\.\.($|\/)/ || /\// || /[[:cntrl:]]/ { bad=1 }
+		END { exit bad }
+	' "${STATE}/archive-files" || die "Архив обновления содержит небезопасные пути"
+	[ "$(sort -u "${STATE}/archive-files" | wc -l)" -eq "$(wc -l < "${STATE}/archive-files")" ] ||
+		die "Архив обновления содержит повторяющиеся пути"
+}
+
+finish_install_worker() {
+	rc=$?
+	trap - EXIT HUP INT TERM
+	[ "${rc}" -eq 0 ] || { echo failed > "${REMOTE_PHASE}"; write_phase failed; }
+	rm -f "${BUSY}" "${RUNNER}" "${STATE}/worker.pid" "${CANDIDATE}"
+	rm -rf "${EXTRACTED}"
+	exit "${rc}"
+}
+
+install_worker() {
+	trap finish_install_worker EXIT
+	trap 'exit 130' HUP INT TERM
+	check_fresh_offer
+	old_version=$(cat "${STATE}/available-version")
+	old_tag=$(cat "${STATE}/available-tag")
+	old_name=$(cat "${STATE}/asset-name")
+	old_size=$(cat "${STATE}/asset-size")
+	old_hash=$(cat "${STATE}/asset-sha256")
+	old_installer=$(cat "${STATE}/asset-installer")
+	old_success_marker=$(cat "${STATE}/asset-success-marker")
+
+	write_phase verifying
+	validate_remote_release
+	[ "$(cat "${STATE}/available-version")" = "${old_version}" ] &&
+	[ "$(cat "${STATE}/available-tag")" = "${old_tag}" ] &&
+	[ "$(cat "${STATE}/asset-name")" = "${old_name}" ] &&
+	[ "$(cat "${STATE}/asset-size")" = "${old_size}" ] &&
+	[ "$(cat "${STATE}/asset-sha256")" = "${old_hash}" ] &&
+	[ "$(cat "${STATE}/asset-installer")" = "${old_installer}" ] &&
+	[ "$(cat "${STATE}/asset-success-marker")" = "${old_success_marker}" ] || die "Релиз изменился после проверки; повторите проверку"
+	check_tmp_space "${old_size}"
+
+	echo downloading > "${REMOTE_PHASE}"
+	write_phase downloading
+	asset_url="https://github.com/${REPOSITORY}/releases/download/${old_tag}/${old_name}"
+	fetch_bounded "${asset_url}" "${CANDIDATE}" "${MAX_BUNDLE}"
+	[ "$(wc -c < "${CANDIDATE}")" = "${old_size}" ] || die "Размер загруженного архива не совпадает с release.json"
+	[ "$(sha256sum "${CANDIDATE}" | awk '{print $1}')" = "${old_hash}" ] || die "SHA-256 загруженного архива не совпадает с release.json"
+
+	write_phase extracting
+	check_archive_paths "${CANDIDATE}"
+	rm -rf "${EXTRACTED}"
+	mkdir -m 0700 "${EXTRACTED}"
+	tar -xzf "${CANDIDATE}" -C "${EXTRACTED}" || die "Не удалось распаковать обновление"
+	[ -z "$(find "${EXTRACTED}" -mindepth 1 -type l -print -quit)" ] || die "В архиве обновления запрещены символьные ссылки"
+	[ -z "$(find "${EXTRACTED}" -mindepth 2 -print -quit)" ] || die "Архив обновления должен быть плоским"
+	release_number=${old_version##*-r}
+	checksum_file="SHA256SUMS-R${release_number}.txt"
+	[ -f "${EXTRACTED}/${old_installer}" ] && [ ! -L "${EXTRACTED}/${old_installer}" ] ||
+		die "В архиве отсутствует заявленный установщик"
+	[ -f "${EXTRACTED}/${checksum_file}" ] || die "В архиве отсутствует полный список SHA-256"
+	chmod 0700 "${EXTRACTED}/${old_installer}"
+
+	echo installing > "${REMOTE_PHASE}"
+	write_phase installing
+	if (cd "${EXTRACTED}" && sh "./${old_installer}") > "${STATE}/install.log" 2>&1; then
+		grep -Fxq "${old_success_marker}" "${STATE}/install.log" || die "Установщик завершился без контрольного маркера релиза"
+	else
+		die "Установка R11 завершилась ошибкой: $(last_error "${STATE}/install.log")"
+	fi
+	echo completed > "${REMOTE_PHASE}"
+	write_phase completed
+}
+
+finish_check_worker() {
+	rc=$?
+	trap - EXIT HUP INT TERM
+	[ "${rc}" -eq 0 ] || echo failed > "${REMOTE_PHASE}"
+	rm -f "${BUSY}" "${RUNNER}" "${STATE}/worker.pid"
+	exit "${rc}"
+}
+
+check_worker() {
+	trap finish_check_worker EXIT
+	trap 'exit 130' HUP INT TERM
+	if validate_remote_release > "${STATE}/remote.log" 2>&1; then
+		echo checked > "${REMOTE_PHASE}"
+		write_phase idle
+	else
+		rc=$?
+		echo failed > "${REMOTE_PHASE}"
+		write_phase failed
+		exit "${rc}"
+	fi
+}
+
+status() {
+	if [ -f "${BUSY}" ] && [ -s "${STATE}/worker.pid" ]; then
+		worker_pid=$(cat "${STATE}/worker.pid" 2>/dev/null || echo 0)
+		case "${worker_pid}" in ''|*[!0-9]*) worker_pid=0;; esac
+		if [ "${worker_pid}" -le 1 ] || ! kill -0 "${worker_pid}" 2>/dev/null; then
+			echo 'Процесс обновления неожиданно завершился' > "${STATE}/remote.log"
+			echo failed > "${REMOTE_PHASE}"
+			write_phase failed
+			rm -f "${BUSY}" "${STATE}/worker.pid"
+		fi
+	fi
+	if [ -f "${BUSY}" ]; then
+		installed_version=$(cat "${STATE}/installed-version" 2>/dev/null || echo '')
+		installed_xray=$(cat "${STATE}/installed-xray" 2>/dev/null || echo '')
+	else
+		installed_version=$(installed_field version)
+		installed_xray=$(xray_version)
+		mkdir -p "${STATE}"; chmod 0700 "${STATE}"
+		printf '%s\n' "${installed_version}" > "${STATE}/installed-version"
+		printf '%s\n' "${installed_xray}" > "${STATE}/installed-xray"
+	fi
+	printf 'version=%s\n' "${installed_version}"
+	printf 'xray_version=%s\n' "${installed_xray}"
+	printf 'phase=%s\n' "$(cat "${PHASE}" 2>/dev/null || echo idle)"
+	[ -f "${BUSY}" ] && echo busy=yes || echo busy=no
+	printf 'remote_phase=%s\n' "$(cat "${REMOTE_PHASE}" 2>/dev/null || echo idle)"
+	if [ -s "${STATE}/available-version" ]; then
+		printf 'available_version=%s\n' "$(cat "${STATE}/available-version")"
+		printf 'available_tag=%s\n' "$(cat "${STATE}/available-tag")"
+		printf 'available_xray=%s\n' "$(cat "${STATE}/available-xray")"
+		printf 'available=%s\n' "$(cat "${STATE}/available")"
+	fi
+	if [ "$(cat "${PHASE}" 2>/dev/null || echo idle)" = failed ]; then
+		error_text=$(last_error "${STATE}/worker.log")
+		[ -n "${error_text}" ] || error_text=$(last_error "${STATE}/install.log")
+		[ -n "${error_text}" ] || error_text=$(last_error "${STATE}/remote.log")
+		printf 'error=%s\n' "${error_text}"
+	elif [ "$(cat "${REMOTE_PHASE}" 2>/dev/null || echo idle)" = failed ]; then
+		printf 'error=%s\n' "$(last_error "${STATE}/remote.log")"
+	fi
+}
+
+start_async() {
+	action=$1
+	umask 077
+	mkdir -p "${STATE}"
+	chmod 0700 "${STATE}"
+	( set -C; : > "${BUSY}" ) 2>/dev/null || die "Другое обновление уже выполняется"
+	trap 'rm -f "${BUSY}" "${RUNNER}"' EXIT
+	printf '%s\n' "$(installed_field version)" > "${STATE}/installed-version"
+	printf '%s\n' "$(xray_version)" > "${STATE}/installed-xray"
+	cp /usr/libexec/xray-update "${RUNNER}"
+	chmod 0700 "${RUNNER}"
+	case "${action}" in
+		check)
+			: > "${STATE}/remote.log"
+			echo checking > "${REMOTE_PHASE}"
+			write_phase checking
+			/bin/sh "${RUNNER}" check-worker </dev/null > "${STATE}/worker.log" 2>&1 &
+			;;
+		github-start)
+			check_fresh_offer
+			: > "${STATE}/install.log"
+			echo preparing > "${REMOTE_PHASE}"
+			write_phase preparing
+			/bin/sh "${RUNNER}" install-worker </dev/null > "${STATE}/worker.log" 2>&1 &
+			;;
+	esac
+	printf '%s\n' "$!" > "${STATE}/worker.pid"
+	trap - EXIT
+	echo started=pending
+}
+
+case "${1:-}" in
+	status) status;;
+	check) start_async check;;
+	github-start) start_async github-start;;
+	check-worker) [ -f "${BUSY}" ] || die "Нет активной проверки"; check_worker;;
+	install-worker) [ -f "${BUSY}" ] || die "Нет активной установки"; install_worker;;
+	*) die "Usage: xray-update {status|check|github-start}";;
+esac

@@ -2,9 +2,23 @@
     "luci-app-xray": {
         "description": "Grant access to xray configurations",
         "read": {
+            "cgi-io": [
+                "exec"
+            ],
             "uci": [
                 "xray_core"
             ],
+            "file": {
+                "/usr/libexec/xray-update status": [
+                    "exec"
+                ],
+                "/usr/share/xray/*": [
+                    "read"
+                ],
+                "/opt/xray/current/*": [
+                    "read"
+                ]
+            },
             "ubus": {
                 "xray_profiles": [
                     "list",
@@ -15,13 +29,9 @@
                 "service": [
                     "list",
                     "status"
-                ]
-            },
-            "file": {
-                "/usr/share/xray/*": [
-                    "read"
                 ],
-                "/opt/xray/current/*": [
+                "file": [
+                    "exec",
                     "read"
                 ]
             }
@@ -30,6 +40,14 @@
             "uci": [
                 "xray_core"
             ],
+            "file": {
+                "/usr/libexec/xray-update check": [
+                    "exec"
+                ],
+                "/usr/libexec/xray-update github-start": [
+                    "exec"
+                ]
+            },
             "ubus": {
                 "xray_profiles": [
                     "import",
@@ -47,8 +65,14 @@
                 ],
                 "service": [
                     "delete"
+                ],
+                "file": [
+                    "exec"
                 ]
-            }
+            },
+            "cgi-io": [
+                "exec"
+            ]
         }
     }
 }

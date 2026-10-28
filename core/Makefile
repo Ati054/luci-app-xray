@@ -2,7 +2,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=luci-app-xray
 PKG_VERSION:=3.7.1
-PKG_RELEASE:=10
+PKG_RELEASE:=11
 PKGARCH:=$(ARCH_PACKAGES)
 
 PKG_LICENSE:=MPL-2.0
@@ -18,7 +18,7 @@ PKG_CONFIG_DEPENDS:= \
 
 LUCI_TITLE:=LuCI Xray client with modern VLESS Reverse
 LUCI_DESCRIPTION:=LuCI client for Xray with modern VLESS Reverse support and optional transparent proxy features.
-LUCI_DEPENDS:=+ucode +ucode-mod-uci +ucode-mod-fs +coreutils-base64 +ca-bundle +ip-full +ss +kmod-nft-tproxy +firewall4 +dnsmasq
+LUCI_DEPENDS:=+ucode +ucode-mod-uci +ucode-mod-fs +coreutils-base64 +coreutils-timeout +ca-bundle +uclient-fetch +openssl-util +ip-full +ss +kmod-nft-tproxy +firewall4 +dnsmasq
 LUCI_PKGARCH:=$(ARCH_PACKAGES)
 
 include $(INCLUDE_DIR)/package.mk
@@ -125,6 +125,7 @@ endif
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/core.js $(1)/www/luci-static/resources/view/xray/core.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/logs.js $(1)/www/luci-static/resources/view/xray/logs.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/profiles.js $(1)/www/luci-static/resources/view/xray/profiles.js
+	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/update.js $(1)/www/luci-static/resources/view/xray/update.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/preview.js $(1)/www/luci-static/resources/view/xray/preview.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/protocol.js $(1)/www/luci-static/resources/view/xray/protocol.js
 	$(INSTALL_DATA) ./root/www/luci-static/resources/view/xray/shared.js $(1)/www/luci-static/resources/view/xray/shared.js
@@ -133,6 +134,7 @@ endif
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/xray $(1)/usr/libexec/rpcd/xray
 	$(INSTALL_BIN) ./root/usr/libexec/rpcd/xray_profiles $(1)/usr/libexec/rpcd/xray_profiles
 	$(INSTALL_BIN) ./root/usr/libexec/xray-profile-watchdog $(1)/usr/libexec/xray-profile-watchdog
+	$(INSTALL_BIN) ./root/usr/libexec/xray-update $(1)/usr/libexec/xray-update
 	$(INSTALL_BIN) $(PKG_BUILD_DIR)/xray-sockstats $(1)/usr/libexec/xray-sockstats
 	$(INSTALL_DIR) $(1)/usr/share/luci/menu.d
 	$(INSTALL_DATA) ./root/usr/share/luci/menu.d/luci-app-xray.json $(1)/usr/share/luci/menu.d/luci-app-xray.json
@@ -142,6 +144,8 @@ endif
 	$(INSTALL_DATA) ./root/usr/share/rpcd/acl.d/luci-app-xray.json $(1)/usr/share/rpcd/acl.d/luci-app-xray.json
 	$(INSTALL_DIR) $(1)/usr/share/xray
 	$(LN) /opt/xray/current/xray $(1)/usr/share/xray/xray
+	$(INSTALL_DIR) $(1)/usr/share/xray/update-keys
+	$(INSTALL_DATA) ./root/usr/share/xray/update-keys/release-rsa.pem $(1)/usr/share/xray/update-keys/release-rsa.pem
 ifdef CONFIG_PACKAGE_XRAY_IGNORE_TP_SPEC_DEF_GW
 	$(INSTALL_DATA) ./root/usr/share/xray/ignore_tp_spec_def_gw $(1)/usr/share/xray/ignore_tp_spec_def_gw
 endif

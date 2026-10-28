@@ -6,7 +6,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "${SCRIPT_DIR}/checksum_lib.sh"
 
-XRAY_VERSION="${1:-v26.9.30}"
+XRAY_VERSION="${1:-v26.10.21}"
 DEST_DIR="${2:-/tmp/xray-bin}"
 XRAY_ZIP="${3:-Xray-linux-64.zip}"
 EXPECTED_VERSION="${XRAY_VERSION#v}"

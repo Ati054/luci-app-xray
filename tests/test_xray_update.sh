@@ -1,0 +1,45 @@
+#!/bin/sh
+set -eu
+
+SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)"
+ROOT_DIR="$(CDPATH= cd -- "${SCRIPT_DIR}/.." && pwd)"
+HELPER="${ROOT_DIR}/core/root/usr/libexec/xray-update"
+MENU="${ROOT_DIR}/core/root/usr/share/luci/menu.d/luci-app-xray.json"
+ACL="${ROOT_DIR}/core/root/usr/share/rpcd/acl.d/luci-app-xray.json"
+MAKEFILE="${ROOT_DIR}/core/Makefile"
+WORKFLOW="${ROOT_DIR}/.github/workflows/build-release.yml"
+
+sh -n "${HELPER}"
+grep -Fq 'REPOSITORY=Ati054/luci-app-xray' "${HELPER}"
+grep -Fq 'TARGET_ARCH=aarch64_cortex-a53' "${HELPER}"
+grep -Fq 'openssl dgst -sha256 -verify' "${HELPER}"
+grep -Fq 'CHECK_TTL=900' "${HELPER}"
+grep -Fq 'validate_remote_release' "${HELPER}"
+grep -Fq 'checksum_file="SHA256SUMS-R${release_number}.txt"' "${HELPER}"
+grep -Fq 'INSTALL_AND_HARDWARE_SMOKE_OK' "${HELPER}"
+grep -Fq 'asset-installer' "${HELPER}"
+grep -Fq 'asset-success-marker' "${HELPER}"
+grep -Fq 'STATE=/var/run/xray-update' "${HELPER}"
+grep -Fq 'CANDIDATE=/tmp/.xray-update-bundle.tar.gz' "${HELPER}"
+grep -Fq '/^\//' "${HELPER}"
+grep -Fq '/(^|\/)\.\.($|\/)/' "${HELPER}"
+grep -Fq '|| /\//' "${HELPER}"
+! grep -Fq 'api.github.com' "${HELPER}"
+! grep -Eq '(^|[[:space:]])apk[[:space:]]+update([[:space:]]|$)' "${HELPER}"
+! grep -Eq '(^|[[:space:]])(curl|scp|ssh)[[:space:]]' "${HELPER}"
+
+grep -Fq '"path": "xray/update"' "${MENU}"
+grep -Fq '"/usr/libexec/xray-update status"' "${ACL}"
+grep -Fq '"/usr/libexec/xray-update check"' "${ACL}"
+grep -Fq '"/usr/libexec/xray-update github-start"' "${ACL}"
+grep -Fq '+openssl-util' "${MAKEFILE}"
+grep -Fq '+uclient-fetch' "${MAKEFILE}"
+grep -Fq 'update-keys/release-rsa.pem' "${MAKEFILE}"
+
+grep -Fq 'XRAY_RELEASE_SIGNING_KEY_PEM' "${WORKFLOW}"
+grep -Fq 'openssl dgst -sha256 -sign' "${WORKFLOW}"
+grep -Fq 'openssl dgst -sha256 \' "${WORKFLOW}"
+grep -Fq 'luci-app-xray-3.7.1-r11-openwrt-25.12.5-aarch64_cortex-a53.tar.gz' "${WORKFLOW}"
+grep -Fq '"xray_version": "26.10.21"' "${WORKFLOW}"
+
+echo 'XRAY_SIGNED_GITHUB_UPDATE_OK'

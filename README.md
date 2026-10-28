@@ -44,19 +44,32 @@ Fork this repository and:
 
 Сборка GitHub Actions для `aarch64_cortex-a53` содержит пакеты, полный набор
 офлайн-зависимостей, официальный
-[Xray-core 26.9.30](https://github.com/XTLS/Xray-core/releases/tag/v26.9.30)
+[Xray-core 26.10.21](https://github.com/XTLS/Xray-core/releases/tag/v26.10.21)
 ARM64 и PowerShell-помощник.
 После загрузки и распаковки артефакта выполните из PowerShell:
 
 ```powershell
-.\deploy_r10_to_raspberry.ps1 -RaspberryIp 192.168.102.254
+.\deploy_r11_to_raspberry.ps1 -RaspberryIp 192.168.102.254
 ```
 
 Скрипт использует ключ `%USERPROFILE%\.ssh\id_ed25519_rpi_reverse`, строгую
 проверку `known_hosts`, передаёт bundle только в `/tmp`, проверяет SHA-256,
 делает backup конфигов и активных профилей, атомарно заменяет Xray и возвращает
 те же активные профили. Успех подтверждается строкой
-`R10_INSTALL_AND_HARDWARE_SMOKE_OK`. Сеть Raspberry для установки не нужна.
+`R11_INSTALL_AND_HARDWARE_SMOKE_OK`. Сеть Raspberry для установки не нужна.
+
+После первой ручной установки R11 последующие релизы можно ставить прямо в
+LuCI: **Сервисы → Xray Reverse → Обновление**. Кнопка **Проверить обновления**
+читает подписанный манифест последнего GitHub Release. Кнопка **Скачать и
+установить** появляется только для более новой версии. Архив загружается в RAM,
+а перед изменением системы повторно проверяются подпись, архитектура, размер и
+SHA-256. Установщик сохраняет конфиги и восстанавливает ровно те профили,
+которые были активны до обновления.
+
+Публикация обновления защищена тем же RSA-ключом, что и проект
+`sb-gateway-openwrt`: в GitHub Actions должен быть настроен секрет
+`XRAY_RELEASE_SIGNING_KEY_PEM`, соответствующий публичному ключу внутри пакета.
+Неподписанные релизы интерфейс установки не принимает.
 
 Вкладка **Сервисы → Xray Reverse — Журнал** показывает только относящиеся к
 Xray записи из RAM-ring OpenWrt `logd`. Backend отдаёт не более 500 строк,
@@ -73,10 +86,11 @@ Some features are deprecated / unstable so they are placed in preview app. To en
 
 ## Changelog since 3.7.0
 
-* 2026-10-12 feat: verified Xray-core 26.9.30 ARM64 offline update and bounded RAM-only LuCI diagnostics log
+* 2026-10-28 feat: Xray-core 26.10.21 and signed one-click GitHub Release updates with RAM-only staging and active-profile restoration
+* 2026-10-12 feat: bounded RAM-only LuCI diagnostics log
 * 2026-09-07 fix: connection-aware per-profile recovery waits out long server outages, performs one targeted restart when the peer returns, and suppresses restart storms
-* 2026-09-01 feat: R10 compact profile controls and live per-profile RX/TX rate, transferred totals, TCP RTT, and process uptime
-* 2026-09-01 build: R10 offline OpenWrt 25.12.5 bundle includes the exact `ss` / `kmod-netlink-diag` dependency pair for Raspberry Pi 3 aarch64
+* 2026-09-01 feat: R11 compact profile controls and live per-profile RX/TX rate, transferred totals, TCP RTT, and process uptime
+* 2026-09-01 build: R11 offline OpenWrt 25.12.5 bundle includes the exact `ss` / `kmod-netlink-diag` dependency pair for Raspberry Pi 3 aarch64
 * 2026-01-14 chore: bump version
 * 2026-01-26 fix: typos and hysteria version check
 

@@ -89,11 +89,13 @@ case "$(basename "${PACKAGE}")" in
             usr/libexec/rpcd/xray
             usr/libexec/rpcd/xray_profiles
             usr/libexec/xray-profile-watchdog
+            usr/libexec/xray-update
             usr/libexec/xray-sockstats
             usr/share/luci/menu.d/luci-app-xray.json
             usr/share/rpcd/acl.d/luci-app-xray.json
             usr/share/xray/gen_config.uc
             usr/share/xray/gen_config.mjs
+            usr/share/xray/update-keys/release-rsa.pem
             usr/share/xray/common/config.mjs
             usr/share/xray/common/stream.mjs
             usr/share/xray/common/tls.mjs
@@ -114,6 +116,7 @@ case "$(basename "${PACKAGE}")" in
             www/luci-static/resources/view/xray/core.js
             www/luci-static/resources/view/xray/logs.js
             www/luci-static/resources/view/xray/profiles.js
+            www/luci-static/resources/view/xray/update.js
         "
         ;;
 esac
@@ -134,6 +137,7 @@ case "$(basename "${PACKAGE}")" in
             usr/libexec/rpcd/xray \
             usr/libexec/rpcd/xray_profiles \
             usr/libexec/xray-profile-watchdog \
+            usr/libexec/xray-update \
             usr/libexec/xray-sockstats \
             usr/share/xray/gen_config.uc \
             usr/share/xray/default_gateway.uc \

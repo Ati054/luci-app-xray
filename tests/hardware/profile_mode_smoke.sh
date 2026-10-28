@@ -57,28 +57,28 @@ require_command() {
     }
 }
 
-# BEGIN R10_TARGET_PORTABILITY_HELPERS
-r10_permission_field() {
-    r10_mode_listing="$(LC_ALL=C ls -ld "$1")" || return 1
-    r10_mode_field="${r10_mode_listing%% *}"
-    [ -n "${r10_mode_field}" ] || return 1
-    printf '%s\n' "${r10_mode_field}"
+# BEGIN R11_TARGET_PORTABILITY_HELPERS
+r11_permission_field() {
+    r11_mode_listing="$(LC_ALL=C ls -ld "$1")" || return 1
+    r11_mode_field="${r11_mode_listing%% *}"
+    [ -n "${r11_mode_field}" ] || return 1
+    printf '%s\n' "${r11_mode_field}"
 }
 
-r10_exact_private_directory() {
-    r10_mode_path="$1"
-    [ -d "${r10_mode_path}" ] && [ ! -L "${r10_mode_path}" ] || return 1
-    r10_verified_mode="$(r10_permission_field "${r10_mode_path}")" || return 1
-    [ -d "${r10_mode_path}" ] && [ ! -L "${r10_mode_path}" ] && [ "${r10_verified_mode}" = "drwx------" ]
+r11_exact_private_directory() {
+    r11_mode_path="$1"
+    [ -d "${r11_mode_path}" ] && [ ! -L "${r11_mode_path}" ] || return 1
+    r11_verified_mode="$(r11_permission_field "${r11_mode_path}")" || return 1
+    [ -d "${r11_mode_path}" ] && [ ! -L "${r11_mode_path}" ] && [ "${r11_verified_mode}" = "drwx------" ]
 }
 
-r10_exact_private_regular_file() {
-    r10_mode_path="$1"
-    [ -f "${r10_mode_path}" ] && [ ! -L "${r10_mode_path}" ] || return 1
-    r10_verified_mode="$(r10_permission_field "${r10_mode_path}")" || return 1
-    [ -f "${r10_mode_path}" ] && [ ! -L "${r10_mode_path}" ] && [ "${r10_verified_mode}" = "-rw-------" ]
+r11_exact_private_regular_file() {
+    r11_mode_path="$1"
+    [ -f "${r11_mode_path}" ] && [ ! -L "${r11_mode_path}" ] || return 1
+    r11_verified_mode="$(r11_permission_field "${r11_mode_path}")" || return 1
+    [ -f "${r11_mode_path}" ] && [ ! -L "${r11_mode_path}" ] && [ "${r11_verified_mode}" = "-rw-------" ]
 }
-# END R10_TARGET_PORTABILITY_HELPERS
+# END R11_TARGET_PORTABILITY_HELPERS
 
 for command_name in awk cat find grep ip jsonfilter ls mktemp nft sed sha256sum sort ss timeout tr ubus uci; do
     require_command "${command_name}"
@@ -103,9 +103,9 @@ OPENWRT_RELEASE="$(sed -n "s/^DISTRIB_RELEASE=['\"]\([^'\"]*\)['\"]$/\1/p" /etc/
 }
 XRAY_VERSION_LINE="$(${XRAY_BIN} version 2>&1 | sed -n '1p')"
 case "${XRAY_VERSION_LINE}" in
-    "Xray 26.9.30"*) ;;
+    "Xray 26.10.21"*) ;;
     *)
-        echo "ERROR: expected Xray 26.9.30, found ${XRAY_VERSION_LINE:-unknown}" >&2
+        echo "ERROR: expected Xray 26.10.21, found ${XRAY_VERSION_LINE:-unknown}" >&2
         exit 1
         ;;
 esac
@@ -120,7 +120,7 @@ for service_script in /etc/init.d/xray_core /etc/init.d/xray_profiles; do
     }
 done
 
-TMP_DIR="$(mktemp -d /tmp/xray-r10-smoke.XXXXXX)"
+TMP_DIR="$(mktemp -d /tmp/xray-r11-smoke.XXXXXX)"
 chmod 0700 "${TMP_DIR}"
 IMPORTED_A=0
 IMPORTED_B=0
@@ -328,12 +328,12 @@ IMPORT_B_RESULT="$(backend_call import "$(json_payload 'Smoke B' smoke-b.json "$
 }
 IMPORTED_B=1
 
-r10_exact_private_directory "${PROFILES_DIR}" || {
+r11_exact_private_directory "${PROFILES_DIR}" || {
     echo "ERROR: profile directory mode is not 0700" >&2
     exit 1
 }
 for profile_file in "${PROFILES_DIR}/smoke-a.json" "${PROFILES_DIR}/smoke-b.json"; do
-    r10_exact_private_regular_file "${profile_file}" || {
+    r11_exact_private_regular_file "${profile_file}" || {
         echo "ERROR: profile file mode is not 0600: ${profile_file}" >&2
         exit 1
     }
