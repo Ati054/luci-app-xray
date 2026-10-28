@@ -33,10 +33,12 @@ struct inode_set {
 struct socket_totals {
 	uint64_t rx_bytes;
 	uint64_t tx_bytes;
+	uint64_t retrans_bytes;
 	uint64_t rtt_sum_us;
 	unsigned int connections;
 	unsigned int rtt_samples;
 	int counters_available;
+	int retrans_available;
 	int permission_denied;
 };
 
@@ -155,13 +157,21 @@ static int inspect_pid(pid_t pid, struct socket_totals *totals)
 		if (getsockopt(duplicate_fd, IPPROTO_TCP, TCP_INFO, &info, &info_len) == 0) {
 			totals->connections++;
 
-			if (info_len >= offsetof(struct tcp_info, tcpi_bytes_sent) +
-				       sizeof(info.tcpi_bytes_sent) &&
+			if (info_len >= offsetof(struct tcp_info, tcpi_bytes_acked) +
+				       sizeof(info.tcpi_bytes_acked) &&
 			    info_len >= offsetof(struct tcp_info, tcpi_bytes_received) +
 				       sizeof(info.tcpi_bytes_received)) {
 				totals->rx_bytes += info.tcpi_bytes_received;
-				totals->tx_bytes += info.tcpi_bytes_sent;
+				/* tcpi_bytes_sent includes retransmitted bytes and inflates
+				 * rates on unstable links. Pair received application octets
+				 * with application octets acknowledged by the peer. */
+				totals->tx_bytes += info.tcpi_bytes_acked;
 				totals->counters_available = 1;
+			}
+			if (info_len >= offsetof(struct tcp_info, tcpi_bytes_retrans) +
+				       sizeof(info.tcpi_bytes_retrans)) {
+				totals->retrans_bytes += info.tcpi_bytes_retrans;
+				totals->retrans_available = 1;
 			}
 
 			if (info_len >= offsetof(struct tcp_info, tcpi_rtt) +
@@ -202,6 +212,12 @@ static void print_result(pid_t pid, const struct socket_totals *totals,
 	       (totals->counters_available || totals->connections == 0) ? "true" : "false");
 	printf("\"rx_bytes\":%" PRIu64 ",\"tx_bytes\":%" PRIu64 ",",
 	       totals->rx_bytes, totals->tx_bytes);
+	printf("\"retrans_available\":%s,\"retrans_bytes\":",
+	       totals->retrans_available ? "true" : "false");
+	if (totals->retrans_available)
+		printf("%" PRIu64 ",", totals->retrans_bytes);
+	else
+		printf("null,");
 	if (totals->rtt_samples > 0) {
 		uint64_t average_us = totals->rtt_sum_us / totals->rtt_samples;
 		uint64_t average_ms = (average_us + 500U) / 1000U;

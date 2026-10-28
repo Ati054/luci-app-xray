@@ -109,7 +109,8 @@ const firstProfiles = [
         traffic: {
             available: true, bytes_available: true, rtt_available: true,
             sample_time: 100, connections: 2,
-            rx_bytes: 1000, tx_bytes: 2000, rtt_ms: 17, uptime_seconds: 3661
+            rx_bytes: 1000, tx_bytes: 2000, retrans_available: true, retrans_bytes: 100,
+            rtt_ms: 17, uptime_seconds: 3661
         }
     }
 ];
@@ -187,7 +188,8 @@ profileView.updateView({
             ...firstProfiles[1].traffic,
             sample_time: 105,
             rx_bytes: 201000,
-            tx_bytes: 102000
+            tx_bytes: 102000,
+            retrans_bytes: 1100
         }
     }],
     summary: {
@@ -207,6 +209,11 @@ assert(updatedText.includes('320 Kbps') && updatedText.includes('160 Kbps'),
     'poll delta is rendered as per-profile receive and transmit speed');
 assert(updatedText.includes('всего 196 KB') && updatedText.includes('всего 99.6 KB'),
     'traffic cells render adaptive per-profile byte totals');
+const updatedLink = descendants(tableContainer).find(value => hasClass(value, 'xray-link-cell') &&
+    String(value.attrs.title).includes('Повторные передачи TCP'));
+assert(updatedLink && String(updatedLink.attrs.title).includes('Повторные передачи TCP') &&
+    String(updatedLink.attrs.title).includes('1.6 Kbps'),
+    'connection tooltip exposes current TCP retransmission rate for channel diagnosis');
 
 assert(typeof pollCallback === 'function', 'view registers a polling callback');
 const firstPoll = pollCallback();

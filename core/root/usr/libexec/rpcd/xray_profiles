@@ -403,6 +403,8 @@ function empty_traffic_metrics(pid, reason) {
         connections: 0,
         rx_bytes: null,
         tx_bytes: null,
+        retrans_available: false,
+        retrans_bytes: null,
         rtt_ms: null,
         uptime_seconds: pid ? get_process_uptime(pid) : null
     };
@@ -449,6 +451,8 @@ function get_profile_traffic(profiles) {
                     metric.connections = int(supplied.connections || 0);
                     metric.rx_bytes = metric.bytes_available ? int(supplied.rx_bytes || 0) : null;
                     metric.tx_bytes = metric.bytes_available ? int(supplied.tx_bytes || 0) : null;
+                    metric.retrans_available = supplied.retrans_available === true;
+                    metric.retrans_bytes = metric.retrans_available ? int(supplied.retrans_bytes || 0) : null;
                     metric.rtt_ms = supplied.rtt_ms == null ? null : int(supplied.rtt_ms);
                     metric.uptime_seconds = supplied.uptime_seconds == null ? null : int(supplied.uptime_seconds);
                     metric.sample_time = int(supplied.sample_time || time());
@@ -485,6 +489,8 @@ function get_profile_traffic(profiles) {
                     metric.connections = int(supplied.connections || 0);
                     metric.rx_bytes = metric.bytes_available ? int(supplied.rx_bytes || 0) : null;
                     metric.tx_bytes = metric.bytes_available ? int(supplied.tx_bytes || 0) : null;
+                    metric.retrans_available = supplied.retrans_available === true;
+                    metric.retrans_bytes = metric.retrans_available ? int(supplied.retrans_bytes || 0) : null;
                     metric.rtt_ms = metric.rtt_available && supplied.rtt_ms != null ? int(supplied.rtt_ms) : null;
                 }
                 if (complete) return metrics;
@@ -529,12 +535,19 @@ function get_profile_traffic(profiles) {
 
         if (!selected_profile) continue;
         let rx_bytes = parse_ss_counter(line, "bytes_received:");
-        let tx_bytes = parse_ss_counter(line, "bytes_sent:");
+        // bytes_sent includes retransmissions; bytes_acked is useful payload
+        // confirmed by the peer and is comparable to bytes_received.
+        let tx_bytes = parse_ss_counter(line, "bytes_acked:");
+        let retrans_bytes = parse_ss_counter(line, "bytes_retrans:");
         let rtt_ms = parse_ss_counter(line, "rtt:");
         if (rx_bytes != null || tx_bytes != null) {
             metrics[selected_profile].rx_bytes = int(metrics[selected_profile].rx_bytes || 0) + int(rx_bytes || 0);
             metrics[selected_profile].tx_bytes = int(metrics[selected_profile].tx_bytes || 0) + int(tx_bytes || 0);
             counter_count[selected_profile] = (counter_count[selected_profile] || 0) + 1;
+        }
+        if (retrans_bytes != null) {
+            metrics[selected_profile].retrans_available = true;
+            metrics[selected_profile].retrans_bytes = int(metrics[selected_profile].retrans_bytes || 0) + int(retrans_bytes || 0);
         }
         if (rtt_ms != null) {
             rtt_sum[selected_profile] = (rtt_sum[selected_profile] || 0) + rtt_ms;

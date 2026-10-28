@@ -256,8 +256,9 @@ def main() -> int:
             "hardware smoke compares IPv6, nftables, and dnsmasq state")
     require("native TCP_INFO traffic metrics are unavailable" in hardware and
             "traffic.bytes_available" in hardware and "traffic.uptime_seconds" in hardware and
+            "traffic.retrans_available" in hardware and "traffic.retrans_bytes" in hardware and
             "protocol_stack" in hardware,
-            "hardware smoke verifies native per-profile metrics, protocol labels, and process uptime")
+            "hardware smoke verifies native per-profile metrics, retransmissions, protocol labels, and process uptime")
     require("xray_core.after.uci" in hardware and "enablement/running state was not restored" in hardware,
             "hardware smoke verifies exact UCI and service-state restoration")
     restore_services_body = hardware.split("restore_services() {", 1)[1].split("\n}", 1)[0]
@@ -302,6 +303,14 @@ def main() -> int:
     require("SYS_pidfd_open" in sockstats and "SYS_pidfd_getfd" in sockstats and
             "getsockopt(duplicate_fd, IPPROTO_TCP, TCP_INFO" in sockstats,
             "native collector reads TCP_INFO from existing process sockets")
+    require("info.tcpi_bytes_acked" in sockstats and
+            "info.tcpi_bytes_sent" not in sockstats and
+            "info.tcpi_bytes_retrans" in sockstats and
+            'parse_ss_counter(line, "bytes_acked:")' in backend and
+            'parse_ss_counter(line, "bytes_retrans:")' in backend and
+            'parse_ss_counter(line, "bytes_sent:")' not in backend and
+            "retransBps" in read("core/root/www/luci-static/resources/view/xray/profiles.js"),
+            "traffic rates exclude retransmits and expose retransmission diagnostics")
     require(not any(call in sockstats for call in ("bind(", "listen(", "connect(", "send(", "recv(")),
             "native collector cannot open listeners or generate probe traffic")
     require("sha256:" not in backend and "size: size" not in backend,

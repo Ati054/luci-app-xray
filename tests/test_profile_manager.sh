@@ -353,7 +353,7 @@ mkdir -p "${MOCK_ROOT}/usr/sbin"
 cat > "${MOCK_ROOT}/usr/sbin/ss" <<'EOF'
 #!/bin/sh
 cat <<'OUTPUT'
-ESTAB 0 0 192.0.2.2:443 192.0.2.10:30443 users:(("xray",pid=4242,fd=7)) cubic wscale:7,7 rto:220 rtt:12.7/2.1 bytes_sent:123456 bytes_acked:123000 bytes_received:654321
+ESTAB 0 0 192.0.2.2:443 192.0.2.10:30443 users:(("xray",pid=4242,fd=7)) cubic wscale:7,7 rto:220 rtt:12.7/2.1 bytes_sent:123456 bytes_acked:123000 bytes_retrans:456 bytes_received:654321
 ESTAB 0 0 192.0.2.2:444 192.0.2.11:30443 users:(("other",pid=9999,fd=8)) cubic wscale:7,7 rto:240 rtt:40.1/5.0 bytes_sent:999999 bytes_received:888888
 OUTPUT
 EOF
@@ -362,13 +362,14 @@ LIST_SS_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 
 assert_match '"connections"[[:space:]]*:[[:space:]]*1' "${LIST_SS_JSON}" "Test 19s: one-line ss parser selects only sockets owned by the exact profile PID"
 assert_match '"bytes_available"[[:space:]]*:[[:space:]]*true' "${LIST_SS_JSON}" "Test 19t: ss parser reports explicit byte-counter capability"
 assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*654321' "${LIST_SS_JSON}" "Test 19u: one-line ss parser reads bytes_received from TCP_INFO"
-assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*123456' "${LIST_SS_JSON}" "Test 19v: one-line ss parser reads bytes_sent from TCP_INFO"
+assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*123000' "${LIST_SS_JSON}" "Test 19v: one-line ss parser reports acknowledged payload rather than retransmission-inflated bytes_sent"
+assert_match '"retrans_bytes"[[:space:]]*:[[:space:]]*456' "${LIST_SS_JSON}" "Test 19va: ss fallback exposes retransmitted bytes for link diagnosis"
 assert_match '"rtt_ms"[[:space:]]*:[[:space:]]*12' "${LIST_SS_JSON}" "Test 19w: one-line ss parser reports integer TCP RTT milliseconds"
 
 mkdir -p "${MOCK_ROOT}/usr/libexec"
 cat > "${MOCK_ROOT}/usr/libexec/xray-sockstats" <<'EOF'
 #!/bin/sh
-printf '%s\n' '{"4242":{"available":true,"reason":null,"connections":3,"bytes_available":true,"rx_bytes":700000,"tx_bytes":800000,"rtt_available":true,"rtt_ms":9}}'
+printf '%s\n' '{"4242":{"available":true,"reason":null,"connections":3,"bytes_available":true,"rx_bytes":700000,"tx_bytes":800000,"retrans_available":true,"retrans_bytes":1200,"rtt_available":true,"rtt_ms":9}}'
 EOF
 chmod 0755 "${MOCK_ROOT}/usr/libexec/xray-sockstats"
 LIST_HELPER_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
@@ -376,6 +377,7 @@ assert_match '"source"[[:space:]]*:[[:space:]]*"pidfd_tcp_info"' "${LIST_HELPER_
 assert_match '"connections"[[:space:]]*:[[:space:]]*3' "${LIST_HELPER_JSON}" "Test 19y: native collector metrics are mapped to the exact profile PID"
 assert_match '"rx_bytes"[[:space:]]*:[[:space:]]*700000' "${LIST_HELPER_JSON}" "Test 19z: native collector receive bytes reach RPC output"
 assert_match '"tx_bytes"[[:space:]]*:[[:space:]]*800000' "${LIST_HELPER_JSON}" "Test 19aa: native collector transmit bytes reach RPC output"
+assert_match '"retrans_bytes"[[:space:]]*:[[:space:]]*1200' "${LIST_HELPER_JSON}" "Test 19ab: native collector retransmission diagnostics reach RPC output"
 cat > "${MOCK_ROOT}/usr/libexec/xray-sockstats" <<'EOF'
 #!/bin/sh
 printf '%s\n' '{"4242":{"available":true,"reason":null,"connections":0,"bytes_available":true,"rx_bytes":0,"tx_bytes":0,"rtt_available":false,"rtt_ms":null}}'
@@ -384,7 +386,7 @@ chmod 0755 "${MOCK_ROOT}/usr/libexec/xray-sockstats"
 LIST_CONNECTING_JSON="$("${RPCD_BACKEND}" --mock-dir "${MOCK_ROOT}" call list '{}' 2>&1 || true)"
 assert_match '"connection_state"[[:space:]]*:[[:space:]]*"connecting"' "${LIST_CONNECTING_JSON}" "Test 19aaa: live process without established TCP is reported as reconnecting"
 XRAY_VERSION_CALLS="$(cat "${MOCK_ROOT}/xray-version-count")"
-assert_equal "1" "${XRAY_VERSION_CALLS}" "Test 19ab: repeated polling executes the heavy Xray version probe only once per binary"
+assert_equal "1" "${XRAY_VERSION_CALLS}" "Test 19ac: repeated polling executes the heavy Xray version probe only once per binary"
 rm -f "${MOCK_ROOT}/instances.json" "${MOCK_ROOT}/usr/sbin/ss" "${MOCK_ROOT}/usr/libexec/xray-sockstats"
 
 # 20. Missing profile start/stop returns ok:false

@@ -207,7 +207,7 @@ return view.extend({
 
     getTrafficDisplay: function(p) {
         var traffic = p.traffic || {};
-        var display = { traffic: traffic, rxBps: null, txBps: null };
+        var display = { traffic: traffic, rxBps: null, txBps: null, retransBps: null };
 
         if (!p.running || !traffic.available || !traffic.bytes_available) {
             delete this.trafficSnapshots[p.id];
@@ -217,6 +217,8 @@ return view.extend({
         var now = Number(traffic.sample_time) || Date.now() / 1000;
         var rxBytes = Math.max(0, Number(traffic.rx_bytes) || 0);
         var txBytes = Math.max(0, Number(traffic.tx_bytes) || 0);
+        var retransBytes = traffic.retrans_available && traffic.retrans_bytes != null ?
+            Math.max(0, Number(traffic.retrans_bytes) || 0) : null;
         var previous = this.trafficSnapshots[p.id];
 
         if (previous && previous.pid === p.pid && now > previous.sampleTime &&
@@ -224,6 +226,8 @@ return view.extend({
             var elapsed = now - previous.sampleTime;
             display.rxBps = (rxBytes - previous.rxBytes) * 8 / elapsed;
             display.txBps = (txBytes - previous.txBytes) * 8 / elapsed;
+            if (retransBytes != null && previous.retransBytes != null && retransBytes >= previous.retransBytes)
+                display.retransBps = (retransBytes - previous.retransBytes) * 8 / elapsed;
         } else if ((Number(traffic.connections) || 0) === 0) {
             display.rxBps = 0;
             display.txBps = 0;
@@ -233,7 +237,8 @@ return view.extend({
             pid: p.pid,
             sampleTime: now,
             rxBytes: rxBytes,
-            txBytes: txBytes
+            txBytes: txBytes,
+            retransBytes: retransBytes
         };
         return display;
     },
@@ -502,6 +507,12 @@ return view.extend({
         var linkTitle = p.running ?
             _('RTT берётся из TCP_INFO активных соединений и не является ICMP ping. Uptime — время работы текущего процесса Xray.') :
             _('Профиль остановлен.');
+        if (p.running && traffic.retrans_available && traffic.retrans_bytes != null) {
+            linkTitle += ' ' + _('Повторные передачи TCP: %s, всего %s.').format(
+                trafficDisplay.retransBps == null ? '—' : this.formatBitRate(trafficDisplay.retransBps),
+                this.formatBytes(traffic.retrans_bytes)
+            );
+        }
         var linkCell = E('td', { 'class': 'td xray-link-cell', 'title': linkTitle }, [
             E('span', {}, _('RTT %s').format(
                 p.running && traffic.available && traffic.rtt_ms != null ?
